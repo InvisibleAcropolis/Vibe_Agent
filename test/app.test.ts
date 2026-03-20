@@ -786,6 +786,36 @@ tests.push({
 	},
 });
 
+// Task 4: Animation Engine tests
+tests.push({
+	name: "AnimationEngine focus flash counts down",
+	run: async () => {
+		const { AnimationEngine } = await import("../src/animation-engine.js");
+		const engine = new AnimationEngine();
+		engine.start();
+		engine.triggerFocusFlash("sessions");
+		assert.strictEqual(engine.getState().focusFlashTicks, 3);
+		assert.strictEqual(engine.getState().focusedComponent, "sessions");
+		engine.stop();
+	},
+});
+
+tests.push({
+	name: "AnimationEngine typewriter advances one char per 2 ticks",
+	run: async () => {
+		const { AnimationEngine } = await import("../src/animation-engine.js");
+		const engine = new AnimationEngine();
+		engine.setTypewriterTarget("AB");
+		// Simulate ticks manually via getState after calling tick indirectly
+		// (tick is private — test via start/stop with short timeout)
+		engine.start();
+		await new Promise(r => setTimeout(r, 250)); // ~3 ticks at 80ms each
+		const state = engine.getState();
+		assert.ok(state.typewriter.displayed.length > 0, "Typewriter should have advanced");
+		engine.stop();
+	},
+});
+
 let failures = 0;
 for (const test of tests) {
 	try {

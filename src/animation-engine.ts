@@ -6,6 +6,12 @@ export interface AnimationState {
 	breathPhase: number;  // 0.0-1.0 sine
 	glitchActive: boolean;
 	tickCount: number;
+	// --- New fields ---
+	focusFlashTicks: number;      // A: counts down 3→0 on focus change
+	focusedComponent: string;     // A: "editor" | "sessions" | "overlay"
+	wipeTransition: { active: boolean; frame: number }; // B: 0-3 = fill chars, ≥4 = done
+	separatorOffset: number;      // C: increments every 8 ticks for crawling separator
+	typewriter: { target: string; displayed: string; ticksSinceChar: number }; // E
 }
 
 export class AnimationEngine {
@@ -15,6 +21,11 @@ export class AnimationEngine {
 		breathPhase: 0,
 		glitchActive: false,
 		tickCount: 0,
+		focusFlashTicks: 0,
+		focusedComponent: "editor",
+		wipeTransition: { active: false, frame: 0 },
+		separatorOffset: 0,
+		typewriter: { target: "", displayed: "", ticksSinceChar: 0 },
 	};
 	private timer: ReturnType<typeof setInterval> | null = null;
 	private isStreaming = false;
@@ -51,6 +62,22 @@ export class AnimationEngine {
 		return BRAILLE_FRAMES[this.state.spinnerFrame] ?? "⣾";
 	}
 
+	/** A: Trigger selection flash on focus change */
+	triggerFocusFlash(component: string): void {
+		this.state.focusFlashTicks = 3;
+		this.state.focusedComponent = component;
+	}
+
+	/** B: Trigger block-fill wipe (call when switching sessions) */
+	triggerWipeTransition(): void {
+		this.state.wipeTransition = { active: true, frame: 0 };
+	}
+
+	/** E: Set typewriter target (call from setStatusMessage hook) */
+	setTypewriterTarget(message: string): void {
+		this.state.typewriter = { target: message, displayed: "", ticksSinceChar: 0 };
+	}
+
 	private tick(): void {
 		this.state.tickCount++;
 		this.state.hueOffset = (this.state.hueOffset + (this.isStreaming ? 2 : 0.8)) % 360;
@@ -66,6 +93,34 @@ export class AnimationEngine {
 			this.glitchTicksRemaining--;
 		} else {
 			this.state.glitchActive = false;
+		}
+
+		// A: Focus flash countdown
+		if (this.state.focusFlashTicks > 0) {
+			this.state.focusFlashTicks--;
+		}
+
+		// B: Wipe transition advance
+		if (this.state.wipeTransition.active) {
+			this.state.wipeTransition.frame++;
+			if (this.state.wipeTransition.frame >= 4) {
+				this.state.wipeTransition = { active: false, frame: 0 };
+			}
+		}
+
+		// C: Separator crawl
+		if (this.state.tickCount % 8 === 0) {
+			this.state.separatorOffset = (this.state.separatorOffset + 1) % 100;
+		}
+
+		// E: Typewriter
+		if (this.state.typewriter.displayed !== this.state.typewriter.target) {
+			this.state.typewriter.ticksSinceChar++;
+			if (this.state.typewriter.ticksSinceChar >= 2) {
+				this.state.typewriter.ticksSinceChar = 0;
+				const next = this.state.typewriter.target.slice(0, this.state.typewriter.displayed.length + 1);
+				this.state.typewriter = { ...this.state.typewriter, displayed: next };
+			}
 		}
 
 		this.onTickCallback?.(this.state);

@@ -173,6 +173,21 @@ export function horizontalRule(width: number, char = "─", styler?: Styler): st
 	return styler ? styler(line) : line;
 }
 
+/**
+ * A slowly-crawling separator line using alternating ╌ and · characters.
+ * offset shifts the repeating pattern by one position every 8 ticks,
+ * creating a visible rightward crawl effect.
+ */
+export function separatorLine(width: number, offset: number, borderColor: string): string {
+	// Use a 4-char repeating pattern so the crawl is visible
+	const PATTERN = "╌╌·╌";
+	let line = "";
+	for (let i = 0; i < width; i++) {
+		line += PATTERN[(i + offset) % PATTERN.length];
+	}
+	return style({ fg: borderColor })(line);
+}
+
 export function boxLine(text: string, width: number, styler?: Styler): string {
 	const inner = truncateToWidth(text, width - 4, "…");
 	const padded = inner + " ".repeat(Math.max(0, width - 4 - visibleWidth(inner)));
