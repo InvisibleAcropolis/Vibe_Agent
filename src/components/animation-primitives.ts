@@ -721,3 +721,167 @@ export function createFlowField(opts?: FlowFieldOptions): (animState: AnimationS
 		return grid.map(r => r.join('')).join('\n');
 	};
 }
+
+// ─── Preset 15: Game of Life ─────────────────────────────────────────────
+
+export interface GameOfLifeOptions {
+	cols?: number;         // default 24
+	rows?: number;         // default 8
+	density?: number;      // default 0.35 — initial live cell probability
+	ticksPerStep?: number; // default 3 — GoL steps per animation tick
+}
+
+export function createGameOfLife(opts?: GameOfLifeOptions): (animState: AnimationState, theme: ThemeConfig) => string {
+	const cols = opts?.cols ?? 24;
+	const rows = opts?.rows ?? 8;
+	const density = opts?.density ?? 0.35;
+	const ticksPerStep = opts?.ticksPerStep ?? 3;
+
+	function randomSeed(): Uint8Array {
+		const g = new Uint8Array(cols * rows);
+		for (let i = 0; i < g.length; i++) g[i] = Math.random() < density ? 1 : 0;
+		return g;
+	}
+
+	let grid = randomSeed();
+	let age = new Uint8Array(cols * rows);
+	let gen = 0;
+	let stagnantTicks = 0;
+	let lastTick = -1;
+
+	function step(): void {
+		const next = new Uint8Array(cols * rows);
+		const nextAge = new Uint8Array(cols * rows);
+		let changed = false;
+
+		for (let y = 0; y < rows; y++) {
+			for (let x = 0; x < cols; x++) {
+				let n = 0;
+				for (let dy = -1; dy <= 1; dy++) {
+					for (let dx = -1; dx <= 1; dx++) {
+						if (dx === 0 && dy === 0) continue;
+						n += grid[((y + dy + rows) % rows) * cols + ((x + dx + cols) % cols)]!;
+					}
+				}
+				const alive = grid[y * cols + x]!;
+				const born = (!alive && n === 3) ? 1 : 0;
+				const survives = (alive && (n === 2 || n === 3)) ? 1 : 0;
+				next[y * cols + x] = born | survives;
+				nextAge[y * cols + x] = next[y * cols + x] ? Math.min(255, age[y * cols + x]! + 1) : 0;
+				if (next[y * cols + x] !== alive) changed = true;
+			}
+		}
+
+		grid = next;
+		age = nextAge;
+		gen++;
+		stagnantTicks = changed ? 0 : stagnantTicks + 1;
+
+		// Auto-reseed on stagnation (still-life) or generation limit
+		if (stagnantTicks > 60 || gen > 400) {
+			grid = randomSeed();
+			age = new Uint8Array(cols * rows);
+			gen = 0;
+			stagnantTicks = 0;
+		}
+	}
+
+	const LIVE_CHARS = ['░', '▒', '▓', '█'] as const;
+
+	return (animState: AnimationState, theme: ThemeConfig): string => {
+		if (animState.tickCount !== lastTick) {
+			lastTick = animState.tickCount;
+			if (animState.tickCount % ticksPerStep === 0) step();
+		}
+
+		const rowStrings: string[] = [];
+		for (let y = 0; y < rows; y++) {
+			let row = '';
+			for (let x = 0; x < cols; x++) {
+				const alive = grid[y * cols + x]!;
+				if (alive) {
+					const a = age[y * cols + x]!;
+					const t = Math.min(1, a / 20);
+					const charIdx = Math.min(LIVE_CHARS.length - 1, Math.floor(t * LIVE_CHARS.length));
+					const color = lerpColor(theme.breathBaseColor, theme.breathPeakColor, t);
+					row += style({ fg: color })(LIVE_CHARS[charIdx]!);
+				} else {
+					row += ' ';
+				}
+			}
+			rowStrings.push(row);
+		}
+		return rowStrings.join('\n');
+	};
+}
+
+// ─── Preset 16: Water Ripple ─────────────────────────────────────────────
+
+export interface WaterRippleOptions {
+	cols?: number;             // default 24
+	rows?: number;             // default 8
+	damping?: number;          // default 0.98
+	disturbInterval?: number;  // default 40 — ticks between raindrop events
+}
+
+export function createWaterRipple(opts?: WaterRippleOptions): (animState: AnimationState, theme: ThemeConfig) => string {
+	const cols = opts?.cols ?? 24;
+	const rows = opts?.rows ?? 8;
+	const damping = opts?.damping ?? 0.98;
+	const disturbInterval = opts?.disturbInterval ?? 40;
+
+	let cur = new Float32Array(cols * rows);
+	let prv = new Float32Array(cols * rows);
+	let lastTick = -1;
+	let ticksSinceDisturbance = 0;
+
+	const PAL = [' ', '·', ':', ';', '|', '+', '=', '*', '#', '@'] as const;
+
+	return (animState: AnimationState, theme: ThemeConfig): string => {
+		if (animState.tickCount !== lastTick) {
+			lastTick = animState.tickCount;
+			ticksSinceDisturbance++;
+
+			if (ticksSinceDisturbance >= disturbInterval) {
+				ticksSinceDisturbance = 0;
+				const rx = 1 + Math.floor(Math.random() * (cols - 2));
+				const ry = 1 + Math.floor(Math.random() * (rows - 2));
+				cur[ry * cols + rx] = 180;
+			}
+
+			// 2-buffer wave propagation (Hugo Elias / Lode algorithm)
+			const next = new Float32Array(cols * rows);
+			for (let y = 1; y < rows - 1; y++) {
+				for (let x = 1; x < cols - 1; x++) {
+					next[y * cols + x] = (
+						cur[(y - 1) * cols + x] +
+						cur[(y + 1) * cols + x] +
+						cur[y * cols + x - 1] +
+						cur[y * cols + x + 1]
+					) / 2 - prv[y * cols + x];
+					next[y * cols + x]! *= damping;
+				}
+			}
+			prv = cur;
+			cur = next;
+		}
+
+		const rowStrings: string[] = [];
+		for (let y = 0; y < rows; y++) {
+			let row = '';
+			for (let x = 0; x < cols; x++) {
+				const v = Math.abs(cur[y * cols + x]!);
+				const t = Math.min(1, v / 120);
+				if (t < 0.04) {
+					row += style({ fg: '#1a3348' })('·');
+				} else {
+					const charIdx = Math.min(PAL.length - 1, Math.floor(t * PAL.length));
+					const color = lerpColor(theme.breathBaseColor, theme.breathPeakColor, t);
+					row += style({ fg: color })(PAL[charIdx]!);
+				}
+			}
+			rowStrings.push(row);
+		}
+		return rowStrings.join('\n');
+	};
+}
