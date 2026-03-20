@@ -746,7 +746,7 @@ const vibeAgentTitleTest: TestCase = {
 		app.start();
 		const lines = await flush(terminal);
 		// The ANSI logo block renders "VIBE AGENT" in block letters
-		assert.ok(lines.some(l => l.includes("██╗   ██╗") || l.includes("Session:")), `Expected ANSI logo or Session info in output, got:\n${lines.join("\n")}`);
+		assert.ok(lines.some(l => l.includes("Session:")), "Expected info bar with 'Session:' in logo block");
 		app.stop();
 		await new Promise<void>((resolve) => setImmediate(resolve));
 	},

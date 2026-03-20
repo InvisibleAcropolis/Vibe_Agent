@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import { Container, Text, TUI, type Component, type Terminal } from "@mariozechner/pi-tui";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import type { AgentHostState } from "./agent-host.js";
+import type { AgentHost, AgentHostState } from "./agent-host.js";
 import type { AppStateStore } from "./app-state-store.js";
 import { paintBoxLineTwoParts } from "./ansi.js";
 import type { AnimationEngine } from "./animation-engine.js";
@@ -79,7 +79,7 @@ export class DefaultShellView implements ShellView {
 		private readonly stateStore: AppStateStore,
 		private readonly getHostState: () => AgentHostState | undefined,
 		private readonly getMessages: () => AgentMessage[],
-		private readonly getAgentHost?: () => any,
+		private readonly getAgentHost?: () => AgentHost | undefined,
 		private readonly animationEngine?: AnimationEngine,
 	) {
 		this.tui = new TUI(terminal, true);
