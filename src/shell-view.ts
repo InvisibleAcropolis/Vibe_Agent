@@ -18,17 +18,6 @@ import { extractLatestThinkingText } from "./message-renderer.js";
 
 const BRAILLE_FRAMES = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"] as const;
 
-// 6-line ANSI Shadow ASCII art for "VIBE AGENT"
-// Both words are 6 rows tall 
-const VIBE_AGENT_LOGO = [
-	"██╗   ██╗██╗██████╗ ███████╗     █████╗  ██████╗ ███████╗███╗   ██╗████████╗",
-	"██║   ██║██║██╔══██╗██╔════╝    ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝",
-	"██║   ██║██║██████╔╝█████╗      ███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║   ",
-	"╚██╗ ██╔╝██║██╔══██╗██╔══╝      ██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║   ",
-	" ╚████╔╝ ██║██████╔╝███████╗    ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║   ",
-	"  ╚═══╝  ╚═╝╚═════╝ ╚══════╝    ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   ",
-] as const;
-
 function ctxBar(pct: number, width = 8): string {
 	const filled = Math.round((pct / 100) * width);
 	return "█".repeat(filled) + "░".repeat(width - filled);
@@ -47,6 +36,7 @@ export interface ShellView {
 	readonly footerData: FooterDataProvider;
 	start(): void;
 	stop(): void;
+	setSplashFrame(lines: string[]): void;
 	setEditor(component: Component): void;
 	setFocus(component: Component | null): void;
 	setMessages(components: Component[]): void;
@@ -69,13 +59,14 @@ export class DefaultShellView implements ShellView {
 	readonly footerData = new FooterDataProvider(process.cwd());
 	private readonly chatContainer = new Container();
 	private readonly transcriptViewport = new TranscriptViewport();
+	private readonly chromeSplashBand = new Text("", 0, 0);
 	// customHeaderContainer: holds custom header components injected via setHeaderFactory
 	private readonly customHeaderContainer = new Container();
 	private readonly widgetContainerAbove = new Container();
 	private readonly widgetContainerBelow = new Container();
 	private readonly footerContentContainer = new Container();
 	private readonly editorContainer = new Container();
-	private readonly chromeLogo = new Text("", 0, 0);
+	private readonly chromeHeaderInfo = new Text("", 0, 0);
 	private readonly chromeMenuBar = new Text("", 0, 0);
 	private readonly chromeSeparatorTop = new Text("", 0, 0);
 	private readonly chromeSeparatorMid = new Text("", 0, 0);
@@ -103,8 +94,9 @@ export class DefaultShellView implements ShellView {
 		private readonly animationEngine?: AnimationEngine,
 	) {
 		this.tui = new TUI(terminal, true);
+		this.tui.addChild(this.chromeSplashBand);
 		this.tui.addChild(this.customHeaderContainer);
-		this.tui.addChild(this.chromeLogo);
+		this.tui.addChild(this.chromeHeaderInfo);
 		this.tui.addChild(this.chromeMenuBar);
 		this.tui.addChild(this.chromeSeparatorTop);
 		this.contentArea = new SideBySideContainer(this.transcriptViewport, null, 30);
@@ -144,6 +136,14 @@ export class DefaultShellView implements ShellView {
 		this.disposeCustomChrome();
 		this.footerData.dispose();
 		this.tui.stop();
+	}
+
+	setSplashFrame(lines: string[]): void {
+		this.chromeSplashBand.setText(lines.join("\n"));
+		this.refreshLayout();
+		this.transcriptViewport.measure(Math.max(1, this.transcriptRect.width));
+		this.refreshChrome();
+		this.tui.requestRender();
 	}
 
 	setEditor(component: Component): void {
@@ -195,10 +195,8 @@ export class DefaultShellView implements ShellView {
 		if (factory) {
 			this.customHeaderComponent = factory(this.tui, codingAgentTheme);
 			this.customHeaderContainer.addChild(this.customHeaderComponent);
-			// When a custom header is active, clear the logo block
-			this.chromeLogo.setText("");
+			this.chromeHeaderInfo.setText("");
 		} else {
-			// Restore the logo block
 			this.refreshChrome();
 		}
 		this.tui.requestRender();
@@ -308,10 +306,11 @@ export class DefaultShellView implements ShellView {
 			{ key: "F2", label: "Sessions" },
 		];
 		const layout = measureMenuBarItems(menuItems).find((item) => item.key === key);
+		const splashHeight = this.chromeSplashBand.render(cols).length;
 		const customHeaderHeight = this.customHeaderContainer.render(cols).length;
-		const logoHeight = this.chromeLogo.render(cols).length;
+		const headerHeight = this.chromeHeaderInfo.render(cols).length;
 		return {
-			row: customHeaderHeight + logoHeight + 1,
+			row: splashHeight + customHeaderHeight + headerHeight + 1,
 			col: layout?.startCol ?? 2,
 		};
 	}
@@ -355,8 +354,9 @@ export class DefaultShellView implements ShellView {
 	private refreshLayout(): void {
 		const cols = this.tui.terminal.columns;
 		const rows = this.tui.terminal.rows;
+		const splashHeight = this.chromeSplashBand.render(cols).length;
 		const customHeaderHeight = this.customHeaderContainer.render(cols).length;
-		const logoHeight = this.chromeLogo.render(cols).length;
+		const headerHeight = this.chromeHeaderInfo.render(cols).length;
 		const menuHeight = this.chromeMenuBar.render(cols).length;
 		const separatorTopHeight = this.chromeSeparatorTop.render(cols).length;
 		const separatorMidHeight = this.chromeSeparatorMid.render(cols).length;
@@ -369,8 +369,9 @@ export class DefaultShellView implements ShellView {
 		const thinkingTrayHeight = this.thinkingTray.render(cols).length;
 
 		const fixedHeight =
+			splashHeight +
 			customHeaderHeight +
-			logoHeight +
+			headerHeight +
 			menuHeight +
 			separatorTopHeight +
 			separatorMidHeight +
@@ -386,7 +387,7 @@ export class DefaultShellView implements ShellView {
 		this.contentArea.maxHeight = contentHeight;
 
 		const leftWidth = this.sessionsPanelVisible ? Math.max(0, cols - this.contentArea.rightWidth - 1) : cols;
-		const contentRow = 1 + customHeaderHeight + logoHeight + menuHeight + separatorTopHeight;
+		const contentRow = 1 + splashHeight + customHeaderHeight + headerHeight + menuHeight + separatorTopHeight;
 		this.transcriptRect = {
 			row: contentRow,
 			col: 1,
@@ -419,24 +420,11 @@ export class DefaultShellView implements ShellView {
 		// bc = animated border color styler — used for all ╔═╗╠═╣╚═╝ box chars
 		const bc = dynTheme.borderAnimated;
 
-		// Only render the logo block if no custom header factory is active
+		// Render the persistent shell header only when extensions have not replaced it.
 		if (!this.customHeaderFactory) {
-			// Build the 10-line logo + info block
-			const logoLines: string[] = [];
+			const headerLines: string[] = [];
+			headerLines.push(paintBoxLineTwoParts(`${bc("╔")}`, bc("╗"), cols, "═", bc, agentTheme.headerLine));
 
-			// Top border
-			logoLines.push(paintBoxLineTwoParts(`${bc("╔")}`, bc("╗"), cols, "═", bc, agentTheme.headerLine));
-
-			// 6 logo lines — each padded to full width inside the box
-			for (const logoRow of VIBE_AGENT_LOGO) {
-				const inner = `${bc("║")}  ${agentTheme.accentStrong(logoRow)}`;
-				logoLines.push(paintBoxLineTwoParts(inner, `  ${bc("║")}`, cols, " ", undefined, agentTheme.headerLine));
-			}
-
-			// Separator ╠═══╣
-			logoLines.push(paintBoxLineTwoParts(`${bc("╠")}`, bc("╣"), cols, "═", bc, agentTheme.headerLine));
-
-			// Info bar: Session / Thread / CTX
 			const sessionName = hostState?.sessionName ?? cwdLabel();
 			const threadName = this.footerData.getGitBranch() ?? "main";
 			const msgs = this.getMessages();
@@ -451,16 +439,14 @@ export class DefaultShellView implements ShellView {
 				`${agentTheme.info("CTX:")} ${ctxColor(`${ctxPct}%`)} ${ctxColor(ctxBar(ctxPct))}`,
 			].join(agentTheme.segmentSep());
 			const infoLeft = `${bc("║")}  ${infoBar}`;
-			logoLines.push(paintBoxLineTwoParts(infoLeft, `  ${bc("║")}`, cols, " ", undefined, agentTheme.headerLine));
+			headerLines.push(paintBoxLineTwoParts(infoLeft, `  ${bc("║")}`, cols, " ", undefined, agentTheme.headerLine));
 
-			// Help/warning line (e.g. model fallback notice)
 			const helpMessage = state.helpMessage;
 			if (helpMessage) {
 				const helpLeft = `${bc("║")}  ${agentTheme.warning(`⚠  ${helpMessage}`)}`;
-				logoLines.push(paintBoxLineTwoParts(helpLeft, `  ${bc("║")}`, cols, " ", undefined, agentTheme.headerLine));
+				headerLines.push(paintBoxLineTwoParts(helpLeft, `  ${bc("║")}`, cols, " ", undefined, agentTheme.headerLine));
 			}
 
-			// Context banner line (e.g. "Connect a provider", "Choose a model" — actionable setup warnings)
 			const contextTitle = state.contextTitle;
 			if (contextTitle) {
 				const toneStylers: Record<NonNullable<AppShellState["contextTone"]>, (s: string) => string> = {
@@ -472,13 +458,11 @@ export class DefaultShellView implements ShellView {
 				};
 				const toneStyler = toneStylers[state.contextTone ?? "info"] ?? agentTheme.bannerInfo;
 				const contextLeft = `${bc("║")}  ${toneStyler(`  ${contextTitle}  `)}`;
-				logoLines.push(paintBoxLineTwoParts(contextLeft, `  ${bc("║")}`, cols, " ", undefined, agentTheme.headerLine));
+				headerLines.push(paintBoxLineTwoParts(contextLeft, `  ${bc("║")}`, cols, " ", undefined, agentTheme.headerLine));
 			}
 
-			// Bottom border
-			logoLines.push(paintBoxLineTwoParts(`${bc("╚")}`, bc("╝"), cols, "═", bc, agentTheme.headerLine));
-
-			this.chromeLogo.setText(logoLines.join("\n"));
+			headerLines.push(paintBoxLineTwoParts(`${bc("╚")}`, bc("╝"), cols, "═", bc, agentTheme.headerLine));
+			this.chromeHeaderInfo.setText(headerLines.join("\n"));
 		}
 
 		// Menu bar: [F1] Settings  ◆  [F2] Sessions ══════════════════════════════

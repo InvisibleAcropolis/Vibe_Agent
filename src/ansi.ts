@@ -1,6 +1,7 @@
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 
 export type Styler = (text: string) => string;
+export type CellStyler = (sourceChar: string, row: number, col: number, displayChar: string) => Styler | undefined;
 
 type StyleOptions = {
 	fg?: string;
@@ -188,6 +189,67 @@ export function separatorLine(width: number, offset: number, borderColor: string
 		line += glyph;
 	}
 	return style({ fg: borderColor })(line);
+}
+
+const DISSOLVE_PATTERN = [
+	[0, 8, 2, 10],
+	[12, 4, 14, 6],
+	[3, 11, 1, 9],
+	[15, 7, 13, 5],
+] as const;
+
+export function dissolveTextRows(
+	rows: readonly string[],
+	progress: number,
+	totalSteps: number,
+	options?: {
+		glyphs?: readonly string[];
+		cellStyler?: CellStyler;
+	},
+): string[] {
+	const glyphs = options?.glyphs ?? ["░", "▒", "▓", "█"];
+	const patternSteps = Math.max(1, totalSteps - glyphs.length);
+	return rows.map((rowText, rowIndex) => {
+		const segments: string[] = [];
+		let currentStyler: Styler | undefined;
+		let currentRun = "";
+
+		const pushRun = () => {
+			if (currentRun.length === 0) {
+				return;
+			}
+			segments.push(currentStyler ? currentStyler(currentRun) : currentRun);
+			currentRun = "";
+		};
+
+		for (let col = 0; col < rowText.length; col++) {
+			const sourceChar = rowText[col] ?? " ";
+			let displayChar = sourceChar;
+
+			if (sourceChar !== " ") {
+				const patternValue = DISSOLVE_PATTERN[rowIndex % DISSOLVE_PATTERN.length]![col % DISSOLVE_PATTERN[0]!.length]!;
+				const bucket = 1 + Math.floor((patternValue * patternSteps) / 16);
+				const stage = Math.max(0, Math.min(glyphs.length + 1, progress - bucket + 1));
+				if (stage === 0) {
+					displayChar = " ";
+				} else if (stage <= glyphs.length) {
+					displayChar = glyphs[stage - 1] ?? sourceChar;
+				}
+			}
+
+			const nextStyler = displayChar === " "
+				? undefined
+				: options?.cellStyler?.(sourceChar, rowIndex, col, displayChar);
+			if (nextStyler !== currentStyler) {
+				pushRun();
+				currentStyler = nextStyler;
+			}
+			currentRun += displayChar;
+		}
+
+		pushRun();
+		return segments.join("");
+	});
 }
 
 export function boxLine(text: string, width: number, styler?: Styler): string {

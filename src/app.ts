@@ -15,6 +15,7 @@ import { DefaultInputController } from "./input-controller.js";
 import { renderAgentMessages } from "./message-renderer.js";
 import { MouseEnabledTerminal } from "./mouse-enabled-terminal.js";
 import { DefaultOverlayController } from "./overlay-controller.js";
+import { LogoBlockSystem } from "./logo-block-system.js";
 import { DefaultShellView, type ShellView } from "./shell-view.js";
 import { DefaultStartupController } from "./startup-controller.js";
 import {
@@ -84,8 +85,11 @@ export class VibeAgentApp {
 	private readonly extensionUiHost: DefaultExtensionUiHost;
 	private readonly startupController: DefaultStartupController;
 	private readonly inputController: DefaultInputController;
+	private readonly logoBlockSystem: LogoBlockSystem;
+	private readonly terminal: MouseEnabledTerminal;
 	private previousRenderState = { showThinking: true, toolOutputExpanded: false };
 	private running = false;
+	private bootLogoDismissed = false;
 	private focusedComponent: Component | null = null;
 	private readonly authStorage: AuthStorage;
 	private readonly modelRegistry: ModelRegistry;
@@ -134,8 +138,14 @@ export class VibeAgentApp {
 				await this.applyConfiguredModelToSession(session);
 			},
 		});
-		const terminal = new MouseEnabledTerminal(options.terminal ?? new ProcessTerminal());
-		this.shellView = new DefaultShellView(terminal, this.stateStore, () => this.safeGetHostState(), () => this.safeGetMessages(), () => this.host, this.animEngine);
+		this.terminal = new MouseEnabledTerminal(options.terminal ?? new ProcessTerminal());
+		this.shellView = new DefaultShellView(this.terminal, this.stateStore, () => this.safeGetHostState(), () => this.safeGetMessages(), () => this.host, this.animEngine);
+		this.logoBlockSystem = new LogoBlockSystem(this.terminal.columns, (lines) => {
+			this.shellView.setSplashFrame(lines);
+		});
+		this.terminal.setResizeHandler(() => {
+			this.logoBlockSystem.resize(this.terminal.columns, this.terminal.rows);
+		});
 		this.stateStore.setOnStatusChange((msg) => this.animEngine.setTypewriterTarget(msg));
 		const keybindings = InternalKeybindingsManager.create();
 
@@ -292,10 +302,12 @@ export class VibeAgentApp {
 	start(): void {
 		if (this.running) return;
 		this.running = true;
+		this.bootLogoDismissed = false;
 		this.debugger.log("app.start", { cwd: process.cwd() });
 		this.shellView.setTitle("Vibe Agent");
 		this.animEngine.start();
 		this.shellView.start();
+		this.logoBlockSystem.start();
 		void this.runStartupSequence().catch((error) => {
 			this.debugger.logError("startup.sequence.error", error);
 		});
@@ -338,6 +350,7 @@ export class VibeAgentApp {
 		}
 		this.running = false;
 		this.debugger.log("app.stop.start");
+		this.logoBlockSystem.dispose();
 		this.animEngine.stop();
 		this.startupController.dispose();
 		this.overlayController.closeAllOverlays();
@@ -390,6 +403,10 @@ export class VibeAgentApp {
 
 		this.editorController.addToHistory(text);
 		this.editorController.setText("");
+		if (!this.bootLogoDismissed) {
+			this.bootLogoDismissed = true;
+			this.logoBlockSystem.dismiss();
+		}
 		await this.host.prompt(text, this.safeGetHostState()?.isStreaming ? { streamingBehavior } : undefined);
 	}
 
