@@ -654,15 +654,7 @@ export class VibeAgentApp {
 			return;
 		}
 
-		if (!hasMessages) {
-			this.stateStore.setContextBanner(
-				"Ready for your first task",
-				"Type a prompt, use F1 for the command palette, or run /setup to switch provider and model defaults.",
-				"accent",
-			);
-			return;
-		}
-
+		// No default help banner — status is shown in the logo info bar
 		this.stateStore.setContextBanner(undefined, undefined);
 	}
 

@@ -753,6 +753,23 @@ const vibeAgentTitleTest: TestCase = {
 };
 tests.push(vibeAgentTitleTest);
 
+// Task 3: verify no help text banners are rendered
+tests.push({
+	name: "no help text banners rendered",
+	run: async () => {
+		const terminal = new VirtualTerminal(120, 40);
+		const app = new VibeAgentApp({ terminal, ...createReadyAppOptions() });
+		app.start();
+		const lines = await flush(terminal);
+		const output = lines.join("\n");
+		assert.ok(!output.includes("Ready for your first task"), "Should not show first-task banner");
+		assert.ok(!output.includes("Type a prompt"), "Should not show 'Type a prompt' help text");
+		assert.ok(!output.includes("F1 palette"), "Should not show F1 palette help line");
+		app.stop();
+		await new Promise<void>((resolve) => setImmediate(resolve));
+	},
+});
+
 // Task 2: verify logo renders "VIBE AGENT" ASCII art
 tests.push({
 	name: "logo renders VIBE AGENT ASCII art",
