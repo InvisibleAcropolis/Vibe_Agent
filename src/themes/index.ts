@@ -74,7 +74,8 @@ function lerpColor(from: string, to: string, t: number): string {
 
 export function createDynamicTheme(config: ThemeConfig, animState: AnimationState): DynamicTheme {
 	const [hMin, hMax] = config.hueRange;
-	const t = animState.hueOffset / 360;
+	const raw = (animState.hueOffset % 360) / 360;
+	const t = raw < 0.5 ? raw * 2 : (1 - raw) * 2; // triangle: 0→1→0, no snap
 	const hue = hMin + t * (hMax - hMin);
 	const animatedBorderColor = hslToHex(hue, config.hueSaturation, config.hueLightness);
 	const breathColor = lerpColor(config.breathBaseColor, config.breathPeakColor, animState.breathPhase);
