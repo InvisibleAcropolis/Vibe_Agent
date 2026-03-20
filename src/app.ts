@@ -641,14 +641,6 @@ export class VibeAgentApp {
 			);
 			return;
 		}
-		if (assessment.kind === "needs-provider-choice") {
-			this.stateStore.setContextBanner(
-				"Choose a preferred provider",
-				"Multiple authenticated providers are available. Use /setup to pick the default path for Vibe Agent.",
-				"info",
-			);
-			return;
-		}
 		if (assessment.kind === "needs-model") {
 			this.stateStore.setContextBanner(
 				assessment.reason === "saved-model-unavailable" ? "Recover your default model" : "Choose a model",
