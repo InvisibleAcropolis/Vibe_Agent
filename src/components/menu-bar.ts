@@ -6,6 +6,11 @@ export interface MenuBarItem {
 	label: string;
 }
 
+export interface MenuBarItemLayout extends MenuBarItem {
+	startCol: number;
+	endCol: number;
+}
+
 /**
  * Render a full-width menu bar chrome line.
  *
@@ -47,4 +52,29 @@ export function renderMenuBar(
 
 	// Use paintBoxLineTwoParts with fill char "═" styled with bc, right side empty
 	return paintBoxLineTwoParts(left, "", cols, "═", bc, lineStyler);
+}
+
+export function measureMenuBarItems(items: MenuBarItem[]): MenuBarItemLayout[] {
+	const layouts: MenuBarItemLayout[] = [];
+	let cursor = 1;
+
+	for (let i = 0; i < items.length; i++) {
+		const item = items[i]!;
+		if (i === 0) {
+			cursor += 1;
+		} else {
+			cursor += 5;
+		}
+		const text = `[${item.key}] ${item.label}`;
+		const startCol = cursor;
+		const endCol = startCol + text.length - 1;
+		layouts.push({
+			...item,
+			startCol,
+			endCol,
+		});
+		cursor = endCol + 1;
+	}
+
+	return layouts;
 }

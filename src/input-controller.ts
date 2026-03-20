@@ -88,31 +88,11 @@ export class DefaultInputController implements InputController {
 	}
 
 	private openSettingsSubmenu(): void {
-		this.overlayController.openSelectOverlay(
-			"menu-settings", "[F1] Settings",
-			"Select a settings action.",
-			[
-				{ value: "/provider", label: "Provider",    description: "Choose or reconnect an OAuth provider." },
-				{ value: "/model",    label: "Model",       description: "Choose the default model." },
-				{ value: "/theme",    label: "Theme",       description: "Switch visual theme." },
-				{ value: "/settings", label: "Settings",    description: "Open app settings." },
-			],
-			(cmd) => void this.commandController.handleSlashCommand(cmd),
-		);
+		this.commandController.openSettingsOverlay();
 	}
 
 	private openSessionsSubmenu(): void {
-		this.overlayController.openSelectOverlay(
-			"menu-sessions", "[F2] Sessions",
-			"Select a session action.",
-			[
-				{ value: "/resume", label: "Resume Session", description: "Resume or switch sessions." },
-				{ value: "/fork",   label: "Fork Session",   description: "Fork from a previous user message." },
-				{ value: "/tree",   label: "Session Tree",   description: "Navigate branch points." },
-				{ value: "/stats",  label: "Session Stats",  description: "Show token usage." },
-			],
-			(cmd) => void this.commandController.handleSlashCommand(cmd),
-		);
+		this.commandController.openSessionsOverlay();
 	}
 
 	private logMouse(event: MouseEvent): void {

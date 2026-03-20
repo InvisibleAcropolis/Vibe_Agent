@@ -30,11 +30,14 @@ import { getThemeNames, onThemeConfigChange, setActiveTheme, type ThemeName } fr
 import type { VibeAgentAppOptions } from "./types.js";
 import { type SetupRunRequest, WelcomeController } from "./welcome-controller.js";
 
-type SetupAssessment =
-	| { kind: "ready"; providerId: string; modelId: string }
-	| { kind: "needs-provider"; reason: "first-run" | "disconnected" }
-	| { kind: "needs-provider-choice"; reason: "provider-choice-needed" | "saved-provider-unavailable" }
-	| { kind: "needs-model"; providerId: string; reason: "model-choice-needed" | "saved-model-unavailable" };
+type StartupGateAssessment =
+	| { kind: "continue" }
+	| { kind: "needs-provider"; reason: "first-run" | "disconnected" };
+
+type SavedDefaultValidation =
+	| { kind: "valid"; providerId: string; modelId: string }
+	| { kind: "invalid-provider"; reason: "missing-provider" | "saved-provider-unavailable" }
+	| { kind: "invalid-model"; providerId: string; reason: "missing-model" | "saved-model-unavailable" };
 
 /**
  * Vibe Agent: A professional Agentic CLI application that provides
@@ -184,6 +187,17 @@ export class VibeAgentApp {
 				openProviderSetup: () => this.openSetupFlow({ startStep: "provider", showCompletion: true, reason: "provider-choice-needed" }),
 				openModelSetup: () => this.openSetupFlow({ startStep: "model", showCompletion: false, reason: "model-choice-needed" }),
 				openLogoutFlow: () => this.openLogoutFlow(),
+				setDefaultModel: async (providerId, modelId) => {
+					await this.host.setModel(providerId, modelId);
+					this.appConfig = {
+						...this.appConfig,
+						setupComplete: true,
+						selectedProvider: providerId,
+						selectedModelId: modelId,
+					};
+					AppConfig.save(this.appConfig, this.configPath);
+					this.refreshCockpitContext();
+				},
 			},
 		);
 		this.commandController = commandController;
@@ -261,9 +275,13 @@ export class VibeAgentApp {
 	}
 
 	private async runStartupSequence(): Promise<void> {
-		const assessment = this.assessSetupState();
-		if (assessment.kind !== "ready") {
-			await this.openSetupFlow(this.requestForAssessment(assessment));
+		const gate = this.assessStartupGate();
+		if (gate.kind === "needs-provider") {
+			await this.openSetupFlow({
+				startStep: gate.reason === "first-run" ? "intro" : "provider",
+				showCompletion: true,
+				reason: gate.reason,
+			});
 		}
 
 		try {
@@ -272,6 +290,7 @@ export class VibeAgentApp {
 			this.normalizeConfigFromAssessment();
 			this.refreshProviderAvailability();
 			this.refreshCockpitContext();
+			this.applyStartupValidationStatus();
 		} catch {
 			// startup controller handles its own error display
 		}
@@ -280,6 +299,10 @@ export class VibeAgentApp {
 	private anyEnvApiKeySet(): boolean {
 		const providers = ["anthropic", "openai", "google-antigravity", "openai-codex", "github-copilot", "google-gemini-cli"];
 		return providers.some((id) => !!this.envApiKeyLookup(id));
+	}
+
+	private hasCredentialSource(): boolean {
+		return this.authStorage.list().length > 0 || this.anyEnvApiKeySet();
 	}
 
 	stop(): void {
@@ -399,100 +422,65 @@ export class VibeAgentApp {
 		};
 	}
 
-	private assessSetupState(): SetupAssessment {
-		const availableModels = this.modelRegistry.getAvailable();
-		const availableProviders = [...new Set(availableModels.map((model) => model.provider))];
-		if (availableProviders.length === 0 && !this.anyEnvApiKeySet() && this.authStorage.list().length === 0) {
+	private assessStartupGate(): StartupGateAssessment {
+		if (this.hasCredentialSource()) {
+			return { kind: "continue" };
+		}
+		return {
+			kind: "needs-provider",
+			reason: this.appConfig.setupComplete ? "disconnected" : "first-run",
+		};
+	}
+
+	private validateSavedDefault(): SavedDefaultValidation {
+		const providerId = this.appConfig.selectedProvider;
+		if (!providerId) {
 			return {
-				kind: "needs-provider",
-				reason: this.appConfig.setupComplete ? "disconnected" : "first-run",
+				kind: "invalid-provider",
+				reason: "missing-provider",
 			};
 		}
-		if (availableProviders.length === 0) {
-			// Only force setup if credentials genuinely absent
-			if (!this.appConfig.setupComplete || this.authStorage.list().length === 0) {
-				return {
-					kind: "needs-provider",
-					reason: this.appConfig.setupComplete ? "disconnected" : "first-run",
-				};
-			}
-			// Credentials exist, registry still loading — synthesize ready from saved config
-			const savedProvider = this.appConfig.selectedProvider;
-			const savedModel = this.appConfig.selectedModelId;
-			if (savedProvider && savedModel) {
-				return { kind: "ready", providerId: savedProvider, modelId: savedModel };
-			}
-			return { kind: "needs-provider", reason: "disconnected" };
+
+		const modelId = this.appConfig.selectedModelId;
+		if (!modelId) {
+			return {
+				kind: "invalid-model",
+				providerId,
+				reason: "missing-model",
+			};
 		}
 
-		let providerId = this.appConfig.selectedProvider;
-		if (!providerId || !availableProviders.includes(providerId)) {
-			if (availableProviders.length === 1) {
-				providerId = availableProviders[0];
-			} else {
-				return {
-					kind: "needs-provider-choice",
-					reason: this.appConfig.selectedProvider ? "saved-provider-unavailable" : "provider-choice-needed",
-				};
-			}
+		const availableModels = this.modelRegistry.getAvailable();
+		if (availableModels.length === 0) {
+			return {
+				kind: "valid",
+				providerId,
+				modelId,
+			};
 		}
 
 		const providerModels = availableModels.filter((model) => model.provider === providerId);
 		if (providerModels.length === 0) {
 			return {
-				kind: "needs-model",
-				providerId,
-				reason: "model-choice-needed",
+				kind: "invalid-provider",
+				reason: "saved-provider-unavailable",
 			};
 		}
 
-		const savedModelId = this.appConfig.selectedModelId;
-		if (!savedModelId) {
-			return {
-				kind: "needs-model",
-				providerId,
-				reason: "model-choice-needed",
-			};
-		}
-
-		const savedModel = providerModels.find((model) => model.id === savedModelId);
+		const savedModel = providerModels.find((model) => model.id === modelId);
 		if (!savedModel) {
 			return {
-				kind: "needs-model",
+				kind: "invalid-model",
 				providerId,
 				reason: "saved-model-unavailable",
 			};
 		}
 
 		return {
-			kind: "ready",
+			kind: "valid",
 			providerId,
 			modelId: savedModel.id,
 		};
-	}
-
-	private requestForAssessment(assessment: Exclude<SetupAssessment, { kind: "ready" }>): SetupRunRequest {
-		switch (assessment.kind) {
-			case "needs-provider":
-				return {
-					startStep: assessment.reason === "first-run" ? "intro" : "provider",
-					showCompletion: true,
-					reason: assessment.reason,
-				};
-			case "needs-provider-choice":
-				return {
-					startStep: "provider",
-					showCompletion: true,
-					reason: assessment.reason,
-				};
-			case "needs-model":
-				return {
-					startStep: "model",
-					providerId: assessment.providerId,
-					showCompletion: true,
-					reason: assessment.reason,
-				};
-		}
 	}
 
 	private async openSetupFlow(request: SetupRunRequest): Promise<void> {
@@ -586,11 +574,11 @@ export class VibeAgentApp {
 	}
 
 	private async applyConfiguredModelToSession(session: AgentSession): Promise<void> {
-		const assessment = this.assessSetupState();
-		if (assessment.kind !== "ready") {
+		const validation = this.validateSavedDefault();
+		if (validation.kind !== "valid") {
 			return;
 		}
-		const model = session.modelRegistry.find(assessment.providerId, assessment.modelId);
+		const model = session.modelRegistry.find(validation.providerId, validation.modelId);
 		if (!model) {
 			return;
 		}
@@ -601,21 +589,21 @@ export class VibeAgentApp {
 	}
 
 	private normalizeConfigFromAssessment(): void {
-		const assessment = this.assessSetupState();
-		if (assessment.kind !== "ready") {
+		const validation = this.validateSavedDefault();
+		if (validation.kind !== "valid") {
 			return;
 		}
 		if (
 			this.appConfig.setupComplete
-			&& this.appConfig.selectedProvider === assessment.providerId
-			&& this.appConfig.selectedModelId === assessment.modelId
+			&& this.appConfig.selectedProvider === validation.providerId
+			&& this.appConfig.selectedModelId === validation.modelId
 		) {
 			return;
 		}
 		this.appConfig = {
 			setupComplete: true,
-			selectedProvider: assessment.providerId,
-			selectedModelId: assessment.modelId,
+			selectedProvider: validation.providerId,
+			selectedModelId: validation.modelId,
 		};
 		AppConfig.save(this.appConfig, this.configPath);
 	}
@@ -629,11 +617,12 @@ export class VibeAgentApp {
 		if (this.setupFlowActive) {
 			return;
 		}
-		const assessment = this.assessSetupState();
+		const gate = this.assessStartupGate();
+		const validation = this.validateSavedDefault();
 		const hostState = this.safeGetHostState();
 		const hasMessages = (hostState?.messageCount ?? 0) > 0;
 
-		if (assessment.kind === "needs-provider") {
+		if (gate.kind === "needs-provider") {
 			this.stateStore.setContextBanner(
 				"Connect a provider",
 				"Use /setup to connect Antigravity or OpenAI OAuth, then choose a default model.",
@@ -641,13 +630,23 @@ export class VibeAgentApp {
 			);
 			return;
 		}
-		if (assessment.kind === "needs-model") {
+		if (validation.kind === "invalid-provider") {
 			this.stateStore.setContextBanner(
-				assessment.reason === "saved-model-unavailable" ? "Recover your default model" : "Choose a model",
-				assessment.reason === "saved-model-unavailable"
-					? `The saved model for ${assessment.providerId} is unavailable. Run /model or /setup to select a replacement.`
-					: `Pick the default ${assessment.providerId} model before you begin.`,
-				assessment.reason === "saved-model-unavailable" ? "warning" : "info",
+				"Invalid Provider",
+				validation.reason === "saved-provider-unavailable"
+					? "The saved default provider is unavailable. Run /provider or /setup to select a valid provider."
+					: "No default provider is saved. Run /provider or /setup to choose one.",
+				"warning",
+			);
+			return;
+		}
+		if (validation.kind === "invalid-model") {
+			this.stateStore.setContextBanner(
+				"Invalid Model",
+				validation.reason === "saved-model-unavailable"
+					? `The saved model for ${validation.providerId} is unavailable. Run /model or /setup to select a replacement.`
+					: `No default model is saved for ${validation.providerId}. Run /model or /setup to choose one.`,
+				"warning",
 			);
 			return;
 		}
@@ -660,6 +659,17 @@ export class VibeAgentApp {
 
 		// No default help banner — status is shown in the logo info bar
 		this.stateStore.setContextBanner(undefined, undefined);
+	}
+
+	private applyStartupValidationStatus(): void {
+		const validation = this.validateSavedDefault();
+		if (validation.kind === "invalid-provider") {
+			this.stateStore.setStatusMessage("Invalid Provider");
+			return;
+		}
+		if (validation.kind === "invalid-model") {
+			this.stateStore.setStatusMessage("Invalid Model");
+		}
 	}
 
 	private persistCurrentHostModelSelection(): void {

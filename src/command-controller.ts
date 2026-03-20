@@ -5,6 +5,7 @@ import type { EditorController } from "./editor-controller.js";
 import type { OverlayController } from "./overlay-controller.js";
 import { ArtifactViewer } from "./components/artifact-viewer.js";
 import { HelpOverlay } from "./components/help-overlay.js";
+import type { ShellMenuItem } from "./components/shell-menu-overlay.js";
 import { SessionStatsOverlay } from "./components/session-stats-overlay.js";
 import type { FooterDataProvider } from "./footer-data-provider.js";
 import type { ShellView } from "./shell-view.js";
@@ -18,6 +19,7 @@ interface SetupActions {
 	openProviderSetup(): Promise<void>;
 	openModelSetup(): Promise<void>;
 	openLogoutFlow(): Promise<void>;
+	setDefaultModel(providerId: string, modelId: string): Promise<void>;
 }
 
 const BUILTIN_COMMAND_META: Record<string, { category: string; order: number; description: string }> = {
@@ -78,6 +80,7 @@ export interface CommandController {
 	openForkSelector(): Promise<void>;
 	openTreeSelector(): Promise<void>;
 	openSettingsOverlay(): void;
+	openSessionsOverlay(): void;
 	openStatsOverlay(): void;
 	openArtifactViewer(): void;
 	openHelpOverlay(): void;
@@ -314,27 +317,56 @@ export class DefaultCommandController implements CommandController {
 	}
 
 	openSettingsOverlay(): void {
-		this.overlayController.openSelectOverlay(
-			"settings",
-			"Settings",
-			"Session and runtime controls.",
-			[
-				{ value: "setup", label: "Setup Hub", description: "Provider, model, and recovery flows." },
-				{ value: "provider", label: "Provider Setup", description: "Reconnect or switch OAuth provider." },
-				{ value: "model", label: "Choose Model", description: "Update the default provider model." },
-				{ value: "new", label: "New Session", description: "Clear chat and start a fresh session." },
-				{ value: "resume", label: "Resume Session", description: "Switch to another saved session." },
-				{ value: "thinking", label: "Thinking Level", description: "Pick a reasoning budget." },
-				{ value: "compact", label: "Compact Context", description: "Compact the current session." },
-				{ value: "stats", label: "Session Stats", description: "View token usage and session statistics." },
-				{ value: "artifacts", label: "View Artifacts", description: "Browse files and code artifacts." },
-				{ value: "rename", label: "Rename Session", description: "Set a session display name." },
-				{ value: "export", label: "Export HTML", description: "Write an HTML export." },
-				{ value: "help", label: "Help", description: "Show keybindings and commands reference." },
-				{ value: "debug", label: "Write Debug Snapshot", description: "Capture the current UI and session state." },
+		void this.host
+			.getAvailableModels()
+			.then((models) => {
+				const themeItems = this.buildThemeMenuItems();
+				const modelItems = this.buildModelMenuItems(models);
+				const thinkingItems = this.buildThinkingMenuItems();
+				const anchor = this.shellView.getMenuAnchor("F1");
+				this.overlayController.openMenuOverlay("menu-settings", {
+					title: "[F1] Settings",
+					subtitle: "Shell controls, defaults, and session operations.",
+					anchor,
+					width: 40,
+					childWidth: 52,
+					items: [
+						{ kind: "action", id: "setup", label: "Setup Hub", description: "Provider and model recovery.", onSelect: () => this.runSettingsAction("setup") },
+						{ kind: "action", id: "provider", label: "Provider Setup", description: "Reconnect or switch provider.", onSelect: () => this.runSettingsAction("provider") },
+						{ kind: "submenu", id: "model", label: "Choose Model", description: "Select the default model.", items: modelItems },
+						{ kind: "submenu", id: "theme", label: "Theme", description: "Switch the shell visual theme.", items: themeItems },
+						{ kind: "submenu", id: "thinking", label: "Thinking Level", description: "Adjust reasoning budget.", items: thinkingItems },
+						{ kind: "action", id: "new", label: "New Session", description: "Start a fresh session.", onSelect: () => this.runSettingsAction("new") },
+						{ kind: "action", id: "resume", label: "Resume Session", description: "Switch to another session.", onSelect: () => this.runSettingsAction("resume") },
+						{ kind: "action", id: "stats", label: "Session Stats", description: "View token usage and metadata.", onSelect: () => this.runSettingsAction("stats") },
+						{ kind: "action", id: "artifacts", label: "View Artifacts", description: "Browse generated files.", onSelect: () => this.runSettingsAction("artifacts") },
+						{ kind: "action", id: "rename", label: "Rename Session", description: "Update the session display name.", onSelect: () => this.runSettingsAction("rename") },
+						{ kind: "action", id: "export", label: "Export HTML", description: "Write an HTML export.", onSelect: () => this.runSettingsAction("export") },
+						{ kind: "action", id: "logout", label: "Logout Provider", description: "Disconnect a saved provider.", onSelect: () => this.runSettingsAction("logout") },
+						{ kind: "action", id: "help", label: "Help", description: "Show commands and keybindings.", onSelect: () => this.runSettingsAction("help") },
+						{ kind: "action", id: "debug", label: "Write Debug Snapshot", description: "Capture the current shell state.", onSelect: () => this.runSettingsAction("debug") },
+					],
+				});
+			})
+			.catch((error) => this.handleError("openSettingsOverlay", error));
+	}
+
+	openSessionsOverlay(): void {
+		const anchor = this.shellView.getMenuAnchor("F2");
+		this.overlayController.openMenuOverlay("menu-sessions", {
+			title: "[F2] Sessions",
+			subtitle: "Session navigation and tree controls.",
+			anchor,
+			width: 38,
+			childWidth: 44,
+			items: [
+				{ kind: "action", id: "resume", label: "Resume Session", description: "Switch to another saved session.", onSelect: () => this.openSessionSelector("all") },
+				{ kind: "action", id: "fork", label: "Fork Session", description: "Fork from a previous user message.", onSelect: () => void this.openForkSelector().catch((error) => this.handleError("openForkSelector", error)) },
+				{ kind: "action", id: "tree", label: "Session Tree", description: "Navigate branch points.", onSelect: () => void this.openTreeSelector().catch((error) => this.handleError("openTreeSelector", error)) },
+				{ kind: "action", id: "stats", label: "Session Stats", description: "Show token usage and costs.", onSelect: () => this.openStatsOverlay() },
+				{ kind: "action", id: "new", label: "New Session", description: "Clear chat and start fresh.", onSelect: () => this.runSettingsAction("new") },
 			],
-			(action) => this.runSettingsAction(action),
-		);
+		});
 	}
 
 	openStatsOverlay(): void {
@@ -424,7 +456,59 @@ export class DefaultCommandController implements CommandController {
 			case "debug":
 				this.writeSnapshotAndStatus("settings-overlay");
 				break;
+			case "logout":
+				void this.setupActions.openLogoutFlow().catch((error) => this.handleError("openLogoutFlow", error));
+				break;
 		}
+	}
+
+	private buildModelMenuItems(models: Awaited<ReturnType<AgentHost["getAvailableModels"]>>): ShellMenuItem[] {
+		if (models.length === 0) {
+			return [{
+				kind: "action",
+				id: "no-models",
+				label: "No models available",
+				description: "Connect a provider or retry setup.",
+				onSelect: () => this.stateStore.setStatusMessage("No models available."),
+			}];
+		}
+		return models.map((model) => ({
+			kind: "action" as const,
+			id: `${model.provider}/${model.id}`,
+			label: `${model.provider}/${model.id}`,
+			description: model.name,
+			onSelect: async () => {
+				try {
+					await this.setupActions.setDefaultModel(model.provider, model.id);
+					this.stateStore.setStatusMessage(`Default model set to ${model.provider}/${model.id}.`);
+				} catch (error) {
+					this.handleError("setDefaultModel", error, { provider: model.provider, modelId: model.id });
+				}
+			},
+		}));
+	}
+
+	private buildThemeMenuItems(): ShellMenuItem[] {
+		const active = getActiveTheme().name;
+		return getThemeNames().map((themeName) => ({
+			kind: "action" as const,
+			id: `theme:${themeName}`,
+			label: themeName === active ? `* ${themeName}` : themeName,
+			description: themeName === active ? "Current theme" : "Apply theme",
+			onSelect: () => this.handleThemeCommand(`/theme ${themeName}`),
+		}));
+	}
+
+	private buildThinkingMenuItems(): ShellMenuItem[] {
+		return this.host.getAvailableThinkingLevels().map((level) => ({
+			kind: "action" as const,
+			id: `thinking:${level}`,
+			label: level,
+			description: "Set reasoning budget",
+			onSelect: () => {
+				void this.host.setThinkingLevel(level).catch((error) => this.handleError("setThinkingLevel", error));
+			},
+		}));
 	}
 
 	private handleThemeCommand(text: string): void {

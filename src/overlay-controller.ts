@@ -3,6 +3,7 @@ import type { PiMonoAppDebugger } from "./app-debugger.js";
 import type { AppStateStore } from "./app-state-store.js";
 import { EditorOverlay } from "./components/editor-overlay.js";
 import { FilterSelectOverlay, type OverlaySelectItem } from "./components/filter-select-overlay.js";
+import { ShellMenuOverlay, type ShellMenuDefinition } from "./components/shell-menu-overlay.js";
 import { TextPromptOverlay } from "./components/text-prompt-overlay.js";
 import type { KeybindingsManager } from "./local-coding-agent.js";
 import type { MouseEvent, Rect } from "./mouse.js";
@@ -27,6 +28,7 @@ export interface OverlayController {
 		onCancel?: () => void,
 	): void;
 	openEditorPrompt(title: string, prefill: string, onSubmit: (value: string) => void, onCancel: () => void): void;
+	openMenuOverlay(id: string, definition: ShellMenuDefinition): void;
 	showCustomOverlay(id: string, component: Component, options: OverlayOptions): OverlayHandle;
 	closeTopOverlay(): void;
 	closeOverlay(id: string): void;
@@ -120,6 +122,30 @@ export class DefaultOverlayController implements OverlayController {
 		);
 	}
 
+	openMenuOverlay(id: string, definition: ShellMenuDefinition): void {
+		const width = Math.min(
+			this.tui.terminal.columns - definition.anchor.col + 1,
+			(definition.width ?? 38) + (definition.childWidth ?? 48) + 8,
+		);
+		this.showOverlay(
+			id,
+			new ShellMenuOverlay(
+				definition,
+				Math.min(22, this.tui.terminal.rows - definition.anchor.row + 1),
+				() => this.closeOverlay(id),
+			),
+			{
+				width,
+				maxHeight: 22,
+				anchor: "top-left",
+				margin: {
+					top: Math.max(0, definition.anchor.row),
+					left: Math.max(0, definition.anchor.col - 1),
+				},
+			},
+		);
+	}
+
 	showCustomOverlay(id: string, component: Component, options: OverlayOptions): OverlayHandle {
 		return this.showOverlay(id, component, options);
 	}
@@ -132,7 +158,7 @@ export class DefaultOverlayController implements OverlayController {
 		this.debuggerSink.log("overlay.hide", { id: overlay.id, mode: "top" });
 		overlay.hide();
 		this.stateStore.removeOverlay(overlay.id);
-		this.setFocus(this.getFocusRestoreTarget(), "overlay.closeTop");
+		this.setFocus(this.overlays[this.overlays.length - 1]?.component ?? this.getFocusRestoreTarget(), "overlay.closeTop");
 	}
 
 	closeOverlay(id: string): void {
@@ -144,7 +170,7 @@ export class DefaultOverlayController implements OverlayController {
 		this.debuggerSink.log("overlay.hide", { id, mode: "specific" });
 		overlay.hide();
 		this.stateStore.removeOverlay(id);
-		this.setFocus(this.getFocusRestoreTarget(), `overlay.close:${id}`);
+		this.setFocus(this.overlays[this.overlays.length - 1]?.component ?? this.getFocusRestoreTarget(), `overlay.close:${id}`);
 	}
 
 	closeAllOverlays(): void {

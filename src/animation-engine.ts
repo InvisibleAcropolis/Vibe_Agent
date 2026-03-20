@@ -138,3 +138,7 @@ export function setGlobalAnimationEngine(engine: AnimationEngine): void {
 export function getGlobalSpinnerChar(): string {
 	return globalEngine?.getSpinnerChar() ?? "⣾";
 }
+
+export function getGlobalAnimationState(): AnimationState | undefined {
+	return globalEngine?.getState();
+}

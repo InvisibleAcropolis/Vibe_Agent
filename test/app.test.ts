@@ -613,6 +613,9 @@ const tests: TestCase[] = [
 					viewport.some((line) => line.includes("Vibe Agent setup") || line.includes("Connect a provider")),
 					"Should show setup entry copy",
 				);
+			}, {
+				authStorage: createAuthStorageStub([]),
+				getEnvApiKey: () => undefined,
 			});
 		},
 	},
@@ -639,6 +642,7 @@ const tests: TestCase[] = [
 					},
 					openModelSetup: async () => {},
 					openLogoutFlow: async () => {},
+					setDefaultModel: async () => {},
 				},
 			);
 			const result = await ctrl.handleSlashCommand("/login");
@@ -687,7 +691,32 @@ const tests: TestCase[] = [
 		},
 	},
 	{
-		name: "saved model recovery banner is shown when configured model is unavailable",
+		name: "invalid provider boots into the shell without mutating config",
+		run: async () => {
+			const host = new FakeHost();
+			const readyOptions = createReadyAppOptions();
+			assert.ok(readyOptions.configPath);
+			const saved = AppConfig.load(readyOptions.configPath);
+			AppConfig.save(
+				{
+					...saved,
+					selectedProvider: undefined,
+					selectedModelId: saved.selectedModelId,
+				},
+				readyOptions.configPath,
+			);
+
+			await withApp(host, async (_app, terminal) => {
+				const viewport = await flush(terminal);
+				assert.ok(viewport.some((line) => line.includes("Invalid Provider")));
+				const persisted = AppConfig.load(readyOptions.configPath);
+				assert.strictEqual(persisted.selectedProvider, undefined);
+				assert.strictEqual(persisted.selectedModelId, saved.selectedModelId);
+			}, readyOptions);
+		},
+	},
+	{
+		name: "invalid model boots into the shell without mutating config",
 		run: async () => {
 			const host = new FakeHost();
 			const readyOptions = createReadyAppOptions();
@@ -703,7 +732,37 @@ const tests: TestCase[] = [
 
 			await withApp(host, async (_app, terminal) => {
 				const viewport = await flush(terminal);
-				assert.ok(viewport.some((line) => line.includes("Recover your default model") || line.includes("Choose a default model")));
+				assert.ok(viewport.some((line) => line.includes("Invalid Model")));
+				const persisted = AppConfig.load(readyOptions.configPath);
+				assert.strictEqual(persisted.selectedModelId, "missing-model");
+			}, readyOptions);
+		},
+	},
+	{
+		name: "settings menu opens a nested model submenu and escapes back to root",
+		run: async () => {
+			const host = new FakeHost();
+			const readyOptions = createReadyAppOptions();
+			await withApp(host, async (app, terminal) => {
+				(app as any).commandController.openSettingsOverlay();
+				let viewport = await flush(terminal);
+				assert.ok(viewport.some((line) => line.includes("[F1] Settings")));
+				assert.ok(viewport.some((line) => line.includes("Choose Model")));
+
+				terminal.sendInput("\u001b[B");
+				terminal.sendInput("\u001b[B");
+				terminal.sendInput("\u001b[C");
+				viewport = await flush(terminal);
+				assert.ok(viewport.some((line) => line.includes("test/demo-model")));
+
+				terminal.sendInput("\u001b");
+				viewport = await flush(terminal);
+				assert.ok(viewport.some((line) => line.includes("[F1] Settings")));
+				assert.ok(!viewport.some((line) => line.includes("test/demo-model")));
+
+				terminal.sendInput("\u001b");
+				viewport = await flush(terminal);
+				assert.ok(!viewport.some((line) => line.includes("[F1] Settings")));
 			}, readyOptions);
 		},
 	},

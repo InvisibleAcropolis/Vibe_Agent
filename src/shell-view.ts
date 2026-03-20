@@ -10,7 +10,7 @@ import { estimateContextTokens, theme as codingAgentTheme, type Theme } from "./
 import { agentTheme, createDynamicTheme } from "./theme.js";
 import { SessionsPanel } from "./components/sessions-panel.js";
 import { SideBySideContainer } from "./components/side-by-side-container.js";
-import { renderMenuBar, MenuBarItem } from "./components/menu-bar.js";
+import { renderMenuBar, measureMenuBarItems, MenuBarItem } from "./components/menu-bar.js";
 
 const BRAILLE_FRAMES = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"] as const;
 
@@ -53,6 +53,7 @@ export interface ShellView {
 	setTitle(title: string): void;
 	refresh(): void;
 	toggleSessionsPanel(): void;
+	getMenuAnchor(key: string): { row: number; col: number };
 }
 
 export class DefaultShellView implements ShellView {
@@ -238,6 +239,21 @@ export class DefaultShellView implements ShellView {
 		this.renderFooterContent();
 		this.renderWidgets();
 		this.refreshChrome();
+	}
+
+	getMenuAnchor(key: string): { row: number; col: number } {
+		const cols = this.tui.terminal.columns;
+		const menuItems: MenuBarItem[] = [
+			{ key: "F1", label: "Settings" },
+			{ key: "F2", label: "Sessions" },
+		];
+		const layout = measureMenuBarItems(menuItems).find((item) => item.key === key);
+		const customHeaderHeight = this.customHeaderContainer.render(cols).length;
+		const logoHeight = this.chromeLogo.render(cols).length;
+		return {
+			row: customHeaderHeight + logoHeight + 1,
+			col: layout?.startCol ?? 2,
+		};
 	}
 
 	private renderFooterContent(): void {
