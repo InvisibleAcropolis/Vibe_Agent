@@ -23,6 +23,7 @@ export class DefaultInputController implements InputController {
 		private readonly commandController: CommandController,
 		private readonly debuggerSink: PiMonoAppDebugger,
 		private readonly onStop: () => void,
+		private readonly onToggleSessionsPanel?: () => void,
 	) {}
 
 	attach(): void {
@@ -65,6 +66,10 @@ export class DefaultInputController implements InputController {
 		}
 		if (matchesKey(nextData, "f1")) {
 			this.commandController.openCommandPalette();
+			return { consume: true };
+		}
+		if (matchesKey(nextData, "f3")) {
+			this.onToggleSessionsPanel?.();
 			return { consume: true };
 		}
 		if ((matchesKey(nextData, "escape") || matchesKey(nextData, "esc")) && this.overlayController.getOverlayDepth() > 0) {

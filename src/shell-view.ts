@@ -3,11 +3,13 @@ import { Container, Text, TUI, type Component, type Terminal } from "@mariozechn
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AgentHost, AgentHostState } from "./agent-host.js";
 import type { AppStateStore } from "./app-state-store.js";
-import { paintBoxLineTwoParts } from "./ansi.js";
+import { paintBoxLineTwoParts, separatorLine } from "./ansi.js";
 import type { AnimationEngine } from "./animation-engine.js";
 import { FooterDataProvider } from "./footer-data-provider.js";
 import { estimateContextTokens, theme as codingAgentTheme, type Theme } from "./local-coding-agent.js";
 import { agentTheme, createDynamicTheme } from "./theme.js";
+import { SessionsPanel } from "./components/sessions-panel.js";
+import { SideBySideContainer } from "./components/side-by-side-container.js";
 
 const BRAILLE_FRAMES = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"] as const;
 
@@ -51,6 +53,7 @@ export interface ShellView {
 	setFooterFactory(factory: FooterFactory | undefined): void;
 	setTitle(title: string): void;
 	refresh(): void;
+	toggleSessionsPanel(): void;
 }
 
 export class DefaultShellView implements ShellView {
@@ -64,6 +67,8 @@ export class DefaultShellView implements ShellView {
 	private readonly footerContentContainer = new Container();
 	private readonly editorContainer = new Container();
 	private readonly chromeLogo = new Text("", 0, 0);
+	private readonly chromeSeparatorTop = new Text("", 0, 0);
+	private readonly chromeSeparatorMid = new Text("", 0, 0);
 	private readonly chromeStatus = new Text("", 0, 0);
 	private readonly chromeSummary = new Text("", 0, 0);
 	private readonly extensionWidgetsAbove = new Map<string, WidgetFactory>();
@@ -73,19 +78,25 @@ export class DefaultShellView implements ShellView {
 	private customHeaderComponent?: Component & { dispose?(): void };
 	private customFooterComponent?: Component & { dispose?(): void };
 	private currentHostState?: AgentHostState;
+	private contentArea!: SideBySideContainer;
+	private sessionsPanel: SessionsPanel | null = null;
+	private sessionsPanelVisible = false;
 
 	constructor(
 		terminal: Terminal,
 		private readonly stateStore: AppStateStore,
 		private readonly getHostState: () => AgentHostState | undefined,
 		private readonly getMessages: () => AgentMessage[],
-		private readonly getAgentHost?: () => AgentHost | undefined,
+		private readonly getAgentHost: () => AgentHost | undefined,
 		private readonly animationEngine?: AnimationEngine,
 	) {
 		this.tui = new TUI(terminal, true);
 		this.tui.addChild(this.customHeaderContainer);
 		this.tui.addChild(this.chromeLogo);
-		this.tui.addChild(this.chatContainer);
+		this.tui.addChild(this.chromeSeparatorTop);
+		this.contentArea = new SideBySideContainer(this.chatContainer, null, 30);
+		this.tui.addChild(this.contentArea);
+		this.tui.addChild(this.chromeSeparatorMid);
 		this.tui.addChild(this.widgetContainerAbove);
 		this.tui.addChild(this.editorContainer);
 		this.tui.addChild(this.widgetContainerBelow);
@@ -183,6 +194,44 @@ export class DefaultShellView implements ShellView {
 		this.tui.terminal.setTitle(title);
 	}
 
+	toggleSessionsPanel(): void {
+		this.sessionsPanelVisible = !this.sessionsPanelVisible;
+		if (this.sessionsPanelVisible) {
+			if (!this.sessionsPanel) {
+				this.sessionsPanel = new SessionsPanel({
+					getSessions: async () => {
+						const h = this.getAgentHost();
+						if (!h) return [];
+						return h.listSessions("all");
+					},
+					getCurrentSessionFile: () => {
+						const state = this.getHostState();
+						return state?.sessionFile;
+					},
+					onSwitch: async (sessionPath) => {
+						this.animationEngine?.triggerWipeTransition();
+						await this.getAgentHost()?.switchSession(sessionPath);
+					},
+					onClose: () => {
+						this.sessionsPanelVisible = false;
+						this.contentArea.right = null;
+						this.setFocus(null);
+						this.tui.requestRender();
+					},
+				});
+			}
+			void this.sessionsPanel.refresh();
+			this.contentArea.right = this.sessionsPanel;
+			this.setFocus(this.sessionsPanel as any);
+			this.animationEngine?.triggerFocusFlash("sessions");
+		} else {
+			this.contentArea.right = null;
+			this.setFocus(null);
+		}
+		this.refresh();
+		this.tui.requestRender();
+	}
+
 	refresh(): void {
 		this.currentHostState = this.getHostState();
 		this.renderFooterContent();
@@ -225,6 +274,10 @@ export class DefaultShellView implements ShellView {
 
 		const animState = this.animationEngine?.getState() ?? {
 			hueOffset: 190, spinnerFrame: 0, breathPhase: 0, glitchActive: false, tickCount: 0,
+			focusFlashTicks: 0, focusedComponent: "editor" as const,
+			wipeTransition: { active: false, frame: 0 },
+			separatorOffset: 0,
+			typewriter: { target: "", displayed: "", ticksSinceChar: 0 },
 		};
 		const dynTheme = createDynamicTheme(animState);
 		const spinnerChar = BRAILLE_FRAMES[animState.spinnerFrame] ?? "⣾";
@@ -278,8 +331,28 @@ export class DefaultShellView implements ShellView {
 			this.chromeLogo.setText(logoLines.join("\n"));
 		}
 
+		// C: Animated separator glyphs (crawl offset shifts by 1 every 8 ticks)
+		this.chromeSeparatorTop.setText(separatorLine(cols, animState.separatorOffset, agentTheme.border));
+		this.chromeSeparatorMid.setText(separatorLine(cols, (animState.separatorOffset + 20) % 100, agentTheme.border));
+
+		// A: Focus flash — lerp sessions panel border color
+		if (this.sessionsPanel && animState) {
+			const flashTicks = animState.focusFlashTicks;
+			if (flashTicks > 0 && animState.focusedComponent === "sessions") {
+				this.sessionsPanel.borderColor = flashTicks > 1
+					? agentTheme.borderActive
+					: agentTheme.border;
+			} else {
+				this.sessionsPanel.borderColor = agentTheme.border;
+			}
+		}
+
 		// ╠══ [status] ══════════════════════════════════════════════════════ [badges] ══╣
-		const statusText = state.workingMessage ?? state.statusMessage;
+		const rawStatus = state.workingMessage ?? state.statusMessage;
+		const typewriterMatch = animState.typewriter.target === rawStatus && rawStatus !== "";
+		const statusText = (typewriterMatch && animState.typewriter.displayed.length > 0)
+			? animState.typewriter.displayed
+			: rawStatus;
 		const styledStatus = isStreaming
 			? agentTheme.statusStreaming(statusText ?? "")
 			: agentTheme.statusIdle(statusText ?? "");

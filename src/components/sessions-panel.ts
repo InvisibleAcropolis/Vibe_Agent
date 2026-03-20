@@ -1,6 +1,6 @@
 import { matchesKey, type Focusable } from "@mariozechner/pi-tui";
 import { basename } from "path";
-import { paintLine } from "../ansi.js";
+import { paintLine, style } from "../ansi.js";
 import { agentTheme } from "../theme.js";
 import type { SessionInfo } from "../local-coding-agent.js";
 
@@ -77,6 +77,7 @@ export class SessionsPanel implements Focusable {
 	private flatItems: Array<
 		{ type: "group"; groupIdx: number } | { type: "session"; groupIdx: number; nodeIdx: number }
 	> = [];
+	public borderColor: string = agentTheme.border;
 
 	constructor(private readonly options: SessionsPanelOptions) {
 		void this.refresh().catch(() => {});
@@ -113,6 +114,7 @@ export class SessionsPanel implements Focusable {
 
 	render(width: number): string[] {
 		const lines: string[] = [];
+		const bc = style({ fg: this.borderColor });
 
 		// Tab bar / header
 		const sTab =
@@ -121,13 +123,13 @@ export class SessionsPanel implements Focusable {
 			this.tab === "extensions" ? agentTheme.accentStrong("[E]") : agentTheme.dim("[E]");
 		lines.push(
 			paintLine(
-				agentTheme.dim("┌─ ") +
+				bc("┌─ ") +
 					agentTheme.accent("SESSIONS") +
-					agentTheme.dim(" ─") +
+					bc(" ─") +
 					sTab +
-					agentTheme.dim(" ") +
+					bc(" ") +
 					eTab +
-					agentTheme.dim(" ─┐"),
+					bc(" ─┐"),
 				width,
 			),
 		);
@@ -136,7 +138,7 @@ export class SessionsPanel implements Focusable {
 			lines.push(paintLine(agentTheme.muted("  Extensions coming soon"), width));
 			lines.push(
 				paintLine(
-					agentTheme.dim("└" + "─".repeat(Math.max(0, width - 2)) + "┘"),
+					bc("└" + "─".repeat(Math.max(0, width - 2)) + "┘"),
 					width,
 				),
 			);
@@ -188,7 +190,7 @@ export class SessionsPanel implements Focusable {
 
 		lines.push(
 			paintLine(
-				agentTheme.dim("└" + "─".repeat(Math.max(0, width - 2)) + "┘"),
+				bc("└" + "─".repeat(Math.max(0, width - 2)) + "┘"),
 				width,
 			),
 		);

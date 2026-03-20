@@ -106,7 +106,8 @@ export class VibeAgentApp {
 			},
 		});
 		const terminal = new MouseEnabledTerminal(options.terminal ?? new ProcessTerminal());
-		this.shellView = new DefaultShellView(terminal, this.stateStore, () => this.safeGetHostState(), () => this.safeGetMessages(), undefined, this.animEngine);
+		this.shellView = new DefaultShellView(terminal, this.stateStore, () => this.safeGetHostState(), () => this.safeGetMessages(), () => this.host, this.animEngine);
+		this.stateStore.setOnStatusChange((msg) => this.animEngine.setTypewriterTarget(msg));
 		const keybindings = InternalKeybindingsManager.create();
 
 		this.overlayController = new DefaultOverlayController(
@@ -197,6 +198,7 @@ export class VibeAgentApp {
 			this.commandController,
 			this.debugger,
 			() => this.stop(),
+			() => this.shellView.toggleSessionsPanel(),
 		);
 
 		this.extensionUiHost = new DefaultExtensionUiHost(

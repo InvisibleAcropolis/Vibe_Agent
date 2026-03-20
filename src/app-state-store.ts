@@ -24,6 +24,7 @@ export interface AppStateStore {
 	getState(): AppShellState;
 	subscribe(listener: AppStateListener): () => void;
 	setStatusMessage(message: string): void;
+	setOnStatusChange(cb: (message: string) => void): void;
 	setWorkingMessage(message: string | undefined): void;
 	setHelpMessage(message: string | undefined): void;
 	setContextBanner(
@@ -57,6 +58,11 @@ export class DefaultAppStateStore implements AppStateStore {
 		sessionStatsVisible: false,
 	};
 	private listeners = new Set<AppStateListener>();
+	private onStatusChange?: (message: string) => void;
+
+	setOnStatusChange(cb: (message: string) => void): void {
+		this.onStatusChange = cb;
+	}
 
 	getState(): AppShellState {
 		return {
@@ -74,6 +80,7 @@ export class DefaultAppStateStore implements AppStateStore {
 
 	setStatusMessage(message: string): void {
 		this.update({ statusMessage: message });
+		this.onStatusChange?.(message);
 	}
 
 	setWorkingMessage(message: string | undefined): void {

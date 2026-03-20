@@ -844,6 +844,23 @@ tests.push({
 	},
 });
 
+// Task 6: SideBySideContainer test
+tests.push({
+	name: "SideBySideContainer merges two columns",
+	run: async () => {
+		const { SideBySideContainer } = await import("../src/components/side-by-side-container.js");
+		// Create mock Components with render methods
+		const left = { render: (_w: number) => ["HELLO", "WORLD"], invalidate: () => {} };
+		const right = { render: (_w: number) => ["AAA", "BBB"], invalidate: () => {} };
+		const container = new SideBySideContainer(left as any, right as any, 5, "│");
+		const lines = container.render(16);
+		// total width = 16, right = 5, separator = 1, left = 10
+		assert.ok(lines[0]?.includes("HELLO"), "Left content in first line");
+		assert.ok(lines[0]?.includes("AAA"), "Right content in first line");
+		assert.ok(lines[0]?.includes("│"), "Separator in first line");
+	},
+});
+
 let failures = 0;
 for (const test of tests) {
 	try {
