@@ -448,3 +448,125 @@ export function createSpectrumBars(opts?: SpectrumBarsOptions): (animState: Anim
 		return grid.map(r => r.join('')).join('\n');
 	};
 }
+
+// ─── Preset 11: Starfield ────────────────────────────────────────────────────
+
+export interface StarfieldOptions {
+	cols?: number;   // default 24
+	rows?: number;   // default 8
+	count?: number;  // default 80
+	speed?: number;  // default 0.015
+}
+
+export function createStarfield(opts?: StarfieldOptions): (animState: AnimationState, theme: ThemeConfig) => string {
+	const cols = opts?.cols ?? 24;
+	const rows = opts?.rows ?? 8;
+	const count = opts?.count ?? 80;
+	const speed = opts?.speed ?? 0.015;
+
+	interface Star { x: number; y: number; z: number; }
+
+	function respawn(s: Star): void {
+		s.x = (Math.random() - 0.5) * 2;
+		s.y = (Math.random() - 0.5) * 2;
+		s.z = 1;
+	}
+
+	const stars: Star[] = Array.from({ length: count }, () => ({
+		x: (Math.random() - 0.5) * 2,
+		y: (Math.random() - 0.5) * 2,
+		z: Math.random(),
+	}));
+
+	const STAR_CHARS = ['.', '·', '✦', '★'] as const;
+
+	return (_animState: AnimationState, theme: ThemeConfig): string => {
+		const fovX = cols / 2;
+		const fovY = rows;
+
+		const grid: string[][] = Array.from({ length: rows }, () => new Array(cols).fill(' '));
+		const brightness: number[][] = Array.from({ length: rows }, () => new Array(cols).fill(0));
+
+		for (const s of stars) {
+			s.z -= speed;
+			if (s.z <= 0) { respawn(s); continue; }
+
+			const sx = Math.floor(s.x / s.z * fovX + cols / 2);
+			const sy = Math.floor(s.y / s.z * fovY + rows / 2);
+
+			if (sx < 0 || sx >= cols || sy < 0 || sy >= rows) { respawn(s); continue; }
+
+			const b = 1 - s.z;
+			if (b > brightness[sy]![sx]!) {
+				brightness[sy]![sx] = b;
+				const charIdx = Math.min(STAR_CHARS.length - 1, Math.floor(b * STAR_CHARS.length));
+				const color = lerpColor(theme.breathBaseColor, theme.breathPeakColor, b * 0.9 + 0.1);
+				grid[sy]![sx] = style({ fg: color })(STAR_CHARS[charIdx]!);
+			}
+		}
+
+		return grid.map(r => r.join('')).join('\n');
+	};
+}
+
+// ─── Preset 12: Vortex / Orbital Spiral ─────────────────────────────────────
+
+export interface VortexOptions {
+	cols?: number;         // default 24
+	rows?: number;         // default 10
+	count?: number;        // default 35
+	pullStrength?: number; // default 0.04 — inward drift per tick
+}
+
+export function createVortex(opts?: VortexOptions): (animState: AnimationState, theme: ThemeConfig) => string {
+	const cols = opts?.cols ?? 24;
+	const rows = opts?.rows ?? 10;
+	const count = opts?.count ?? 35;
+	const pullStrength = opts?.pullStrength ?? 0.04;
+
+	// baseRadius derived from widget dimensions (half the smaller span, accounting for 2:1 char aspect)
+	const baseRadius = Math.min(cols, rows * 2) / 2;
+
+	interface Particle { angle: number; radius: number; angularSpeed: number; }
+
+	function spawnParticle(): Particle {
+		return {
+			angle: Math.random() * Math.PI * 2,
+			radius: baseRadius * (0.7 + Math.random() * 0.3),
+			angularSpeed: 0.03 + Math.random() * 0.05,
+		};
+	}
+
+	const particles: Particle[] = Array.from({ length: count }, spawnParticle);
+	const CHARS = ['✦', '◉', '•', '∙', '·'] as const;
+
+	return (_animState: AnimationState, theme: ThemeConfig): string => {
+		const cx = cols / 2;
+		const cy = rows / 2;
+
+		const grid: string[][] = Array.from({ length: rows }, () => new Array(cols).fill(' '));
+		const brig: number[][] = Array.from({ length: rows }, () => new Array(cols).fill(0));
+
+		for (const p of particles) {
+			// Angular velocity increases near center (baseRadius / radius amplifies when radius is small)
+			p.angle += p.angularSpeed * (baseRadius / Math.max(p.radius, 0.5));
+			p.radius -= pullStrength;
+			if (p.radius <= 0.3) Object.assign(p, spawnParticle());
+
+			const px = Math.floor(cx + p.radius * Math.cos(p.angle));
+			const py = Math.floor(cy + p.radius * Math.sin(p.angle) * 0.5); // 0.5 = half-aspect for terminal chars
+
+			if (px < 0 || px >= cols || py < 0 || py >= rows) continue;
+
+			const t = 1 - p.radius / baseRadius;
+			if (t > brig[py]![px]!) {
+				brig[py]![px] = t;
+				const charIdx = Math.min(CHARS.length - 1, Math.floor(t * CHARS.length));
+				const color = lerpColor(theme.breathBaseColor, theme.breathPeakColor, t);
+				grid[py]![px] = style({ fg: color })(CHARS[charIdx]!);
+			}
+		}
+
+		return grid.map(r => r.join('')).join('\n');
+	};
+}
