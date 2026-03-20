@@ -820,6 +820,30 @@ tests.push({
 	},
 });
 
+// Task 5: Sessions panel renders tree with date groups
+tests.push({
+	name: "sessions panel renders tree with date groups",
+	run: async () => {
+		const { SessionsPanel } = await import("../src/components/sessions-panel.js");
+		const mockSessions = [
+			{ sessionFile: "/tmp/s1.json", sessionName: "my-project", timestamp: Date.now() },
+			{ sessionFile: "/tmp/s2.json", sessionName: "auth-redesign", timestamp: Date.now() - 86400000 },
+		] as any[];
+		const panel = new SessionsPanel({
+			getSessions: async () => mockSessions,
+			getCurrentSessionFile: () => "/tmp/s1.json",
+			onSwitch: async () => {},
+			onClose: () => {},
+		});
+		await panel.refresh();
+		const lines = panel.render(30);
+		const output = lines.join("\n");
+		assert.ok(output.includes("SESSIONS"), "Should show SESSIONS heading");
+		assert.ok(output.includes("Today"), "Should show Today group");
+		assert.ok(output.includes("my-project"), "Should show session name");
+	},
+});
+
 let failures = 0;
 for (const test of tests) {
 	try {
