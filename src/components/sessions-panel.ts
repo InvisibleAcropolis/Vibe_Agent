@@ -238,7 +238,9 @@ export class SessionsPanel implements Focusable {
 			const item = this.flatItems[this.cursor];
 			if (item?.type === "session") {
 				const sf = getSessionPath(this.groups[item.groupIdx]!.nodes[item.nodeIdx]!.session);
-				this.options.onSwitch(sf).then(() => this.options.onClose()).catch(() => {});
+				this.options.onSwitch(sf).then(() => this.options.onClose()).catch((err: unknown) => {
+					console.error("[SessionsPanel] session switch failed:", err);
+				});
 			}
 			return;
 		}
