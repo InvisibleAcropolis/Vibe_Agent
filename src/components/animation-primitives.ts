@@ -202,136 +202,136 @@ export function renderWaveSweep(
 // ─── Preset 6: Plasma Wave ───────────────────────────────────────────────────
 
 export interface PlasmaOptions {
-  width?: number;     // default 24
-  height?: number;    // default 8
-  freq?: number;      // default 0.35
-  timeScale?: number; // default 0.06
+	width?: number;     // default 24
+	height?: number;    // default 8
+	freq?: number;      // default 0.35
+	timeScale?: number; // default 0.06
 }
 
 export function renderPlasma(
-  animState: AnimationState,
-  theme: ThemeConfig,
-  opts?: PlasmaOptions,
+	animState: AnimationState,
+	theme: ThemeConfig,
+	opts?: PlasmaOptions,
 ): string {
-  const width = opts?.width ?? 24;
-  const height = opts?.height ?? 8;
-  const freq = opts?.freq ?? 0.35;
-  const timeScale = opts?.timeScale ?? 0.06;
-  const t = animState.tickCount * timeScale;
-  const PAL = ['░', '▒', '▓', '█'] as const;
+	const width = opts?.width ?? 24;
+	const height = opts?.height ?? 8;
+	const freq = opts?.freq ?? 0.35;
+	const timeScale = opts?.timeScale ?? 0.06;
+	const t = animState.tickCount * timeScale;
+	const PAL = ['░', '▒', '▓', '█'] as const;
 
-  const rows: string[] = [];
-  for (let y = 0; y < height; y++) {
-    let row = '';
-    for (let x = 0; x < width; x++) {
-      const cx = x + 0.5 * Math.sin(t / 5);
-      const cy = y + 0.5 * Math.cos(t / 3);
-      const v =
-        Math.sin(x * freq + t) +
-        Math.sin(y * freq + t * 0.7) +
-        Math.sin((x + y) * (freq * 0.6) + t * 0.5) +
-        Math.sin(Math.sqrt(cx * cx + cy * cy) * (freq * 0.8) + t);
-      const normalized = (v + 4) / 8; // v ∈ [-4,4] → [0,1]
-      const color = lerpColor(theme.breathBaseColor, theme.breathPeakColor, normalized);
-      const charIdx = Math.min(PAL.length - 1, Math.floor(normalized * PAL.length));
-      row += style({ fg: color })(PAL[charIdx]!);
-    }
-    rows.push(row);
-  }
-  return rows.join('\n');
+	const rows: string[] = [];
+	for (let y = 0; y < height; y++) {
+		let row = '';
+		for (let x = 0; x < width; x++) {
+			const cx = x + 0.5 * Math.sin(t / 5);
+			const cy = y + 0.5 * Math.cos(t / 3);
+			const v =
+				Math.sin(x * freq + t) +
+				Math.sin(y * freq + t * 0.7) +
+				Math.sin((x + y) * (freq * 0.6) + t * 0.5) +
+				Math.sin(Math.sqrt(cx * cx + cy * cy) * (freq * 0.8) + t);
+			const normalized = (v + 4) / 8; // v ∈ [-4,4] → [0,1]
+			const color = lerpColor(theme.breathBaseColor, theme.breathPeakColor, normalized);
+			const charIdx = Math.min(PAL.length - 1, Math.floor(normalized * PAL.length));
+			row += style({ fg: color })(PAL[charIdx]!);
+		}
+		rows.push(row);
+	}
+	return rows.join('\n');
 }
 
 // ─── Preset 7: Synthgrid ─────────────────────────────────────────────────────
 
 export interface SynthgridOptions {
-  cols?: number;      // default 36
-  rows?: number;      // default 10
-  speed?: number;     // default 0.4
-  numVLines?: number; // default 7
+	cols?: number;      // default 36
+	rows?: number;      // default 10
+	speed?: number;     // default 0.4
+	numVLines?: number; // default 7
 }
 
 export function renderSynthgrid(
-  animState: AnimationState,
-  theme: ThemeConfig,
-  opts?: SynthgridOptions,
+	animState: AnimationState,
+	theme: ThemeConfig,
+	opts?: SynthgridOptions,
 ): string {
-  const cols = opts?.cols ?? 36;
-  const rows = opts?.rows ?? 10;
-  const speed = opts?.speed ?? 0.4;
-  const numVLines = opts?.numVLines ?? 7;
-  const tick = animState.tickCount;
+	const cols = opts?.cols ?? 36;
+	const rows = opts?.rows ?? 10;
+	const speed = opts?.speed ?? 0.4;
+	const numVLines = opts?.numVLines ?? 7;
+	const tick = animState.tickCount;
 
-  const grid: string[][] = Array.from({ length: rows }, () => new Array(cols).fill(' '));
-  const isHoriz: boolean[][] = Array.from({ length: rows }, () => new Array(cols).fill(false));
+	const grid: string[][] = Array.from({ length: rows }, () => new Array(cols).fill(' '));
+	const isHoriz: boolean[][] = Array.from({ length: rows }, () => new Array(cols).fill(false));
 
-  const VX = cols / 2;
+	const VX = cols / 2;
 
-  for (let y = 0; y < rows; y++) {
-    const progress = y / (rows - 1); // 0 = horizon, 1 = nearest
-    const tColor = progress * 0.8 + 0.2;
+	for (let y = 0; y < rows; y++) {
+		const progress = rows <= 1 ? 1 : y / (rows - 1); // 0 = horizon, 1 = nearest
+		const tColor = progress * 0.8 + 0.2;
 
-    // Horizontal lines: perspective spacing — denser near bottom
-    const spacing = Math.max(1, Math.round(8 - progress * 6));
-    const phase = (tick * speed) % spacing;
-    if (Math.round(y + phase) % spacing === 0) {
-      for (let x = 0; x < cols; x++) {
-        grid[y][x] = style({ fg: lerpColor(theme.breathBaseColor, theme.breathPeakColor, tColor) })('─');
-        isHoriz[y][x] = true;
-      }
-    }
+		// Horizontal lines: perspective spacing — denser near bottom
+		const spacing = Math.max(1, Math.round(8 - progress * 6));
+		const phase = (tick * speed) % spacing;
+		if (Math.round(y + phase) % spacing === 0) {
+			for (let x = 0; x < cols; x++) {
+				grid[y]![x] = style({ fg: lerpColor(theme.breathBaseColor, theme.breathPeakColor, tColor) })('─');
+				isHoriz[y]![x] = true;
+			}
+		}
 
-    // Vertical lines converging to vanishing point at top-center
-    for (let vi = 0; vi <= numVLines; vi++) {
-      const edgeX = (vi / numVLines) * cols;
-      const vx = Math.round(VX + (edgeX - VX) * progress);
-      if (vx >= 0 && vx < cols) {
-        const vColor = lerpColor(theme.breathBaseColor, theme.breathPeakColor, tColor * 0.85);
-        grid[y][vx] = style({ fg: vColor })(isHoriz[y][vx] ? '┼' : '│');
-      }
-    }
-  }
+		// Vertical lines converging to vanishing point at top-center
+		for (let vi = 0; vi <= numVLines; vi++) {
+			const edgeX = (vi / numVLines) * cols;
+			const vx = Math.round(VX + (edgeX - VX) * progress);
+			if (vx >= 0 && vx < cols) {
+				const vColor = lerpColor(theme.breathBaseColor, theme.breathPeakColor, tColor * 0.85);
+				grid[y]![vx] = style({ fg: vColor })(isHoriz[y]![vx] ? '┼' : '│');
+			}
+		}
+	}
 
-  return grid.map(r => r.join('')).join('\n');
+	return grid.map(r => r.join('')).join('\n');
 }
 
 // ─── Preset 8: Noise Field ───────────────────────────────────────────────────
 
 export interface NoiseFieldOptions {
-  cols?: number;       // default 24
-  rows?: number;       // default 8
-  timeScale?: number;  // default 0.025
-  freqScale?: number;  // default 1.0
+	cols?: number;       // default 24
+	rows?: number;       // default 8
+	timeScale?: number;  // default 0.025
+	freqScale?: number;  // default 1.0
 }
 
 export function renderNoiseField(
-  animState: AnimationState,
-  theme: ThemeConfig,
-  opts?: NoiseFieldOptions,
+	animState: AnimationState,
+	theme: ThemeConfig,
+	opts?: NoiseFieldOptions,
 ): string {
-  const cols = opts?.cols ?? 24;
-  const rows = opts?.rows ?? 8;
-  const timeScale = opts?.timeScale ?? 0.025;
-  const freqScale = opts?.freqScale ?? 1.0;
-  const t = animState.tickCount * timeScale;
-  const PAL = ['░', '▒', '▓', '█'] as const;
+	const cols = opts?.cols ?? 24;
+	const rows = opts?.rows ?? 8;
+	const timeScale = opts?.timeScale ?? 0.025;
+	const freqScale = opts?.freqScale ?? 1.0;
+	const t = animState.tickCount * timeScale;
+	const PAL = ['░', '▒', '▓', '█'] as const;
 
-  const rowStrings: string[] = [];
-  for (let y = 0; y < rows; y++) {
-    let row = '';
-    for (let x = 0; x < cols; x++) {
-      const fx = x * freqScale;
-      const fy = y * freqScale;
-      const v = (
-        Math.sin(fx * 0.7 + t) * Math.cos(fy * 0.5 - t * 0.3) +
-        Math.cos(fx * 0.3 + t * 0.7) * Math.sin(fy * 0.8 + t * 0.2) +
-        Math.sin((fx + fy) * 0.4 + t * 0.5)
-      ) / 3; // v ∈ [-1, 1]
-      const normalized = (v + 1) / 2; // → [0, 1]
-      const color = lerpColor(theme.breathBaseColor, theme.breathPeakColor, normalized);
-      const charIdx = Math.min(PAL.length - 1, Math.floor(normalized * PAL.length));
-      row += style({ fg: color })(PAL[charIdx]!);
-    }
-    rowStrings.push(row);
-  }
-  return rowStrings.join('\n');
+	const rowStrings: string[] = [];
+	for (let y = 0; y < rows; y++) {
+		let row = '';
+		for (let x = 0; x < cols; x++) {
+			const fx = x * freqScale;
+			const fy = y * freqScale;
+			const v = (
+				Math.sin(fx * 0.7 + t) * Math.cos(fy * 0.5 - t * 0.3) +
+				Math.cos(fx * 0.3 + t * 0.7) * Math.sin(fy * 0.8 + t * 0.2) +
+				Math.sin((fx + fy) * 0.4 + t * 0.5)
+			) / 3; // v ∈ [-1, 1]
+			const normalized = (v + 1) / 2; // → [0, 1]
+			const color = lerpColor(theme.breathBaseColor, theme.breathPeakColor, normalized);
+			const charIdx = Math.min(PAL.length - 1, Math.floor(normalized * PAL.length));
+			row += style({ fg: color })(PAL[charIdx]!);
+		}
+		rowStrings.push(row);
+	}
+	return rowStrings.join('\n');
 }
