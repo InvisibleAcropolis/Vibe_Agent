@@ -475,7 +475,7 @@ export function createStarfield(opts?: StarfieldOptions): (animState: AnimationS
 	const stars: Star[] = Array.from({ length: count }, () => ({
 		x: (Math.random() - 0.5) * 2,
 		y: (Math.random() - 0.5) * 2,
-		z: Math.random(),
+		z: Math.random() * 0.9 + 0.1, // (0.1, 1.0] — avoids z=0 division risk
 	}));
 
 	const STAR_CHARS = ['.', '·', '✦', '★'] as const;
