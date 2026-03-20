@@ -885,3 +885,166 @@ export function createWaterRipple(opts?: WaterRippleOptions): (animState: Animat
 		return rowStrings.join('\n');
 	};
 }
+
+// ─── Preset 17: Matrix Rain ────────────────────────────────────────────────
+
+export interface MatrixRainOptions {
+	cols?: number;           // default 12
+	rows?: number;           // default 8
+	mutationRate?: number;   // default 0.05
+	speedMin?: number;       // default 0.3
+	speedMax?: number;       // default 1.2
+	trailLengthMin?: number; // default 6
+	trailLengthMax?: number; // default 18
+}
+
+export function createMatrixRain(opts?: MatrixRainOptions): (animState: AnimationState, theme: ThemeConfig) => string {
+	const cols = opts?.cols ?? 12;
+	const rows = opts?.rows ?? 8;
+	const mutationRate = opts?.mutationRate ?? 0.05;
+	const speedMin = opts?.speedMin ?? 0.3;
+	const speedMax = opts?.speedMax ?? 1.2;
+	const trailLengthMin = opts?.trailLengthMin ?? 6;
+	const trailLengthMax = opts?.trailLengthMax ?? 18;
+
+	// Half-width katakana U+FF66–U+FF9D + digits
+	const KATAKANA = Array.from({ length: 0xFF9D - 0xFF66 + 1 }, (_, i) => String.fromCodePoint(0xFF66 + i));
+	const GLYPH_SET = [...KATAKANA, ...'0123456789'.split('')];
+
+	function randGlyph(): string { return GLYPH_SET[Math.floor(Math.random() * GLYPH_SET.length)]!; }
+
+	// Per-cell glyph grid
+	const glyphs: string[][] = Array.from({ length: rows }, () =>
+		Array.from({ length: cols }, randGlyph)
+	);
+
+	interface Column {
+		headY: number;
+		speed: number;
+		trailLength: number;
+		tickAcc: number;
+		active: boolean;
+		restartDelay: number;
+	}
+
+	function spawnCol(): Column {
+		return {
+			headY: -Math.floor(Math.random() * rows),
+			speed: speedMin + Math.random() * (speedMax - speedMin),
+			trailLength: trailLengthMin + Math.floor(Math.random() * (trailLengthMax - trailLengthMin)),
+			tickAcc: 0,
+			active: true,
+			restartDelay: 0,
+		};
+	}
+
+	const columns: Column[] = Array.from({ length: cols }, spawnCol);
+
+	return (_animState: AnimationState, theme: ThemeConfig): string => {
+		// Mutate glyphs
+		for (let r = 0; r < rows; r++) {
+			for (let c = 0; c < cols; c++) {
+				if (Math.random() < mutationRate) glyphs[r]![c] = randGlyph();
+			}
+		}
+
+		// Advance column heads
+		for (const col of columns) {
+			if (!col.active) {
+				col.restartDelay--;
+				if (col.restartDelay <= 0) Object.assign(col, spawnCol());
+				continue;
+			}
+			col.tickAcc += col.speed;
+			while (col.tickAcc >= 1) { col.headY++; col.tickAcc--; }
+			if (col.headY >= rows + col.trailLength) {
+				col.active = false;
+				col.restartDelay = 20 + Math.floor(Math.random() * 60);
+			}
+		}
+
+		const rowStrings: string[] = [];
+		for (let y = 0; y < rows; y++) {
+			let row = '';
+			for (let x = 0; x < cols; x++) {
+				const col = columns[x]!;
+				const glyph = glyphs[y]![x]!;
+
+				if (!col.active) {
+					row += style({ fg: '#1a3348' })(glyph);
+					continue;
+				}
+
+				const dist = col.headY - y;
+				if (dist < 0) {
+					row += style({ fg: '#1a3348' })(glyph);
+				} else if (dist === 0) {
+					// Head — peak color (brightest)
+					row += style({ fg: theme.breathPeakColor })(glyph);
+				} else if (dist < col.trailLength) {
+					const t = 1 - dist / col.trailLength;
+					const color = lerpColor('#1a3348', theme.breathBaseColor, t);
+					row += style({ fg: color })(glyph);
+				} else {
+					row += style({ fg: '#1a3348' })(glyph);
+				}
+			}
+			rowStrings.push(row);
+		}
+		return rowStrings.join('\n');
+	};
+}
+
+// ─── Preset 18: Laser Scan Beam ──────────────────────────────────────────────
+
+export interface LaserScanOptions {
+	cols?: number;       // default 28
+	rows?: number;       // default 6
+	speed?: number;      // default 0.5 — cells per tick
+	beamWidth?: number;  // default 5 — Gaussian σ
+}
+
+export function createLaserScan(opts?: LaserScanOptions): (animState: AnimationState, theme: ThemeConfig) => string {
+	const cols = opts?.cols ?? 28;
+	const rows = opts?.rows ?? 6;
+	const speed = opts?.speed ?? 0.5;
+	const beamWidth = opts?.beamWidth ?? 5;
+
+	// Static randomized glyph grid
+	const data: string[][] = Array.from({ length: rows }, () =>
+		Array.from({ length: cols }, () => ANIMATION_GLYPHS[Math.floor(Math.random() * ANIMATION_GLYPHS.length)]!)
+	);
+
+	let beamPos = 0;
+	let lastBeamCol = -1;
+
+	return (_animState: AnimationState, theme: ThemeConfig): string => {
+		beamPos = (beamPos + speed) % (cols + beamWidth * 2);
+		// Re-randomize the column the beam just passed through
+		const currentCol = Math.floor(beamPos - beamWidth);
+		if (currentCol !== lastBeamCol && currentCol >= 0 && currentCol < cols) {
+			for (let y = 0; y < rows; y++) {
+				data[y]![currentCol] = ANIMATION_GLYPHS[Math.floor(Math.random() * ANIMATION_GLYPHS.length)]!;
+			}
+			lastBeamCol = currentCol;
+		}
+
+		const rowStrings: string[] = [];
+		for (let y = 0; y < rows; y++) {
+			let row = '';
+			for (let x = 0; x < cols; x++) {
+				const glyph = data[y]![x]!;
+				const dist = x - (beamPos - beamWidth); // offset so beam enters from left
+				const intensity = Math.exp(-(dist * dist) / (2 * beamWidth * beamWidth));
+				if (intensity < 0.04) {
+					row += style({ fg: '#1a3348' })(glyph);
+				} else {
+					const color = lerpColor(theme.breathBaseColor, theme.breathPeakColor, intensity);
+					row += style({ fg: color })(glyph);
+				}
+			}
+			rowStrings.push(row);
+		}
+		return rowStrings.join('\n');
+	};
+}
