@@ -6,6 +6,12 @@ import { visibleWidth, type Component } from "@mariozechner/pi-tui";
  * Right component gets rightWidth columns.
  */
 export class SideBySideContainer implements Component {
+	/**
+	 * When non-null, render() fills all rows with this character instead of the actual components.
+	 * Used for the block-fill wipe transition (░ ▒ ▓ █) during session switches.
+	 */
+	wipeChar: string | null = null;
+
 	constructor(
 		public left: Component,
 		public right: Component | null,
@@ -19,6 +25,12 @@ export class SideBySideContainer implements Component {
 	}
 
 	render(width: number): string[] {
+		// B: Block-fill wipe transition — fill the area with the wipe character
+		if (this.wipeChar !== null) {
+			const rows = this.left.render(width).length || 1;
+			return Array.from({ length: rows }, () => this.wipeChar!.repeat(width));
+		}
+
 		if (!this.right) {
 			return this.left.render(width);
 		}

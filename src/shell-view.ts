@@ -2,7 +2,7 @@ import * as path from "node:path";
 import { Container, Text, TUI, type Component, type Terminal } from "@mariozechner/pi-tui";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AgentHost, AgentHostState } from "./agent-host.js";
-import type { AppStateStore } from "./app-state-store.js";
+import type { AppShellState, AppStateStore } from "./app-state-store.js";
 import { paintBoxLineTwoParts, separatorLine } from "./ansi.js";
 import type { AnimationEngine } from "./animation-engine.js";
 import { FooterDataProvider } from "./footer-data-provider.js";
@@ -325,11 +325,32 @@ export class DefaultShellView implements ShellView {
 				logoLines.push(paintBoxLineTwoParts(helpLeft, `  ${bc("║")}`, cols, " ", undefined, agentTheme.headerLine));
 			}
 
+			// Context banner line (e.g. "Connect a provider", "Choose a model" — actionable setup warnings)
+			const contextTitle = state.contextTitle;
+			if (contextTitle) {
+				const toneStylers: Record<NonNullable<AppShellState["contextTone"]>, (s: string) => string> = {
+					accent: agentTheme.bannerAccent,
+					info: agentTheme.bannerInfo,
+					success: agentTheme.bannerSuccess,
+					warning: agentTheme.bannerWarning,
+					dim: agentTheme.bannerDim,
+				};
+				const toneStyler = toneStylers[state.contextTone ?? "info"] ?? agentTheme.bannerInfo;
+				const contextLeft = `${bc("║")}  ${toneStyler(`  ${contextTitle}  `)}`;
+				logoLines.push(paintBoxLineTwoParts(contextLeft, `  ${bc("║")}`, cols, " ", undefined, agentTheme.headerLine));
+			}
+
 			// Bottom border
 			logoLines.push(paintBoxLineTwoParts(`${bc("╚")}`, bc("╝"), cols, "═", bc, agentTheme.headerLine));
 
 			this.chromeLogo.setText(logoLines.join("\n"));
 		}
+
+		// B: Block-fill wipe transition (░ ▒ ▓ █ over 4 ticks, then clear)
+		const WIPE_CHARS = ["░", "▒", "▓", "█"] as const;
+		this.contentArea.wipeChar = animState.wipeTransition.active
+			? (WIPE_CHARS[Math.min(animState.wipeTransition.frame - 1, 3)] ?? null)
+			: null;
 
 		// C: Animated separator glyphs (crawl offset shifts by 1 every 8 ticks)
 		this.chromeSeparatorTop.setText(separatorLine(cols, animState.separatorOffset, agentTheme.border));
