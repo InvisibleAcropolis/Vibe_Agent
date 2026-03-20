@@ -793,10 +793,13 @@ tests.push({
 		const { AnimationEngine } = await import("../src/animation-engine.js");
 		const engine = new AnimationEngine();
 		engine.start();
-		engine.triggerFocusFlash("sessions");
-		assert.strictEqual(engine.getState().focusFlashTicks, 3);
-		assert.strictEqual(engine.getState().focusedComponent, "sessions");
-		engine.stop();
+		try {
+			engine.triggerFocusFlash("sessions");
+			assert.strictEqual(engine.getState().focusFlashTicks, 3);
+			assert.strictEqual(engine.getState().focusedComponent, "sessions");
+		} finally {
+			engine.stop();
+		}
 	},
 });
 
@@ -806,13 +809,14 @@ tests.push({
 		const { AnimationEngine } = await import("../src/animation-engine.js");
 		const engine = new AnimationEngine();
 		engine.setTypewriterTarget("AB");
-		// Simulate ticks manually via getState after calling tick indirectly
-		// (tick is private — test via start/stop with short timeout)
 		engine.start();
-		await new Promise(r => setTimeout(r, 250)); // ~3 ticks at 80ms each
-		const state = engine.getState();
-		assert.ok(state.typewriter.displayed.length > 0, "Typewriter should have advanced");
-		engine.stop();
+		try {
+			await new Promise(r => setTimeout(r, 500)); // ~6 ticks at 80ms, well past 2-tick threshold
+			const state = engine.getState();
+			assert.ok(state.typewriter.displayed.length > 0, "Typewriter should have advanced");
+		} finally {
+			engine.stop();
+		}
 	},
 });
 

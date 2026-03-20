@@ -8,8 +8,8 @@ export interface AnimationState {
 	tickCount: number;
 	// --- New fields ---
 	focusFlashTicks: number;      // A: counts down 3→0 on focus change
-	focusedComponent: string;     // A: "editor" | "sessions" | "overlay"
-	wipeTransition: { active: boolean; frame: number }; // B: 0-3 = fill chars, ≥4 = done
+	focusedComponent: "editor" | "sessions" | "overlay"; // A
+	wipeTransition: { active: boolean; frame: number }; // B: frame 0 = trigger value; 1-3 = fill chars during tick; ≥4 = done (resets)
 	separatorOffset: number;      // C: increments every 8 ticks for crawling separator
 	typewriter: { target: string; displayed: string; ticksSinceChar: number }; // E
 }
@@ -63,7 +63,7 @@ export class AnimationEngine {
 	}
 
 	/** A: Trigger selection flash on focus change */
-	triggerFocusFlash(component: string): void {
+	triggerFocusFlash(component: "editor" | "sessions" | "overlay"): void {
 		this.state.focusFlashTicks = 3;
 		this.state.focusedComponent = component;
 	}
@@ -115,11 +115,12 @@ export class AnimationEngine {
 
 		// E: Typewriter
 		if (this.state.typewriter.displayed !== this.state.typewriter.target) {
-			this.state.typewriter.ticksSinceChar++;
-			if (this.state.typewriter.ticksSinceChar >= 2) {
-				this.state.typewriter.ticksSinceChar = 0;
+			const ticks = this.state.typewriter.ticksSinceChar + 1;
+			if (ticks >= 2) {
 				const next = this.state.typewriter.target.slice(0, this.state.typewriter.displayed.length + 1);
-				this.state.typewriter = { ...this.state.typewriter, displayed: next };
+				this.state.typewriter = { ...this.state.typewriter, displayed: next, ticksSinceChar: 0 };
+			} else {
+				this.state.typewriter = { ...this.state.typewriter, ticksSinceChar: ticks };
 			}
 		}
 
