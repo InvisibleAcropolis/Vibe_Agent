@@ -356,7 +356,9 @@ export function createDoomFire(opts?: DoomFireOptions): (animState: AnimationSta
 	const PAL = ' .,:;+=ox#%@';
 
 	return (_animState: AnimationState, theme: ThemeConfig): string => {
-		// Propagate fire upward (Sanglard algorithm — integer subtraction, NOT multiplier)
+		// Propagate fire upward: y iterates from bottom-1 UP to 0 so that row y-1
+		// (already processed this frame) receives heat from row y (not yet overwritten).
+		// Sanglard algorithm: integer subtraction only (rand & 1 gives 0 or 1), NOT a multiplier.
 		for (let y = 1; y < H; y++) {
 			for (let x = 0; x < W; x++) {
 				const rand = Math.floor(Math.random() * 3); // 0, 1, or 2
@@ -413,8 +415,9 @@ export function createSpectrumBars(opts?: SpectrumBarsOptions): (animState: Anim
 	return (_animState: AnimationState, theme: ThemeConfig): string => {
 		// Advance phases and compute bar values
 		const vals = phases.map((ph, i) => {
-			phases[i] = ph + (0.06 + i * 0.004) * speed;
-			return (Math.sin(phases[i]!) * 0.5 + 0.5) * 0.9 + 0.05;
+			const newPhase = ph + (0.06 + i * 0.004) * speed;
+			phases[i] = newPhase;
+			return (Math.sin(newPhase) * 0.5 + 0.5) * 0.9 + 0.05;
 		});
 
 		const grid: string[][] = Array.from({ length: rows }, () => new Array(cols).fill(''));
