@@ -276,8 +276,8 @@ export class DefaultShellView implements ShellView {
 		// bc = animated border color styler — used for all ╔═╗╠═╣╚═╝ box chars
 		const bc = dynTheme.borderAnimated;
 
-		// ╔══ ⬡ FutureIDE Agent · session [branch] ════════════════════ ● CONNECTED provider ══╗
-		const leftHeader = `${bc("╔══")} ${agentTheme.accentStrong("⬡ FutureIDE Agent")}${agentTheme.dim("  ·  ")}${agentTheme.chromeMeta(sessionLabel)}${branchLabel}`;
+		// ╔══ ⬡ Vibe Agent · session [branch] ════════════════════ ● CONNECTED provider ══╗
+		const leftHeader = `${bc("╔══")} ${agentTheme.accentStrong("⬡ Vibe Agent")}${agentTheme.dim("  ·  ")}${agentTheme.chromeMeta(sessionLabel)}${branchLabel}`;
 		const rightHeader = provider
 			? `${agentTheme.connectedIndicator("●")} ${agentTheme.chromeBadge(" CONNECTED ")} ${agentTheme.providerSegment(provider)} ${bc("══╗")}`
 			: `${agentTheme.warning("○")} ${agentTheme.dim("NO PROVIDER")} ${bc("══╗")}`;

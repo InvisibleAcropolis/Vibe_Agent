@@ -305,8 +305,8 @@ function createReadyAppOptions(): VibeAgentAppOptions {
 		?? registry.getAvailable()[0];
 	assert.ok(preferredModel, "Expected at least one model from ModelRegistry");
 
-	const tmpDir = mkdtempSync(path.join(os.tmpdir(), "futureide-ready-"));
-	const configPath = path.join(tmpDir, "future-ide-agent-config.json");
+	const tmpDir = mkdtempSync(path.join(os.tmpdir(), "vibeagent-ready-"));
+	const configPath = path.join(tmpDir, "vibe-agent-config.json");
 	AppConfig.save(
 		{
 			setupComplete: true,
@@ -341,12 +341,12 @@ async function withApp(
 
 const tests: TestCase[] = [
 	{
-		name: "boots and renders the FutureIDE Agent shell",
+		name: "boots and renders the Vibe Agent shell",
 		run: async () => {
 			const host = new FakeHost({ fallbackMessage: "No models available yet." });
 			await withApp(host, async (_app, terminal) => {
 				const viewport = await flush(terminal);
-				assert.ok(viewport.some((line) => line.includes("FutureIDE Agent")));
+				assert.ok(viewport.some((line) => line.includes("Vibe Agent")));
 				assert.ok(viewport.some((line) => line.includes("demo-session")));
 				assert.ok(viewport.some((line) => line.includes("No models available yet.")));
 			}, createReadyAppOptions());
@@ -464,9 +464,9 @@ const tests: TestCase[] = [
 		run: async () => {
 			const host = new FakeHost();
 			const terminal = new VirtualTerminal(110, 32);
-			const appRoot = mkdtempSync(path.join(os.tmpdir(), "futureide-agent-debug-"));
+			const appRoot = mkdtempSync(path.join(os.tmpdir(), "vibeagent-debug-"));
 			const debuggerSink = createAppDebugger({
-				appName: "future-ide-agent",
+				appName: "vibe-agent",
 				appRoot,
 				bundleDir: path.join(appRoot, ".debug", "test-run"),
 			});
@@ -517,8 +517,8 @@ const tests: TestCase[] = [
 	{
 		name: "AppConfig.load returns defaults when file is missing",
 		run: async () => {
-			const tmpDir = mkdtempSync(path.join(os.tmpdir(), "futureide-cfg-"));
-			const configPath = path.join(tmpDir, "future-ide-agent-config.json");
+			const tmpDir = mkdtempSync(path.join(os.tmpdir(), "vibeagent-cfg-"));
+			const configPath = path.join(tmpDir, "vibe-agent-config.json");
 			const cfg = AppConfig.load(configPath);
 			assert.strictEqual(cfg.setupComplete, false);
 			assert.strictEqual(cfg.selectedProvider, undefined);
@@ -527,8 +527,8 @@ const tests: TestCase[] = [
 	{
 		name: "AppConfig.save and load round-trips correctly",
 		run: async () => {
-			const tmpDir = mkdtempSync(path.join(os.tmpdir(), "futureide-cfg-"));
-			const configPath = path.join(tmpDir, "future-ide-agent-config.json");
+			const tmpDir = mkdtempSync(path.join(os.tmpdir(), "vibeagent-cfg-"));
+			const configPath = path.join(tmpDir, "vibe-agent-config.json");
 			AppConfig.save({ setupComplete: true, selectedProvider: "google-antigravity" }, configPath);
 			const loaded = AppConfig.load(configPath);
 			assert.strictEqual(loaded.setupComplete, true);
@@ -555,7 +555,7 @@ const tests: TestCase[] = [
 			await withApp(host, async (_app, terminal) => {
 				const viewport = await flush(terminal);
 				assert.ok(viewport.some((line) => line.includes("⬡")));
-				assert.ok(viewport.some((line) => line.includes("FutureIDE Agent")));
+				assert.ok(viewport.some((line) => line.includes("Vibe Agent")));
 				assert.ok(viewport.some((line) => line.includes("CONNECTED")));
 			}, createReadyAppOptions());
 		},
@@ -605,7 +605,7 @@ const tests: TestCase[] = [
 			await withApp(host, async (_app, terminal) => {
 				const viewport = await flush(terminal);
 				assert.ok(
-					viewport.some((line) => line.includes("FutureIDE Agent setup") || line.includes("Connect a provider")),
+					viewport.some((line) => line.includes("Vibe Agent setup") || line.includes("Connect a provider")),
 					"Should show setup entry copy",
 				);
 			});
@@ -650,9 +650,9 @@ const tests: TestCase[] = [
 			app.start();
 			try {
 				const viewport = await flush(terminal);
-				assert.ok(viewport.some((line) => line.includes("FutureIDE Agent")));
+				assert.ok(viewport.some((line) => line.includes("Vibe Agent")));
 				assert.ok(viewport.some((line) => line.includes("demo-session")));
-				assert.ok(!viewport.some((line) => line.includes("FutureIDE Agent setup")));
+				assert.ok(!viewport.some((line) => line.includes("Vibe Agent setup")));
 			} finally {
 				app.stop();
 				await new Promise<void>((resolve) => setImmediate(resolve));
@@ -663,7 +663,7 @@ const tests: TestCase[] = [
 		name: "WelcomeController.run resolves on skip (Esc)",
 		run: async () => {
 			const { WelcomeController } = await import("../src/welcome-controller.js");
-			const tmpDir = mkdtempSync(path.join(os.tmpdir(), "futureide-wc-"));
+			const tmpDir = mkdtempSync(path.join(os.tmpdir(), "vibeagent-wc-"));
 			const configPath = path.join(tmpDir, "cfg.json");
 			const cfg = AppConfig.load(configPath);
 
