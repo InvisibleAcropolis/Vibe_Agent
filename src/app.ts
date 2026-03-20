@@ -409,10 +409,20 @@ export class VibeAgentApp {
 			};
 		}
 		if (availableProviders.length === 0) {
-			return {
-				kind: "needs-provider",
-				reason: this.appConfig.setupComplete ? "disconnected" : "first-run",
-			};
+			// Only force setup if credentials genuinely absent
+			if (!this.appConfig.setupComplete || this.authStorage.list().length === 0) {
+				return {
+					kind: "needs-provider",
+					reason: this.appConfig.setupComplete ? "disconnected" : "first-run",
+				};
+			}
+			// Credentials exist, registry still loading — synthesize ready from saved config
+			const savedProvider = this.appConfig.selectedProvider;
+			const savedModel = this.appConfig.selectedModelId;
+			if (savedProvider && savedModel) {
+				return { kind: "ready", providerId: savedProvider, modelId: savedModel };
+			}
+			return { kind: "needs-provider", reason: "disconnected" };
 		}
 
 		let providerId = this.appConfig.selectedProvider;
