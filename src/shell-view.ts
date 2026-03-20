@@ -287,8 +287,8 @@ export class DefaultShellView implements ShellView {
 		}
 		this.chromeHeader.setText(headerLine);
 
-		// ╠══ ▀▀ FUTURE·IDE  ⬡  CONNECTED ● provider  model ══════════════════════════════════╣
-		const logoLeft = `${bc("╠══")} ${agentTheme.accentStrong("▀▀ FUTURE·IDE")}  ${agentTheme.dim("⬡")}  `;
+		// ╠══ ▀▀ VIBE·AGENT  ⬡  CONNECTED ● provider  model ══════════════════════════════════╣
+		const logoLeft = `${bc("╠══")} ${agentTheme.accentStrong("▀▀ VIBE·AGENT")}  ${agentTheme.dim("⬡")}  `;
 		const logoRight = provider
 			? `${agentTheme.success("CONNECTED")} ${agentTheme.dim("●")} ${agentTheme.providerSegment(provider)}  ${agentTheme.modelSegment(modelId ?? "none")}  ${bc("══╣")}`
 			: `${agentTheme.warning("SETUP REQUIRED")}  ${bc("══╣")}`;
