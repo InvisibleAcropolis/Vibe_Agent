@@ -634,8 +634,7 @@ export function createBoids(opts?: BoidsOptions): (animState: AnimationState, th
 
 		for (const b of boids) {
 			const x = Math.floor(b.x), y = Math.floor(b.y);
-			if (x < 0 || x >= cols || y < 0 || y >= rows) continue;
-			const angle = Math.atan2(b.vy, b.vx);
+			const angle = Math.atan2(-b.vy, b.vx); // negate vy: screen y-axis points down
 			const di = Math.round(((angle / (Math.PI * 2)) * 8 + 8)) % 8;
 			const spd = Math.hypot(b.vx, b.vy) / maxSpeed;
 			const color = lerpColor(theme.breathBaseColor, theme.breathPeakColor, 0.3 + spd * 0.7);
@@ -703,7 +702,7 @@ export function createFlowField(opts?: FlowFieldOptions): (animState: AnimationS
 		const brightnessGrid: number[][] = Array.from({ length: rows }, () => new Array(cols).fill(0));
 
 		for (const p of particles) {
-			const angle = Math.atan2(p.vy, p.vx);
+			const angle = Math.atan2(-p.vy, p.vx); // negate vy: screen y-axis points down
 			const di = Math.round(((angle / (Math.PI * 2)) * 8 + 8)) % 8;
 
 			p.trail.forEach((pos, i) => {
