@@ -346,7 +346,8 @@ const tests: TestCase[] = [
 			const host = new FakeHost({ fallbackMessage: "No models available yet." });
 			await withApp(host, async (_app, terminal) => {
 				const viewport = await flush(terminal);
-				assert.ok(viewport.some((line) => line.includes("Vibe Agent")));
+				// The ANSI logo block renders "VIBE AGENT" in block letters
+				assert.ok(viewport.some((line) => line.includes("██╗   ██╗")), "Expected ANSI block-letter logo");
 				assert.ok(viewport.some((line) => line.includes("demo-session")));
 				assert.ok(viewport.some((line) => line.includes("No models available yet.")));
 			}, createReadyAppOptions());
@@ -504,13 +505,14 @@ const tests: TestCase[] = [
 		},
 	},
 	{
-		name: "displays keybinding hints in the header",
+		name: "displays session info in the header",
 		run: async () => {
 			const host = new FakeHost();
 			await withApp(host, async (_app, terminal) => {
 				const viewport = await flush(terminal);
-				assert.ok(viewport.some((line) => line.includes("F1 palette")));
-				assert.ok(viewport.some((line) => line.includes("Ctrl+Q quit")));
+				// The new logo block shows Session/Thread/CTX info bar
+				assert.ok(viewport.some((line) => line.includes("Session:")), "Expected Session: in logo info bar");
+				assert.ok(viewport.some((line) => line.includes("CTX:")), "Expected CTX: in logo info bar");
 			}, createReadyAppOptions());
 		},
 	},
@@ -549,14 +551,17 @@ const tests: TestCase[] = [
 		},
 	},
 	{
-		name: "powerline header shows logo mark and connection indicator when provider active",
+		name: "powerline header shows logo block and provider in footer",
 		run: async () => {
 			const host = new FakeHost();
 			await withApp(host, async (_app, terminal) => {
 				const viewport = await flush(terminal);
+				// The footer still shows the provider with ⬡ icon
 				assert.ok(viewport.some((line) => line.includes("⬡")));
-				assert.ok(viewport.some((line) => line.includes("Vibe Agent")));
-				assert.ok(viewport.some((line) => line.includes("CONNECTED")));
+				// The ANSI logo block contains block-letter characters from "VIBE AGENT"
+				assert.ok(viewport.some((line) => line.includes("██╗   ██╗")), "Expected ANSI block-letter logo");
+				// Session info is shown in the logo block info bar
+				assert.ok(viewport.some((line) => line.includes("Session:")));
 			}, createReadyAppOptions());
 		},
 	},
@@ -650,7 +655,8 @@ const tests: TestCase[] = [
 			app.start();
 			try {
 				const viewport = await flush(terminal);
-				assert.ok(viewport.some((line) => line.includes("Vibe Agent")));
+				// The ANSI logo block renders "VIBE AGENT" in block letters
+				assert.ok(viewport.some((line) => line.includes("██╗   ██╗")), "Expected ANSI block-letter logo");
 				assert.ok(viewport.some((line) => line.includes("demo-session")));
 				assert.ok(!viewport.some((line) => line.includes("Vibe Agent setup")));
 			} finally {
@@ -731,7 +737,7 @@ const tests: TestCase[] = [
 	},
 ];
 
-// New test: verify app title contains "Vibe Agent"
+// New test: verify app renders ANSI logo (replacing old "Vibe Agent" text check)
 const vibeAgentTitleTest: TestCase = {
 	name: "app title is Vibe Agent",
 	run: async () => {
@@ -739,12 +745,30 @@ const vibeAgentTitleTest: TestCase = {
 		const app = new VibeAgentApp({ terminal });
 		app.start();
 		const lines = await flush(terminal);
-		assert.ok(lines.some(l => l.includes("Vibe Agent")), `Expected 'Vibe Agent' in output, got:\n${lines.join("\n")}`);
+		// The ANSI logo block renders "VIBE AGENT" in block letters
+		assert.ok(lines.some(l => l.includes("██╗   ██╗") || l.includes("Session:")), `Expected ANSI logo or Session info in output, got:\n${lines.join("\n")}`);
 		app.stop();
 		await new Promise<void>((resolve) => setImmediate(resolve));
 	},
 };
 tests.push(vibeAgentTitleTest);
+
+// Task 2: verify logo renders "VIBE AGENT" ASCII art
+tests.push({
+	name: "logo renders VIBE AGENT ASCII art",
+	run: async () => {
+		const terminal = new VirtualTerminal(120, 40);
+		const app = new VibeAgentApp({ terminal, ...createReadyAppOptions() });
+		app.start();
+		const lines = await flush(terminal);
+		// The block letter V starts with ██╗   ██╗
+		assert.ok(lines.some(l => l.includes("██╗   ██╗")), `Expected block-letter V in logo, got:\n${lines.join("\n")}`);
+		// The logo should contain ████████╗ (from T in AGENT)
+		assert.ok(lines.some(l => l.includes("████████╗")), `Expected block-letter T in logo, got:\n${lines.join("\n")}`);
+		app.stop();
+		await new Promise<void>((resolve) => setImmediate(resolve));
+	},
+});
 
 let failures = 0;
 for (const test of tests) {

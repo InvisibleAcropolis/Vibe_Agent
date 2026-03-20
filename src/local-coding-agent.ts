@@ -22,6 +22,8 @@ export {
 export { SessionManager } from "../coding-agent/src/core/session-manager.js";
 export type { SessionInfo } from "../coding-agent/src/core/session-manager.js";
 
+export { estimateContextTokens } from "../coding-agent/src/core/compaction/compaction.js";
+
 export { AuthStorage } from "../coding-agent/src/core/auth-storage.js";
 export type { AuthStorageBackend } from "../coding-agent/src/core/auth-storage.js";
 export { ModelRegistry } from "../coding-agent/src/core/model-registry.js";

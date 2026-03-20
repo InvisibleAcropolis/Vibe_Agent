@@ -106,7 +106,7 @@ export class VibeAgentApp {
 			},
 		});
 		const terminal = new MouseEnabledTerminal(options.terminal ?? new ProcessTerminal());
-		this.shellView = new DefaultShellView(terminal, this.stateStore, () => this.safeGetHostState(), this.animEngine);
+		this.shellView = new DefaultShellView(terminal, this.stateStore, () => this.safeGetHostState(), () => this.safeGetMessages(), undefined, this.animEngine);
 		const keybindings = InternalKeybindingsManager.create();
 
 		this.overlayController = new DefaultOverlayController(

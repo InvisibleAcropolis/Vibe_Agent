@@ -1,14 +1,33 @@
 import * as path from "node:path";
-import { Container, Spacer, Text, TUI, type Component, type Terminal } from "@mariozechner/pi-tui";
+import { Container, Text, TUI, type Component, type Terminal } from "@mariozechner/pi-tui";
+import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AgentHostState } from "./agent-host.js";
 import type { AppStateStore } from "./app-state-store.js";
-import { glitchLine, innerBoxBottom, innerBoxLine, innerBoxSep, innerBoxTop, paintBoxLineTwoParts, paintLine, paintLineTwoParts } from "./ansi.js";
+import { paintBoxLineTwoParts } from "./ansi.js";
 import type { AnimationEngine } from "./animation-engine.js";
 import { FooterDataProvider } from "./footer-data-provider.js";
-import { theme as codingAgentTheme, type Theme } from "./local-coding-agent.js";
+import { estimateContextTokens, theme as codingAgentTheme, type Theme } from "./local-coding-agent.js";
 import { agentTheme, createDynamicTheme } from "./theme.js";
 
 const BRAILLE_FRAMES = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"] as const;
+
+// 6-line ANSI Shadow ASCII art for "VIBE AGENT"
+// Both words are 6 rows tall (E in VIBE + all AGENT letters have 6 rows).
+// Lines 1-5: VIBE letters close, AGENT letters still have content.
+// Line 6: Only E (from VIBE) and all AGENT letters show bottom connectors.
+const VIBE_AGENT_LOGO = [
+	"██╗   ██╗██╗██████╗ ███████╗  █████╗  ██████╗ ███████╗███╗   ██╗████████╗",
+	"██║   ██║██║██╔══██╗██╔════╝ ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝",
+	"╚██╗ ██╔╝██║██████╔╝█████╗   ███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║   ",
+	" ╚████╔╝ ██║██╔══██╗██╔══╝   ██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║   ",
+	"  ╚═══╝  ╚═╝╚═════╝ ███████╗ ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║   ",
+	"                    ╚══════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   ",
+] as const;
+
+function ctxBar(pct: number, width = 8): string {
+	const filled = Math.round((pct / 100) * width);
+	return "█".repeat(filled) + "░".repeat(width - filled);
+}
 
 type WidgetFactory = (tui: TUI, theme: Theme) => Component & { dispose?(): void };
 type FooterFactory = (tui: TUI, theme: Theme, footerData: FooterDataProvider) => Component & { dispose?(): void };
@@ -38,14 +57,13 @@ export class DefaultShellView implements ShellView {
 	readonly tui: TUI;
 	readonly footerData = new FooterDataProvider(process.cwd());
 	private readonly chatContainer = new Container();
-	private readonly headerContentContainer = new Container();
+	// customHeaderContainer: holds custom header components injected via setHeaderFactory
+	private readonly customHeaderContainer = new Container();
 	private readonly widgetContainerAbove = new Container();
 	private readonly widgetContainerBelow = new Container();
 	private readonly footerContentContainer = new Container();
 	private readonly editorContainer = new Container();
-	private readonly chromeHeader = new Text("", 0, 0);
 	private readonly chromeLogo = new Text("", 0, 0);
-	private readonly chromeHelp = new Text("", 0, 0);
 	private readonly chromeStatus = new Text("", 0, 0);
 	private readonly chromeSummary = new Text("", 0, 0);
 	private readonly extensionWidgetsAbove = new Map<string, WidgetFactory>();
@@ -60,13 +78,13 @@ export class DefaultShellView implements ShellView {
 		terminal: Terminal,
 		private readonly stateStore: AppStateStore,
 		private readonly getHostState: () => AgentHostState | undefined,
+		private readonly getMessages: () => AgentMessage[],
+		private readonly getAgentHost?: () => any,
 		private readonly animationEngine?: AnimationEngine,
 	) {
 		this.tui = new TUI(terminal, true);
-		this.tui.addChild(this.chromeHeader);
+		this.tui.addChild(this.customHeaderContainer);
 		this.tui.addChild(this.chromeLogo);
-		this.tui.addChild(this.chromeHelp);
-		this.tui.addChild(this.headerContentContainer);
 		this.tui.addChild(this.chatContainer);
 		this.tui.addChild(this.widgetContainerAbove);
 		this.tui.addChild(this.editorContainer);
@@ -140,7 +158,18 @@ export class DefaultShellView implements ShellView {
 
 	setHeaderFactory(factory: HeaderFactory | undefined): void {
 		this.customHeaderFactory = factory;
-		this.renderHeaderContent();
+		this.customHeaderContainer.clear();
+		this.customHeaderComponent?.dispose?.();
+		this.customHeaderComponent = undefined;
+		if (factory) {
+			this.customHeaderComponent = factory(this.tui, codingAgentTheme);
+			this.customHeaderContainer.addChild(this.customHeaderComponent);
+			// When a custom header is active, clear the logo block
+			this.chromeLogo.setText("");
+		} else {
+			// Restore the logo block
+			this.refreshChrome();
+		}
 		this.tui.requestRender();
 	}
 
@@ -156,80 +185,9 @@ export class DefaultShellView implements ShellView {
 
 	refresh(): void {
 		this.currentHostState = this.getHostState();
-		this.renderHeaderContent();
 		this.renderFooterContent();
 		this.renderWidgets();
 		this.refreshChrome();
-	}
-
-	private renderHeaderContent(): void {
-		this.headerContentContainer.clear();
-		this.customHeaderComponent?.dispose?.();
-		this.customHeaderComponent = undefined;
-		if (this.customHeaderFactory) {
-			this.customHeaderComponent = this.customHeaderFactory(this.tui, codingAgentTheme);
-			this.headerContentContainer.addChild(this.customHeaderComponent);
-			return;
-		}
-
-		const state = this.stateStore.getState();
-		const hostState = this.currentHostState;
-		const providerCount = this.footerData.getAvailableProviderCount();
-		const provider = hostState?.model?.provider;
-		const modelId = hostState?.model?.id;
-		const width = this.tui.terminal.columns;
-		// bs = dim border styler for inner boxes (subtle, not competing with outer chrome)
-		const bs = agentTheme.dim;
-
-		this.headerContentContainer.addChild(new Spacer(1));
-
-		if (state.contextTitle || state.contextMessage) {
-			// Custom context: one bordered box with the context title + message
-			const titleStyler = this.getBannerTitleStyle(state.contextTone);
-			const title = state.contextTitle ?? "STATUS";
-			this.headerContentContainer.addChild(new Text(innerBoxTop(title, width, bs, titleStyler), 0, 0));
-			if (state.contextMessage) {
-				this.headerContentContainer.addChild(new Text(innerBoxLine(state.contextMessage, width, bs), 0, 0));
-			}
-			this.headerContentContainer.addChild(new Text(innerBoxBottom(width, bs), 0, 0));
-		} else {
-			// Default banner: STATUS box (ready message + body) + CONNECTION section
-			this.headerContentContainer.addChild(
-				new Text(innerBoxTop("STATUS", width, bs, agentTheme.dim), 0, 0),
-			);
-			this.headerContentContainer.addChild(
-				new Text(innerBoxLine(agentTheme.accentStrong("Ready for your next task"), width, bs), 0, 0),
-			);
-			this.headerContentContainer.addChild(
-				new Text(innerBoxLine(agentTheme.muted("Type a prompt, press F1 for grouped commands, or use /setup to change provider defaults."), width, bs), 0, 0),
-			);
-
-			// CONNECTION section separator inside the same box
-			this.headerContentContainer.addChild(
-				new Text(innerBoxSep("CONNECTION", width, bs, agentTheme.dim), 0, 0),
-			);
-
-			const connectionLine = [
-				agentTheme.dim(`providers:${providerCount}`),
-				agentTheme.providerSegment(provider ? `⬡ ${provider}` : "none"),
-				agentTheme.modelSegment(modelId ?? "not selected"),
-			].join(agentTheme.segmentSep());
-			this.headerContentContainer.addChild(
-				new Text(innerBoxLine(connectionLine, width, bs), 0, 0),
-			);
-
-			this.headerContentContainer.addChild(new Text(innerBoxBottom(width, bs), 0, 0));
-		}
-
-		const helpMessage = state.helpMessage;
-		if (helpMessage) {
-			this.headerContentContainer.addChild(new Spacer(1));
-			this.headerContentContainer.addChild(
-				new Text(agentTheme.warning(`  ⚠  ${helpMessage}`), 0, 0),
-			);
-		}
-
-		this.headerContentContainer.addChild(new Spacer(1));
 	}
 
 	private renderFooterContent(): void {
@@ -257,15 +215,12 @@ export class DefaultShellView implements ShellView {
 	private refreshChrome(): void {
 		const state = this.stateStore.getState();
 		const hostState = this.currentHostState;
-		const sessionLabel = hostState?.sessionName ?? cwdLabel();
-		const gitBranch = this.footerData.getGitBranch();
-		const branchLabel = gitBranch ? agentTheme.dim(` [${gitBranch}]`) : "";
-		const providerCount = this.footerData.getAvailableProviderCount();
-		const provider = hostState?.model?.provider;
-		const modelId = hostState?.model?.id;
 		const pendingCount = hostState?.pendingMessageCount ?? 0;
 		const isStreaming = hostState?.isStreaming ?? false;
 		const isCompacting = hostState?.isCompacting ?? false;
+		const providerCount = this.footerData.getAvailableProviderCount();
+		const provider = hostState?.model?.provider;
+		const modelId = hostState?.model?.id;
 		const cols = this.tui.terminal.columns;
 
 		const animState = this.animationEngine?.getState() ?? {
@@ -276,32 +231,52 @@ export class DefaultShellView implements ShellView {
 		// bc = animated border color styler — used for all ╔═╗╠═╣╚═╝ box chars
 		const bc = dynTheme.borderAnimated;
 
-		// ╔══ ⬡ Vibe Agent · session [branch] ════════════════════ ● CONNECTED provider ══╗
-		const leftHeader = `${bc("╔══")} ${agentTheme.accentStrong("⬡ Vibe Agent")}${agentTheme.dim("  ·  ")}${agentTheme.chromeMeta(sessionLabel)}${branchLabel}`;
-		const rightHeader = provider
-			? `${agentTheme.connectedIndicator("●")} ${agentTheme.chromeBadge(" CONNECTED ")} ${agentTheme.providerSegment(provider)} ${bc("══╗")}`
-			: `${agentTheme.warning("○")} ${agentTheme.dim("NO PROVIDER")} ${bc("══╗")}`;
-		let headerLine = paintBoxLineTwoParts(leftHeader, rightHeader, cols, "═", bc, agentTheme.headerLine);
-		if (animState.glitchActive) {
-			headerLine = glitchLine(headerLine, 4);
+		// Only render the logo block if no custom header factory is active
+		if (!this.customHeaderFactory) {
+			// Build the 10-line logo + info block
+			const logoLines: string[] = [];
+
+			// Top border
+			logoLines.push(paintBoxLineTwoParts(`${bc("╔")}`, bc("╗"), cols, "═", bc, agentTheme.headerLine));
+
+			// 6 logo lines — each padded to full width inside the box
+			for (const logoRow of VIBE_AGENT_LOGO) {
+				const inner = `${bc("║")}  ${agentTheme.accentStrong(logoRow)}`;
+				logoLines.push(paintBoxLineTwoParts(inner, `  ${bc("║")}`, cols, " ", undefined, agentTheme.headerLine));
+			}
+
+			// Separator ╠═══╣
+			logoLines.push(paintBoxLineTwoParts(`${bc("╠")}`, bc("╣"), cols, "═", bc, agentTheme.headerLine));
+
+			// Info bar: Session / Thread / CTX
+			const sessionName = hostState?.sessionName ?? cwdLabel();
+			const threadName = this.footerData.getGitBranch() ?? "main";
+			const msgs = this.getMessages();
+			const contextWindow = hostState?.model?.contextWindow ?? 200000;
+			const ctxPct = msgs.length > 0
+				? Math.round(estimateContextTokens(msgs).tokens / contextWindow * 100)
+				: 0;
+			const ctxColor = ctxPct >= 70 ? agentTheme.warning : agentTheme.success;
+			const infoBar = [
+				`${agentTheme.info("Session:")} ${agentTheme.success(sessionName)}`,
+				`${agentTheme.info("Thread:")} ${agentTheme.accent(threadName)}`,
+				`${agentTheme.info("CTX:")} ${ctxColor(`${ctxPct}%`)} ${ctxColor(ctxBar(ctxPct))}`,
+			].join(agentTheme.segmentSep());
+			const infoLeft = `${bc("║")}  ${infoBar}`;
+			logoLines.push(paintBoxLineTwoParts(infoLeft, `  ${bc("║")}`, cols, " ", undefined, agentTheme.headerLine));
+
+			// Help/warning line (e.g. model fallback notice)
+			const helpMessage = state.helpMessage;
+			if (helpMessage) {
+				const helpLeft = `${bc("║")}  ${agentTheme.warning(`⚠  ${helpMessage}`)}`;
+				logoLines.push(paintBoxLineTwoParts(helpLeft, `  ${bc("║")}`, cols, " ", undefined, agentTheme.headerLine));
+			}
+
+			// Bottom border
+			logoLines.push(paintBoxLineTwoParts(`${bc("╚")}`, bc("╝"), cols, "═", bc, agentTheme.headerLine));
+
+			this.chromeLogo.setText(logoLines.join("\n"));
 		}
-		this.chromeHeader.setText(headerLine);
-
-		// ╠══ ▀▀ VIBE·AGENT  ⬡  CONNECTED ● provider  model ══════════════════════════════════╣
-		const logoLeft = `${bc("╠══")} ${agentTheme.accentStrong("▀▀ VIBE·AGENT")}  ${agentTheme.dim("⬡")}  `;
-		const logoRight = provider
-			? `${agentTheme.success("CONNECTED")} ${agentTheme.dim("●")} ${agentTheme.providerSegment(provider)}  ${agentTheme.modelSegment(modelId ?? "none")}  ${bc("══╣")}`
-			: `${agentTheme.warning("SETUP REQUIRED")}  ${bc("══╣")}`;
-		this.chromeLogo.setText(
-			paintBoxLineTwoParts(logoLeft, logoRight, cols, "═", bc, agentTheme.headerLine),
-		);
-
-		// ╠══ F1 palette · /setup /provider /model · /theme · Ctrl+Q ═════════════════════════╣
-		const helpLeft = `${bc("╠══")} ${agentTheme.chromeMeta("F1 palette · /setup /provider /model · /theme · Ctrl+Q quit")}`;
-		const helpRight = bc("══╣");
-		this.chromeHelp.setText(
-			paintBoxLineTwoParts(helpLeft, helpRight, cols, "═", bc, agentTheme.headerLine),
-		);
 
 		// ╠══ [status] ══════════════════════════════════════════════════════ [badges] ══╣
 		const statusText = state.workingMessage ?? state.statusMessage;
@@ -356,22 +331,6 @@ export class DefaultShellView implements ShellView {
 		this.chromeSummary.setText(
 			paintBoxLineTwoParts(summaryLeft, summaryRight, cols, "═", bc, agentTheme.footerLine),
 		);
-	}
-
-	private getBannerTitleStyle(tone: "accent" | "info" | "success" | "warning" | "dim" | undefined) {
-		switch (tone) {
-			case "success":
-				return agentTheme.bannerSuccess;
-			case "warning":
-				return agentTheme.bannerWarning;
-			case "dim":
-				return agentTheme.bannerDim;
-			case "info":
-				return agentTheme.bannerInfo;
-			case "accent":
-			default:
-				return agentTheme.bannerAccent;
-		}
 	}
 
 	private disposeCustomChrome(): void {
