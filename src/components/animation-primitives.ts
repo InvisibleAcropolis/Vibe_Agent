@@ -570,3 +570,155 @@ export function createVortex(opts?: VortexOptions): (animState: AnimationState, 
 		return grid.map(r => r.join('')).join('\n');
 	};
 }
+
+// ─── Preset 13: Boids Flocking ───────────────────────────────────────────────
+
+export interface BoidsOptions {
+	cols?: number;      // default 28
+	rows?: number;      // default 8
+	count?: number;     // default 25
+	maxSpeed?: number;  // default 0.5
+	radius?: number;    // default 6.0 — neighborhood radius; separation at radius*0.4
+}
+
+export function createBoids(opts?: BoidsOptions): (animState: AnimationState, theme: ThemeConfig) => string {
+	const cols = opts?.cols ?? 28;
+	const rows = opts?.rows ?? 8;
+	const count = opts?.count ?? 25;
+	const maxSpeed = opts?.maxSpeed ?? 0.5;
+	const radius = opts?.radius ?? 6.0;
+	const sepRadius = radius * 0.4;
+
+	interface Boid { x: number; y: number; vx: number; vy: number; }
+	const boids: Boid[] = Array.from({ length: count }, () => ({
+		x: Math.random() * cols,
+		y: Math.random() * rows,
+		vx: (Math.random() - 0.5) * 0.4,
+		vy: (Math.random() - 0.5) * 0.3,
+	}));
+
+	const DIRS = ['→', '↗', '↑', '↖', '←', '↙', '↓', '↘'] as const;
+
+	return (_animState: AnimationState, theme: ThemeConfig): string => {
+		for (const b of boids) {
+			let ax = 0, ay = 0; // alignment accumulator
+			let cx = 0, cy = 0; // cohesion accumulator
+			let sx = 0, sy = 0; // separation accumulator
+			let nc = 0;
+
+			for (const o of boids) {
+				if (o === b) continue;
+				const dx = o.x - b.x, dy = o.y - b.y;
+				const d = Math.hypot(dx, dy);
+				if (d < radius && d > 0) {
+					nc++;
+					ax += o.vx; ay += o.vy;
+					cx += o.x;  cy += o.y;
+					if (d < sepRadius) { sx -= dx / d * 0.06; sy -= dy / d * 0.06; }
+				}
+			}
+
+			if (nc > 0) {
+				b.vx += (ax / nc - b.vx) * 0.02 + (cx / nc - b.x) * 0.005 + sx;
+				b.vy += (ay / nc - b.vy) * 0.02 + (cy / nc - b.y) * 0.005 + sy;
+			}
+
+			const spd = Math.hypot(b.vx, b.vy);
+			if (spd > maxSpeed) { b.vx = b.vx / spd * maxSpeed; b.vy = b.vy / spd * maxSpeed; }
+
+			b.x = (b.x + b.vx + cols) % cols;
+			b.y = (b.y + b.vy + rows) % rows;
+		}
+
+		const grid: string[][] = Array.from({ length: rows }, () => new Array(cols).fill(' '));
+
+		for (const b of boids) {
+			const x = Math.floor(b.x), y = Math.floor(b.y);
+			if (x < 0 || x >= cols || y < 0 || y >= rows) continue;
+			const angle = Math.atan2(b.vy, b.vx);
+			const di = Math.round(((angle / (Math.PI * 2)) * 8 + 8)) % 8;
+			const spd = Math.hypot(b.vx, b.vy) / maxSpeed;
+			const color = lerpColor(theme.breathBaseColor, theme.breathPeakColor, 0.3 + spd * 0.7);
+			grid[y]![x] = style({ fg: color })(DIRS[di]!);
+		}
+
+		return grid.map(r => r.join('')).join('\n');
+	};
+}
+
+// ─── Preset 14: Flow Field Particles ────────────────────────────────────────
+
+export interface FlowFieldOptions {
+	cols?: number;      // default 28
+	rows?: number;      // default 8
+	count?: number;     // default 40
+	timeScale?: number; // default 0.015 — intentionally slower than renderNoiseField's 0.025
+}
+
+export function createFlowField(opts?: FlowFieldOptions): (animState: AnimationState, theme: ThemeConfig) => string {
+	const cols = opts?.cols ?? 28;
+	const rows = opts?.rows ?? 8;
+	const count = opts?.count ?? 40;
+	const timeScale = opts?.timeScale ?? 0.015;
+
+	interface Particle {
+		x: number; y: number;
+		vx: number; vy: number;
+		trail: Array<{ x: number; y: number }>;
+	}
+
+	const particles: Particle[] = Array.from({ length: count }, () => ({
+		x: Math.random() * cols,
+		y: Math.random() * rows,
+		vx: 0, vy: 0,
+		trail: [],
+	}));
+
+	const DIRS = ['→', '↗', '↑', '↖', '←', '↙', '↓', '↘'] as const;
+
+	return (animState: AnimationState, theme: ThemeConfig): string => {
+		const t = animState.tickCount * timeScale;
+
+		for (const p of particles) {
+			// Same trig noise formula as renderNoiseField, but with FlowField's own timeScale
+			const fx = p.x, fy = p.y;
+			const noiseVal = (
+				Math.sin(fx * 0.7 + t) * Math.cos(fy * 0.5 - t * 0.3) +
+				Math.cos(fx * 0.3 + t * 0.7) * Math.sin(fy * 0.8 + t * 0.2) +
+				Math.sin((fx + fy) * 0.4 + t * 0.5)
+			) / 3;
+			const angle = noiseVal * Math.PI;
+
+			p.vx = p.vx * 0.85 + Math.cos(angle) * 0.25;
+			p.vy = p.vy * 0.85 + Math.sin(angle) * 0.25;
+
+			p.trail.push({ x: Math.floor(p.x), y: Math.floor(p.y) });
+			if (p.trail.length > 4) p.trail.shift();
+
+			p.x = (p.x + p.vx + cols) % cols;
+			p.y = (p.y + p.vy + rows) % rows;
+		}
+
+		const grid: string[][] = Array.from({ length: rows }, () => new Array(cols).fill(' '));
+		const brightnessGrid: number[][] = Array.from({ length: rows }, () => new Array(cols).fill(0));
+
+		for (const p of particles) {
+			const angle = Math.atan2(p.vy, p.vx);
+			const di = Math.round(((angle / (Math.PI * 2)) * 8 + 8)) % 8;
+
+			p.trail.forEach((pos, i) => {
+				if (pos.x < 0 || pos.x >= cols || pos.y < 0 || pos.y >= rows) return;
+				const t2 = (i + 1) / p.trail.length;
+				if (t2 > brightnessGrid[pos.y]![pos.x]!) {
+					brightnessGrid[pos.y]![pos.x] = t2;
+					const isHead = i === p.trail.length - 1;
+					const char = isHead ? (DIRS[di] ?? '→') : '·';
+					const color = lerpColor(theme.breathBaseColor, theme.breathPeakColor, t2 * 0.7 + 0.2);
+					grid[pos.y]![pos.x] = style({ fg: color })(char);
+				}
+			});
+		}
+
+		return grid.map(r => r.join('')).join('\n');
+	};
+}
