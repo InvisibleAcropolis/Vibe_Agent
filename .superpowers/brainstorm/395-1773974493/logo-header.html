@@ -1,0 +1,77 @@
+<h2>Logo & Header Design</h2>
+<p class="subtitle">The ASCII logo for "VIBE AGENT" plus the new header showing Session / Thread / Context. Which style fits the vibe?</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="font-family:monospace;font-size:11px;line-height:1.5;background:#060e18;color:#5cd4ff;padding:14px;border-radius:4px;border:1px solid #254560;">
+<pre style="margin:0;">╔═══════════════════════════════════════════════════════╗
+║  ██╗   ██╗██╗██████╗ ███████╗                         ║
+║  ██║   ██║██║██╔══██╗██╔════╝                         ║
+║  ██║   ██║██║██████╔╝█████╗                           ║
+║  ╚██╗ ██╔╝██║██╔══██╗██╔══╝                           ║
+║   ╚████╔╝ ██║██████╔╝███████╗                         ║
+║    ╚═══╝  ╚═╝╚═════╝ ╚══════╝                         ║
+║   █████╗  ██████╗ ███████╗███╗  ██╗████████╗           ║
+║  ██╔══██╗██╔════╝ ██╔════╝████╗ ██║╚══██╔══╝          ║
+║  ███████║██║  ███╗█████╗  ██╔██╗██║   ██║             ║
+║  ██╔══██║██║   ██║██╔══╝  ██║╚████║   ██║             ║
+║  ██║  ██║╚██████╔╝███████╗██║ ╚███║   ██║             ║
+║  ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚══╝  ╚═╝             ║
+╠═══════════════════════════════════════════════════════╣
+║  Session: <span style="color:#66dd96;">my-project</span>  │  Thread: <span style="color:#5cd4ff;">main</span>  │  CTX: <span style="color:#f0c058;">82%</span> ████░ ║
+╚═══════════════════════════════════════════════════════╝</pre>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Block Font (Full-Block ASCII)</h3>
+      <p>Heavy filled block characters. Maximum visual impact, bold identity. Tall (~12 lines). Best for wide terminals. Classic "hacker ASCII art" aesthetic.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="font-family:monospace;font-size:11px;line-height:1.5;background:#060e18;color:#5cd4ff;padding:14px;border-radius:4px;border:1px solid #254560;">
+<pre style="margin:0;">╔══════════════════════════════════════════════════════╗
+║  ▌  ▌▀▄▀▀▄  ▄▀▀  ▄▀▄  ▄▀▀  ██  ▀▄▀▀▄▀▀▄▀▄▀▀▄         ║
+║  ▐▐▐  █  ██▄▄  █▄▄█  ██▄▄  ██   █ ██▄▄█▀█ ▀          ║
+║  ▌  ▌▄▀▄▄▀  ▀▄▄ ▀  ▀  ▀▄▄  ▀▀  ▄▀ ▀ ▀▄▄▀▄▀ ▄         ║
+╠══════════════════════════════════════════════════════╣
+║  Session: <span style="color:#66dd96;">my-project</span>  │  Thread: <span style="color:#5cd4ff;">main</span>  │  CTX: <span style="color:#f0c058;">82%</span> ████░ ║
+╚══════════════════════════════════════════════════════╝</pre>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Compact Stylized (3-line)</h3>
+      <p>Custom compact ASCII art, 3 lines tall. Takes minimal vertical space while still being a clear graphical identity. Leaves more room for chat content.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="font-family:monospace;font-size:11px;line-height:1.5;background:#060e18;color:#5cd4ff;padding:14px;border-radius:4px;border:1px solid #254560;">
+<pre style="margin:0;">╔══════════════════════════════════════════════════════╗
+║                                                      ║
+║    ██╗   ██╗ ██╗ ██████╗ ███████╗                    ║
+║    ██║   ██║ ██║ ██╔══██╗██╔════╝                    ║
+║    ╚██╗ ██╔╝ ██║ ██████╔╝█████╗                      ║
+║     ╚████╔╝  ██║ ██╔══██╗██╔══╝                      ║
+║      ╚═══╝   ╚═╝ ╚═════╝ ╚══════╝  <span style="color:#66dd96;">A G E N T</span>         ║
+║                                                      ║
+╠══════════════════════════════════════════════════════╣
+║  Session: <span style="color:#66dd96;">my-project</span>  │  Thread: <span style="color:#5cd4ff;">main</span>  │  CTX: <span style="color:#f0c058;">82%</span> ████░ ║
+╚══════════════════════════════════════════════════════╝</pre>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — VIBE Large + AGENT Plain</h3>
+      <p>"VIBE" rendered in large block font, "AGENT" in clean plain text to the right. Creates visual hierarchy — the brand word dominates, with type descriptor alongside. More editorial/modern.</p>
+    </div>
+  </div>
+
+</div>
+
+<div class="section">
+  <p class="subtitle">All options show the new info bar below the logo: Session name, Thread name, and Context usage %. Click your pick or describe what you want in the terminal.</p>
+</div>

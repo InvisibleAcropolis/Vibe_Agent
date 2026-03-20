@@ -1,0 +1,14 @@
+{
+	"name": "@futureide/tui",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"build": "tsc --noEmit -p tsconfig.json",
+		"dev": "tsx src/main.ts",
+		"check": "tsc --noEmit -p tsconfig.json && npm run test",
+		"test": "node --test --import tsx test/*.test.ts"
+	},
+	"dependencies": {
+		"@mariozechner/pi-tui": "^0.56.1"
+	}
+}

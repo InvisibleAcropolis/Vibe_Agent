@@ -1,0 +1,65 @@
+<h2>Animation & Glyph Style</h2>
+<p class="subtitle">The app already has hue-shifting borders and a braille spinner. What additional animation effects should be layered in for selections, transitions, and component separation?</p>
+
+<div class="options" data-multiselect>
+
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Selection Flash — border lights up on focus</h3>
+      <p>When you select a session, click a menu item, or focus the editor, the active component's border briefly brightens to full accent color then settles. Like a "confirm" pulse. Uses the existing <code>borderActive</code> color and breath animation.</p>
+      <div style="font-family:monospace;font-size:10px;color:#5cd4ff;margin-top:6px;">
+        <span style="color:#254560;">╔══ inactive ══╗</span> → <span style="color:#60d2ff;">╔══ ACTIVE ═══╗</span> → <span style="color:#3a8ab0;">╔══ focused ══╗</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Block-fill Wipe — session/thread transitions</h3>
+      <p>When switching sessions or threads, the chat area does a quick block-fill wipe using <code>░ ▒ ▓ █</code> characters before showing the new content. Classic terminal transition effect, ~3–5 frames at 80ms each.</p>
+      <div style="font-family:monospace;font-size:10px;color:#5cd4ff;margin-top:6px;">
+        frame 1: <span style="color:#254560;">░░░░░░░░░</span> → frame 2: <span style="color:#3a6a90;">▒▒▒▒▒▒▒▒▒</span> → frame 3: <span style="color:#5cd4ff;">▓▓▓▓▓▓▓▓▓</span> → content
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Separator Glyphs — visual dividers between zones</h3>
+      <p>Use decorative glyph rows between major UI zones (header/chat, chat/editor, panel sections). Think <code>·─·─·</code> or <code>╌╌╌╌╌</code> or <code>▸ ▸ ▸</code> pattern lines. Static or slowly animated (cycling direction).</p>
+      <div style="font-family:monospace;font-size:10px;color:#254560;margin-top:6px;">
+        ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="d" onclick="toggleSelect(this)">
+    <div class="letter">D</div>
+    <div class="content">
+      <h3>Streaming Hue Surge — border color intensifies while agent works</h3>
+      <p>When the agent is streaming a response, the border hue-shift accelerates and saturates (already partially implemented). Extend this so the side panel border and header also pulse in sync — the whole chrome breathes together.</p>
+      <div style="font-family:monospace;font-size:10px;margin-top:6px;">
+        <span style="color:#254560;">idle: ──────</span> → <span style="color:#3a8ab0;">thinking: ══════</span> → <span style="color:#5cd4ff;font-weight:bold;">streaming: ══════</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="e" onclick="toggleSelect(this)">
+    <div class="letter">E</div>
+    <div class="content">
+      <h3>Typed Status Messages — status bar animates letter by letter</h3>
+      <p>When a new status message appears (e.g. "Compacting context…", "Session loaded"), it types in character by character at ~40ms/char like a terminal output. Subtle but adds life to the status line.</p>
+      <div style="font-family:monospace;font-size:10px;color:#66dd96;margin-top:6px;">
+        S → Se → Ses → Sess → ... → Session loaded ✓
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="section">
+  <p class="subtitle">Multi-select — pick all the effects you want. You can select A, B, C, D, E in any combination.</p>
+</div>

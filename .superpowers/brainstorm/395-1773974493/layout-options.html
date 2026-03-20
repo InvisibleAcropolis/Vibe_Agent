@@ -1,0 +1,85 @@
+<h2>Overall Layout — Side Panel Approach</h2>
+<p class="subtitle">The user requested a Sessions browser panel (and future Extensions panel). How should the side panel system work?</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="font-family:monospace;font-size:11px;line-height:1.4;background:#0a1520;color:#5cd4ff;padding:12px;border-radius:4px;">
+<pre style="margin:0;color:#5cd4ff;">╔══ VIBE AGENT ══════════════════════════╗
+║  Session: my-project  Thread: main     ║
+║  Context: ████████░░ 82%               ║
+╠══════════════════════════════════════╣
+║                              │ SESSIONS ║
+║   CHAT AREA                  │──────── ║
+║                              │ ▶ today ║
+║   Messages scroll here       │   proj1 ║
+║   ...                        │   proj2 ║
+║                              │         ║
+╠══════════════════════════════════════╣
+║   [ editor input ]                     ║
+╠══════════════════════════════════════╣
+╚══ provider │ model │ idle ════════════╝</pre>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Persistent Side Panel (Right)</h3>
+      <p>Sessions panel always visible on the right. Stays open alongside chat. Future Extensions panel can tab in the same space. Requires terminal width ~120+ cols to feel good.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="font-family:monospace;font-size:11px;line-height:1.4;background:#0a1520;color:#5cd4ff;padding:12px;border-radius:4px;">
+<pre style="margin:0;color:#5cd4ff;">╔══ VIBE AGENT ═════════════════════════╗
+║  Session: my-project  Thread: main    ║
+║  Context: ████████░░ 82%              ║
+╠════╦══════════════════════════════════╣
+║SESS║                                  ║
+║────║   CHAT AREA                      ║
+║▶to ║                                  ║
+║ p1 ║   Messages scroll here           ║
+║ p2 ║   ...                            ║
+║    ║                                  ║
+╠════╩══════════════════════════════════╣
+║   [ editor input ]                    ║
+╠════════════════════════════════════════╣
+╚══ provider │ model │ idle ═════════════╝</pre>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Persistent Side Panel (Left)</h3>
+      <p>Sessions panel on the left, similar to VS Code's file explorer. Chat area to the right. Matches the mental model of "navigation on left, content on right."</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="font-family:monospace;font-size:11px;line-height:1.4;background:#0a1520;color:#5cd4ff;padding:12px;border-radius:4px;">
+<pre style="margin:0;color:#5cd4ff;">╔══ VIBE AGENT ═══════════════════════════╗
+║  Session: my-project  Thread: main      ║
+║  Context: ████████░░ 82%                ║
+╠══[SESSIONS]═[EXTENSIONS]════════════════╣
+║                                         ║
+║   CHAT AREA (full width)                ║
+║                                         ║
+║   Messages scroll here                  ║
+║                                         ║
+╠═════════════════════════════════════════╣
+║   [ editor input ]                      ║
+╠═════════════════════════════════════════╣
+╚══ provider │ model │ idle ══════════════╝</pre>
+        <div style="font-family:monospace;font-size:10px;color:#78c0e0;margin-top:6px;text-align:center;">↑ Panel hidden — F2 toggles it open</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Collapsible Top Drawer</h3>
+      <p>Side panel lives above the chat as a slide-down drawer. Tab bar shows Sessions / Extensions. Toggle with F2. Full width when open, zero width when closed. Works on any terminal size.</p>
+    </div>
+  </div>
+
+</div>
+
+<div class="section">
+  <p class="subtitle">Take a look and click your preferred layout — or let me know in the terminal if you want to mix approaches.</p>
+</div>
