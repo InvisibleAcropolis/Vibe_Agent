@@ -1,4 +1,5 @@
 import { matchesKey, type Focusable } from "@mariozechner/pi-tui";
+import { basename } from "path";
 import { paintLine } from "../ansi.js";
 import { agentTheme } from "../theme.js";
 import type { SessionInfo } from "../local-coding-agent.js";
@@ -26,21 +27,20 @@ export interface SessionsPanelOptions {
 
 /** Get the path for a session, supporting both real SessionInfo (.path) and mock shapes (.sessionFile) */
 function getSessionPath(s: SessionInfo): string {
-	return (s as any).sessionFile ?? (s as any).path ?? "";
+	return (s as any).path ?? (s as any).sessionFile ?? "";
 }
 
 /** Get the display name for a session, supporting both real SessionInfo (.name) and mock shapes (.sessionName) */
 function getSessionName(s: SessionInfo): string | undefined {
-	return (s as any).sessionName ?? (s as any).name;
+	return (s as any).name ?? (s as any).sessionName ?? undefined;
 }
 
 /** Get the creation timestamp in ms, supporting both real SessionInfo (.created Date) and mock shapes (.timestamp number) */
 function getSessionTimestamp(s: SessionInfo): number {
-	const mock = (s as any).timestamp;
-	if (typeof mock === "number") return mock;
 	const created = (s as any).created;
 	if (created instanceof Date) return created.getTime();
-	return 0;
+	if (typeof created === "number") return created;
+	return (s as any).timestamp ?? 0;
 }
 
 function groupByDate(sessions: SessionInfo[]): DateGroup[] {
@@ -79,7 +79,7 @@ export class SessionsPanel implements Focusable {
 	> = [];
 
 	constructor(private readonly options: SessionsPanelOptions) {
-		this.refresh();
+		void this.refresh().catch(() => {});
 	}
 
 	get focused(): boolean {
@@ -162,7 +162,7 @@ export class SessionsPanel implements Focusable {
 				const sessionPath = getSessionPath(node.session);
 				const isCurrent = sessionPath === this.options.getCurrentSessionFile();
 				const rawName = getSessionName(node.session);
-				const name = rawName ?? sessionPath.split("/").pop() ?? "session";
+				const name = rawName ?? basename(sessionPath) ?? "session";
 				const nameStyled = isCurrent ? agentTheme.accentStrong(name) : agentTheme.text(name);
 				const expandArrow = node.threads !== undefined ? (node.expanded ? "▼" : "▶") : " ";
 				const prefix = isCurrent ? agentTheme.accent("●") : agentTheme.dim("○");
@@ -209,7 +209,9 @@ export class SessionsPanel implements Focusable {
 			return;
 		}
 		if (matchesKey(data, "down")) {
-			this.cursor = Math.min(this.flatItems.length - 1, this.cursor + 1);
+			if (this.flatItems.length > 0) {
+				this.cursor = Math.min(this.flatItems.length - 1, this.cursor + 1);
+			}
 			return;
 		}
 		if (matchesKey(data, "right") || matchesKey(data, "left")) {
@@ -234,7 +236,7 @@ export class SessionsPanel implements Focusable {
 			const item = this.flatItems[this.cursor];
 			if (item?.type === "session") {
 				const sf = getSessionPath(this.groups[item.groupIdx]!.nodes[item.nodeIdx]!.session);
-				this.options.onSwitch(sf).then(() => this.options.onClose());
+				this.options.onSwitch(sf).then(() => this.options.onClose()).catch(() => {});
 			}
 			return;
 		}
