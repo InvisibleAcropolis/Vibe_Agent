@@ -10,6 +10,7 @@ import { estimateContextTokens, theme as codingAgentTheme, type Theme } from "./
 import { agentTheme, createDynamicTheme } from "./theme.js";
 import { SessionsPanel } from "./components/sessions-panel.js";
 import { SideBySideContainer } from "./components/side-by-side-container.js";
+import { renderMenuBar, MenuBarItem } from "./components/menu-bar.js";
 
 const BRAILLE_FRAMES = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"] as const;
 
@@ -67,6 +68,7 @@ export class DefaultShellView implements ShellView {
 	private readonly footerContentContainer = new Container();
 	private readonly editorContainer = new Container();
 	private readonly chromeLogo = new Text("", 0, 0);
+	private readonly chromeMenuBar = new Text("", 0, 0);
 	private readonly chromeSeparatorTop = new Text("", 0, 0);
 	private readonly chromeSeparatorMid = new Text("", 0, 0);
 	private readonly chromeStatus = new Text("", 0, 0);
@@ -93,6 +95,7 @@ export class DefaultShellView implements ShellView {
 		this.tui = new TUI(terminal, true);
 		this.tui.addChild(this.customHeaderContainer);
 		this.tui.addChild(this.chromeLogo);
+		this.tui.addChild(this.chromeMenuBar);
 		this.tui.addChild(this.chromeSeparatorTop);
 		this.contentArea = new SideBySideContainer(this.chatContainer, null, 30);
 		this.tui.addChild(this.contentArea);
@@ -345,6 +348,18 @@ export class DefaultShellView implements ShellView {
 
 			this.chromeLogo.setText(logoLines.join("\n"));
 		}
+
+		// Menu bar: [F1] Settings  ◆  [F2] Sessions ══════════════════════════════
+		const MENU_ITEMS: MenuBarItem[] = [
+			{ key: "F1", label: "Settings" },
+			{ key: "F2", label: "Sessions" },
+		];
+		this.chromeMenuBar.setText(renderMenuBar(
+			MENU_ITEMS, cols, bc,
+			agentTheme.dim,
+			agentTheme.muted,
+			agentTheme.headerLine,
+		));
 
 		// B: Block-fill wipe transition (░ ▒ ▓ █ over 4 ticks, then clear)
 		const WIPE_CHARS = ["░", "▒", "▓", "█"] as const;
