@@ -7,6 +7,7 @@ export type AppConfig = {
 	selectedProvider?: string;
 	selectedModelId?: string;
 	selectedTheme?: string;
+	showThinking?: boolean;
 };
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -19,6 +20,7 @@ function normalizeConfig(config: Partial<AppConfig>): AppConfig {
 		selectedProvider: typeof config.selectedProvider === "string" ? config.selectedProvider : undefined,
 		selectedModelId: typeof config.selectedModelId === "string" ? config.selectedModelId : undefined,
 		selectedTheme: typeof config.selectedTheme === "string" ? config.selectedTheme : undefined,
+		showThinking: typeof config.showThinking === "boolean" ? config.showThinking : true,
 	};
 }
 

@@ -3,6 +3,7 @@ import type { PiMonoAppDebugger } from "./app-debugger.js";
 import type { AppStateStore } from "./app-state-store.js";
 import type { CommandController } from "./command-controller.js";
 import type { OverlayController } from "./overlay-controller.js";
+import type { ShellView } from "./shell-view.js";
 import type { MouseEvent } from "./mouse.js";
 import { parseMouseEvent } from "./mouse.js";
 
@@ -21,6 +22,7 @@ export class DefaultInputController implements InputController {
 		private readonly stateStore: AppStateStore,
 		private readonly overlayController: OverlayController,
 		private readonly commandController: CommandController,
+		private readonly shellView: ShellView,
 		private readonly debuggerSink: PiMonoAppDebugger,
 		private readonly onStop: () => void,
 		private readonly onToggleSessionsPanel?: () => void,
@@ -44,9 +46,32 @@ export class DefaultInputController implements InputController {
 		const mouseEvent = parseMouseEvent(data);
 		if (mouseEvent) {
 			this.logMouse(mouseEvent);
-			this.overlayController.dispatchMouse(mouseEvent);
+			if (this.overlayController.getOverlayDepth() > 0) {
+				this.overlayController.dispatchMouse(mouseEvent);
+			} else if (!this.shellView.dispatchMouse(mouseEvent)) {
+				return undefined;
+			}
 			this.tui.requestRender();
 			return { consume: true };
+		}
+
+		if (this.overlayController.getOverlayDepth() === 0) {
+			if (matchesKey(data, "pageup") || data === "\x1b[5~") {
+				this.shellView.scrollTranscript(-10);
+				return { consume: true };
+			}
+			if (matchesKey(data, "pagedown") || data === "\x1b[6~") {
+				this.shellView.scrollTranscript(10);
+				return { consume: true };
+			}
+			if (matchesKey(data, "home") || data === "\x1b[H") {
+				this.shellView.scrollTranscriptToTop();
+				return { consume: true };
+			}
+			if (matchesKey(data, "end") || data === "\x1b[F") {
+				this.shellView.scrollTranscriptToBottom();
+				return { consume: true };
+			}
 		}
 
 		let nextData = data;
@@ -80,7 +105,6 @@ export class DefaultInputController implements InputController {
 			this.overlayController.closeTopOverlay();
 			return { consume: true };
 		}
-
 		if (nextData !== data) {
 			return { data: nextData };
 		}

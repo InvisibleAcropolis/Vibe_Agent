@@ -4,6 +4,8 @@ const ENABLE_MOUSE = "\x1b[?1000h\x1b[?1002h\x1b[?1006h";
 const DISABLE_MOUSE = "\x1b[?1000l\x1b[?1002l\x1b[?1006l";
 
 export class MouseEnabledTerminal implements Terminal {
+	private readonly resizeHandlers = new Set<() => void>();
+
 	constructor(private readonly inner: Terminal) {}
 
 	get rows(): number {
@@ -18,8 +20,18 @@ export class MouseEnabledTerminal implements Terminal {
 		return this.inner.kittyProtocolActive;
 	}
 
+	setResizeHandler(handler: () => void): () => void {
+		this.resizeHandlers.add(handler);
+		return () => this.resizeHandlers.delete(handler);
+	}
+
 	start(onInput: (data: string) => void, onResize: () => void): void {
-		this.inner.start(onInput, onResize);
+		this.inner.start(onInput, () => {
+			onResize();
+			for (const handler of this.resizeHandlers) {
+				handler();
+			}
+		});
 		this.inner.write(ENABLE_MOUSE);
 	}
 

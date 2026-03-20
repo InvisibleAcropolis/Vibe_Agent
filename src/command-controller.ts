@@ -20,6 +20,7 @@ interface SetupActions {
 	openModelSetup(): Promise<void>;
 	openLogoutFlow(): Promise<void>;
 	setDefaultModel(providerId: string, modelId: string): Promise<void>;
+	setThinkingVisibility(show: boolean): void;
 }
 
 const BUILTIN_COMMAND_META: Record<string, { category: string; order: number; description: string }> = {
@@ -336,6 +337,15 @@ export class DefaultCommandController implements CommandController {
 						{ kind: "submenu", id: "model", label: "Choose Model", description: "Select the default model.", items: modelItems },
 						{ kind: "submenu", id: "theme", label: "Theme", description: "Switch the shell visual theme.", items: themeItems },
 						{ kind: "submenu", id: "thinking", label: "Thinking Level", description: "Adjust reasoning budget.", items: thinkingItems },
+						{
+							kind: "action",
+							id: "thinking-visibility",
+							label: this.stateStore.getState().showThinking ? "Hide Thinking Tray" : "Show Thinking Tray",
+							description: this.stateStore.getState().showThinking
+								? "Hide live reasoning output below the footer."
+								: "Show live reasoning output below the footer.",
+							onSelect: () => this.runSettingsAction("thinking-visibility"),
+						},
 						{ kind: "action", id: "new", label: "New Session", description: "Start a fresh session.", onSelect: () => this.runSettingsAction("new") },
 						{ kind: "action", id: "resume", label: "Resume Session", description: "Switch to another session.", onSelect: () => this.runSettingsAction("resume") },
 						{ kind: "action", id: "stats", label: "Session Stats", description: "View token usage and metadata.", onSelect: () => this.runSettingsAction("stats") },
@@ -420,6 +430,9 @@ export class DefaultCommandController implements CommandController {
 				break;
 			case "thinking":
 				this.openThinkingSelector();
+				break;
+			case "thinking-visibility":
+				this.setupActions.setThinkingVisibility(!this.stateStore.getState().showThinking);
 				break;
 			case "compact":
 				void this.host.compact().catch((error) => this.handleError("compact", error));

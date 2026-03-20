@@ -1,5 +1,22 @@
 import type { Artifact } from "./types.js";
 
+export interface ActiveThinkingState {
+	text: string;
+	hasTurnState: boolean;
+	hasThinkingEvents: boolean;
+	turnActive: boolean;
+	provider?: string;
+	modelId?: string;
+	api?: string;
+}
+
+const EMPTY_ACTIVE_THINKING: ActiveThinkingState = {
+	text: "",
+	hasTurnState: false,
+	hasThinkingEvents: false,
+	turnActive: false,
+};
+
 export interface AppShellState {
 	statusMessage: string;
 	workingMessage?: string;
@@ -7,6 +24,7 @@ export interface AppShellState {
 	contextTitle?: string;
 	contextMessage?: string;
 	contextTone?: "accent" | "info" | "success" | "warning" | "dim";
+	showThinking: boolean;
 	hideThinking: boolean;
 	toolOutputExpanded: boolean;
 	focusLabel: string;
@@ -15,6 +33,7 @@ export interface AppShellState {
 	artifacts: Artifact[];
 	showArtifactPanel: boolean;
 	sessionStatsVisible: boolean;
+	activeThinking: ActiveThinkingState;
 	permissionPending?: { toolName: string; args: Record<string, unknown>; resolve: (approved: boolean) => void };
 }
 
@@ -32,6 +51,7 @@ export interface AppStateStore {
 		message: string | undefined,
 		tone?: AppShellState["contextTone"],
 	): void;
+	setShowThinking(show: boolean): void;
 	setHideThinking(hidden: boolean): void;
 	setToolOutputExpanded(expanded: boolean): void;
 	setFocusLabel(label: string): void;
@@ -43,12 +63,15 @@ export interface AppStateStore {
 	clearArtifacts(): void;
 	setShowArtifactPanel(show: boolean): void;
 	setSessionStatsVisible(visible: boolean): void;
+	setActiveThinking(state: ActiveThinkingState): void;
+	resetActiveThinking(): void;
 	setPermissionPending(pending: AppShellState["permissionPending"]): void;
 }
 
 export class DefaultAppStateStore implements AppStateStore {
 	private state: AppShellState = {
 		statusMessage: "Starting Vibe Agent...",
+		showThinking: true,
 		hideThinking: false,
 		toolOutputExpanded: false,
 		focusLabel: "editor",
@@ -56,6 +79,7 @@ export class DefaultAppStateStore implements AppStateStore {
 		artifacts: [],
 		showArtifactPanel: false,
 		sessionStatsVisible: false,
+		activeThinking: { ...EMPTY_ACTIVE_THINKING },
 	};
 	private listeners = new Set<AppStateListener>();
 	private onStatusChange?: (message: string) => void;
@@ -69,6 +93,7 @@ export class DefaultAppStateStore implements AppStateStore {
 			...this.state,
 			overlayIds: [...this.state.overlayIds],
 			artifacts: [...this.state.artifacts],
+			activeThinking: { ...this.state.activeThinking },
 		};
 	}
 
@@ -103,8 +128,12 @@ export class DefaultAppStateStore implements AppStateStore {
 		});
 	}
 
+	setShowThinking(show: boolean): void {
+		this.update({ showThinking: show, hideThinking: !show });
+	}
+
 	setHideThinking(hidden: boolean): void {
-		this.update({ hideThinking: hidden });
+		this.update({ hideThinking: hidden, showThinking: !hidden });
 	}
 
 	setToolOutputExpanded(expanded: boolean): void {
@@ -154,6 +183,14 @@ export class DefaultAppStateStore implements AppStateStore {
 
 	setSessionStatsVisible(visible: boolean): void {
 		this.update({ sessionStatsVisible: visible });
+	}
+
+	setActiveThinking(state: ActiveThinkingState): void {
+		this.update({ activeThinking: { ...state } });
+	}
+
+	resetActiveThinking(): void {
+		this.update({ activeThinking: { ...EMPTY_ACTIVE_THINKING } });
 	}
 
 	setPermissionPending(pending: AppShellState["permissionPending"]): void {

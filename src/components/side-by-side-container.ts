@@ -11,6 +11,7 @@ export class SideBySideContainer implements Component {
 	 * Used for the block-fill wipe transition (░ ▒ ▓ █) during session switches.
 	 */
 	wipeChar: string | null = null;
+	maxHeight: number | null = null;
 
 	constructor(
 		public left: Component,
@@ -27,19 +28,27 @@ export class SideBySideContainer implements Component {
 	render(width: number): string[] {
 		// B: Block-fill wipe transition — fill the area with the wipe character
 		if (this.wipeChar !== null) {
-			const rows = this.left.render(width).length || 1;
+			const rows = this.maxHeight ?? this.left.render(width).length ?? 1;
 			return Array.from({ length: rows }, () => this.wipeChar!.repeat(width));
 		}
 
 		if (!this.right) {
-			return this.left.render(width);
+			const lines = this.left.render(width);
+			if (this.maxHeight == null) {
+				return lines;
+			}
+			const clipped = lines.slice(0, this.maxHeight);
+			while (clipped.length < this.maxHeight) {
+				clipped.push(" ".repeat(width));
+			}
+			return clipped;
 		}
 
 		const leftWidth = Math.max(0, width - this.rightWidth - 1); // -1 for separator
 		const leftLines = this.left.render(leftWidth);
 		const rightLines = this.right.render(this.rightWidth);
 
-		const totalRows = Math.max(leftLines.length, rightLines.length);
+		const totalRows = this.maxHeight ?? Math.max(leftLines.length, rightLines.length);
 		const result: string[] = [];
 
 		for (let i = 0; i < totalRows; i++) {

@@ -68,6 +68,7 @@ class FakeHost implements AgentHost {
 	};
 	modelFallbackMessage?: string;
 	private listeners = new Set<(event: AgentSessionEvent) => void>();
+	private streamingAssistantIndex = -1;
 
 	constructor(options: { fallbackMessage?: string } = {}) {
 		this.modelFallbackMessage = options.fallbackMessage;
@@ -206,6 +207,135 @@ class FakeHost implements AgentHost {
 		this.emit({ type: "message_end" } as unknown as AgentSessionEvent);
 	}
 
+	beginAssistantStream(options: { provider?: string; model?: string; api?: string } = {}): void {
+		this.state.isStreaming = true;
+		const assistantMessage = {
+			role: "assistant",
+			content: [],
+			stopReason: "end_turn",
+			usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+			provider: options.provider ?? "test",
+			model: options.model ?? "demo-model",
+			api: options.api ?? "openai-responses",
+			timestamp: Date.now(),
+		} as unknown as AgentMessage;
+		this.messages.push(assistantMessage);
+		this.streamingAssistantIndex = this.messages.length - 1;
+		this.emit({
+			type: "message_start",
+			message: this.snapshotStreamingAssistant(),
+		} as unknown as AgentSessionEvent);
+	}
+
+	streamThinkingStart(): void {
+		const message = this.requireStreamingAssistant();
+		(message.content as Array<Record<string, unknown>>).push({ type: "thinking", thinking: "" });
+		this.emit({
+			type: "message_update",
+			message: this.snapshotStreamingAssistant(),
+			assistantMessageEvent: {
+				type: "thinking_start",
+				contentIndex: message.content.length - 1,
+				partial: this.snapshotStreamingAssistant(),
+			},
+		} as unknown as AgentSessionEvent);
+	}
+
+	streamThinkingDelta(delta: string): void {
+		const message = this.requireStreamingAssistant();
+		const thinkingBlock = (message.content as Array<Record<string, unknown>>).find((content) => content.type === "thinking");
+		if (!thinkingBlock) {
+			throw new Error("No active thinking block");
+		}
+		thinkingBlock.thinking = `${String(thinkingBlock.thinking ?? "")}${delta}`;
+		this.emit({
+			type: "message_update",
+			message: this.snapshotStreamingAssistant(),
+			assistantMessageEvent: {
+				type: "thinking_delta",
+				contentIndex: 0,
+				delta,
+				partial: this.snapshotStreamingAssistant(),
+			},
+		} as unknown as AgentSessionEvent);
+	}
+
+	streamThinkingEnd(): void {
+		const message = this.requireStreamingAssistant();
+		const thinkingIndex = (message.content as Array<Record<string, unknown>>).findIndex((content) => content.type === "thinking");
+		this.emit({
+			type: "message_update",
+			message: this.snapshotStreamingAssistant(),
+			assistantMessageEvent: {
+				type: "thinking_end",
+				contentIndex: Math.max(0, thinkingIndex),
+				content: String(((message.content as Array<Record<string, unknown>>)[thinkingIndex] as Record<string, unknown> | undefined)?.thinking ?? ""),
+				partial: this.snapshotStreamingAssistant(),
+			},
+		} as unknown as AgentSessionEvent);
+	}
+
+	streamTextDelta(delta: string): void {
+		const message = this.requireStreamingAssistant();
+		let textBlock = (message.content as Array<Record<string, unknown>>).find((content) => content.type === "text");
+		if (!textBlock) {
+			textBlock = { type: "text", text: "" };
+			(message.content as Array<Record<string, unknown>>).push(textBlock);
+		}
+		textBlock.text = `${String(textBlock.text ?? "")}${delta}`;
+		this.emit({
+			type: "message_update",
+			message: this.snapshotStreamingAssistant(),
+			assistantMessageEvent: {
+				type: "text_delta",
+				contentIndex: message.content.length - 1,
+				delta,
+				partial: this.snapshotStreamingAssistant(),
+			},
+		} as unknown as AgentSessionEvent);
+	}
+
+	endAssistantStream(): void {
+		if (this.streamingAssistantIndex < 0) {
+			throw new Error("No active streaming assistant");
+		}
+		this.state.isStreaming = false;
+		this.emit({
+			type: "message_end",
+			message: this.snapshotStreamingAssistant(),
+		} as unknown as AgentSessionEvent);
+		this.streamingAssistantIndex = -1;
+	}
+
+	setActiveModel(model: AgentHostState["model"]): void {
+		this.state.model = model;
+		this.emit({ type: "message_end" } as unknown as AgentSessionEvent);
+	}
+
+	pushAssistantMessage(text: string, thinkingText?: string): void {
+		const content: Array<Record<string, unknown>> = [];
+		if (thinkingText) {
+			content.push({ type: "thinking", thinking: thinkingText });
+		}
+		content.push({ type: "text", text });
+		this.messages.push({
+			role: "assistant",
+			content,
+			stopReason: "end_turn",
+			usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+			provider: "test",
+			model: "demo-model",
+			api: "test",
+			timestamp: Date.now(),
+		} as unknown as AgentMessage);
+		this.emit({ type: "message_end" } as unknown as AgentSessionEvent);
+	}
+
+	pushLongAssistantMessage(lineCount: number, thinkingText?: string): void {
+		const lines = Array.from({ length: lineCount }, (_, index) => `Line ${String(index + 1).padStart(2, "0")}`);
+		this.pushAssistantMessage(lines.join("\n"), thinkingText);
+	}
+
 	pushToolSequence(): void {
 		this.messages.push({
 			role: "assistant",
@@ -260,6 +390,17 @@ class FakeHost implements AgentHost {
 		for (const listener of this.listeners) {
 			listener(event);
 		}
+	}
+
+	private requireStreamingAssistant(): Record<string, any> {
+		if (this.streamingAssistantIndex < 0) {
+			throw new Error("No active streaming assistant");
+		}
+		return this.messages[this.streamingAssistantIndex] as unknown as Record<string, any>;
+	}
+
+	private snapshotStreamingAssistant(): AgentMessage {
+		return JSON.parse(JSON.stringify(this.requireStreamingAssistant())) as AgentMessage;
 	}
 }
 
@@ -643,6 +784,7 @@ const tests: TestCase[] = [
 					openModelSetup: async () => {},
 					openLogoutFlow: async () => {},
 					setDefaultModel: async () => {},
+					setThinkingVisibility: () => {},
 				},
 			);
 			const result = await ctrl.handleSlashCommand("/login");
@@ -691,7 +833,7 @@ const tests: TestCase[] = [
 		},
 	},
 	{
-		name: "invalid provider boots into the shell without mutating config",
+		name: "startup reconciles stale provider config from the active host model",
 		run: async () => {
 			const host = new FakeHost();
 			const readyOptions = createReadyAppOptions();
@@ -708,19 +850,68 @@ const tests: TestCase[] = [
 
 			await withApp(host, async (_app, terminal) => {
 				const viewport = await flush(terminal);
-				assert.ok(viewport.some((line) => line.includes("Invalid Provider")));
+				assert.ok(!viewport.some((line) => line.includes("Invalid Provider")));
+				assert.ok(!viewport.some((line) => line.includes("Connect a provider")));
 				const persisted = AppConfig.load(readyOptions.configPath);
-				assert.strictEqual(persisted.selectedProvider, undefined);
-				assert.strictEqual(persisted.selectedModelId, saved.selectedModelId);
+				assert.strictEqual(persisted.selectedProvider, "test");
+				assert.strictEqual(persisted.selectedModelId, "demo-model");
 			}, readyOptions);
 		},
 	},
 	{
-		name: "invalid model boots into the shell without mutating config",
+		name: "startup reconciles stale model config from the active host model",
 		run: async () => {
 			const host = new FakeHost();
 			const readyOptions = createReadyAppOptions();
 			assert.ok(readyOptions.configPath);
+			const saved = AppConfig.load(readyOptions.configPath);
+			AppConfig.save(
+				{
+					...saved,
+					selectedModelId: "missing-model",
+				},
+				readyOptions.configPath,
+			);
+
+			await withApp(host, async (_app, terminal) => {
+				const viewport = await flush(terminal);
+				assert.ok(!viewport.some((line) => line.includes("Invalid Model")));
+				const persisted = AppConfig.load(readyOptions.configPath);
+				assert.strictEqual(persisted.selectedProvider, "test");
+				assert.strictEqual(persisted.selectedModelId, "demo-model");
+			}, readyOptions);
+		},
+	},
+	{
+		name: "genuine invalid provider still warns when the host has no active model",
+		run: async () => {
+			const host = new FakeHost();
+			host.setActiveModel(undefined);
+			const readyOptions = createReadyAppOptions();
+			const saved = AppConfig.load(readyOptions.configPath);
+			AppConfig.save(
+				{
+					...saved,
+					selectedProvider: undefined,
+					selectedModelId: saved.selectedModelId,
+				},
+				readyOptions.configPath,
+			);
+
+			await withApp(host, async (_app, terminal) => {
+				const viewport = await flush(terminal);
+				assert.ok(viewport.some((line) => line.includes("Invalid Provider")));
+				const persisted = AppConfig.load(readyOptions.configPath);
+				assert.strictEqual(persisted.selectedProvider, undefined);
+			}, readyOptions);
+		},
+	},
+	{
+		name: "genuine invalid model still warns when the host has no active model",
+		run: async () => {
+			const host = new FakeHost();
+			host.setActiveModel(undefined);
+			const readyOptions = createReadyAppOptions();
 			const saved = AppConfig.load(readyOptions.configPath);
 			AppConfig.save(
 				{
@@ -795,6 +986,133 @@ const tests: TestCase[] = [
 		},
 	},
 ];
+
+tests.push({
+	name: "thinking tray is enabled by default and strips inline reasoning duplicates",
+	run: async () => {
+		const host = new FakeHost();
+		host.pushAssistantMessage("Visible reply", "Deliberate reasoning trace");
+		await withApp(host, async (_app, terminal) => {
+			const output = (await flush(terminal)).join("\n");
+			assert.ok(output.includes("Thinking"));
+			assert.ok(output.includes("Deliberate reasoning trace"));
+			assert.strictEqual(output.split("Deliberate reasoning trace").length - 1, 1);
+			assert.ok(output.includes("Visible reply"));
+		}, createReadyAppOptions());
+	},
+});
+
+tests.push({
+	name: "thinking tray remains visible when enabled even without reasoning text",
+	run: async () => {
+		const host = new FakeHost();
+		await withApp(host, async (_app, terminal) => {
+			const output = (await flush(terminal)).join("\n");
+			assert.ok(output.includes("┌─"));
+			assert.ok(output.includes("Thinking"));
+			assert.ok(output.includes("└"));
+		}, createReadyAppOptions());
+	},
+});
+
+tests.push({
+	name: "Ctrl+T hides the thinking tray and persists the setting across restart",
+	run: async () => {
+		const readyOptions = createReadyAppOptions();
+		const host = new FakeHost();
+		host.pushAssistantMessage("Visible reply", "Persistent reasoning trace");
+
+		const terminal = new VirtualTerminal(110, 32);
+		const app = new VibeAgentApp({ terminal, host, ...readyOptions });
+		app.start();
+		try {
+			let output = (await flush(terminal)).join("\n");
+			assert.ok(output.includes("Persistent reasoning trace"));
+
+			terminal.sendInput("\u0014");
+			output = (await flush(terminal)).join("\n");
+			assert.ok(!output.includes("Persistent reasoning trace"));
+
+			const persisted = AppConfig.load(readyOptions.configPath!);
+			assert.strictEqual(persisted.showThinking, false);
+		} finally {
+			app.stop();
+			await new Promise<void>((resolve) => setImmediate(resolve));
+		}
+
+		const secondHost = new FakeHost();
+		secondHost.pushAssistantMessage("Visible reply", "Persistent reasoning trace");
+		const secondTerminal = new VirtualTerminal(110, 32);
+		const secondApp = new VibeAgentApp({ terminal: secondTerminal, host: secondHost, ...readyOptions });
+		secondApp.start();
+		try {
+			const output = (await flush(secondTerminal)).join("\n");
+			assert.ok(!output.includes("Persistent reasoning trace"));
+		} finally {
+			secondApp.stop();
+			await new Promise<void>((resolve) => setImmediate(resolve));
+		}
+	},
+});
+
+tests.push({
+	name: "settings menu shows the thinking tray toggle",
+	run: async () => {
+		const host = new FakeHost();
+		await withApp(host, async (app, terminal) => {
+			(app as any).commandController.openSettingsOverlay();
+			const output = (await flush(terminal)).join("\n");
+			assert.ok(output.includes("Hide Thinking Tray"));
+		}, createReadyAppOptions());
+	},
+});
+
+tests.push({
+	name: "transcript viewport scrolls long replies with keyboard controls",
+	run: async () => {
+		const host = new FakeHost();
+		host.pushLongAssistantMessage(40);
+		await withApp(host, async (_app, terminal) => {
+			let output = (await flush(terminal)).join("\n");
+			assert.ok(output.includes("Line 40"));
+			assert.ok(!output.includes("Line 01"));
+			assert.ok(output.includes("transcript:"));
+			assert.ok(output.includes("follow"));
+
+			terminal.sendInput("\x1b[5~");
+			output = (await flush(terminal)).join("\n");
+			assert.ok(output.includes("Line 30"));
+			assert.ok(output.includes("paused"));
+			assert.ok(!output.includes("transcript 1-"));
+
+			terminal.sendInput("\x1b[6~");
+			terminal.sendInput("\x1b[6~");
+			output = (await flush(terminal)).join("\n");
+			assert.ok(output.includes("Line 40"));
+			assert.ok(output.includes("follow"));
+		}, createReadyAppOptions());
+	},
+});
+
+tests.push({
+	name: "transcript viewport reflows immediately on terminal resize",
+	run: async () => {
+		const host = new FakeHost();
+		host.pushLongAssistantMessage(40);
+		await withApp(host, async (_app, terminal) => {
+			const before = (await flush(terminal)).join("\n");
+			const beforeCount = (before.match(/Line \d{2}/g) ?? []).length;
+
+			terminal.resize(110, 45);
+			const after = (await flush(terminal)).join("\n");
+			const afterCount = (after.match(/Line \d{2}/g) ?? []).length;
+
+			assert.ok(after.includes("Line 40"));
+			assert.ok(after.includes("transcript:"));
+			assert.ok(afterCount > beforeCount, `Expected more visible transcript lines after resize. Before=${beforeCount}, after=${afterCount}`);
+		}, createReadyAppOptions());
+	},
+});
 
 // New test: verify app renders ANSI logo (replacing old "Vibe Agent" text check)
 const vibeAgentTitleTest: TestCase = {

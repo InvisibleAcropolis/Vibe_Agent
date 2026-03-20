@@ -60,7 +60,7 @@ export function renderAgentMessages(messages: AgentMessage[], options: MessageRe
 		}
 
 		if (message.role === "assistant") {
-			const assistant = message as AssistantMessage;
+			const assistant = sanitizeAssistantMessage(message as AssistantMessage, options.hideThinking);
 			components.push(new AssistantMessageComponent(assistant, options.hideThinking, getMarkdownTheme()));
 
 			for (const content of assistant.content) {
@@ -132,6 +132,44 @@ export function renderAgentMessages(messages: AgentMessage[], options: MessageRe
 	}
 
 	return { components, artifacts };
+}
+
+function sanitizeAssistantMessage(message: AssistantMessage, hideThinking: boolean): AssistantMessage {
+	if (!hideThinking || !message.content.some((content) => content.type === "thinking")) {
+		return message;
+	}
+	return {
+		...message,
+		content: message.content.filter((content) => content.type !== "thinking"),
+	};
+}
+
+export function extractLatestThinkingText(messages: AgentMessage[]): string | undefined {
+	for (let index = messages.length - 1; index >= 0; index--) {
+		const message = messages[index];
+		if (message?.role !== "assistant") {
+			continue;
+		}
+		const thinkingText = extractThinkingTextFromAssistantMessage(message as AssistantMessage);
+		if (thinkingText) {
+			return thinkingText;
+		}
+	}
+	return undefined;
+}
+
+export function extractThinkingTextFromAssistantMessage(message: AssistantMessage | undefined): string | undefined {
+	if (!message) {
+		return undefined;
+	}
+	const thinkingBlocks = message.content
+		.filter((content): content is Extract<AssistantMessage["content"][number], { type: "thinking" }> => content.type === "thinking")
+		.map((content) => content.thinking.trim())
+		.filter(Boolean);
+	if (thinkingBlocks.length === 0) {
+		return undefined;
+	}
+	return thinkingBlocks.join("\n\n");
 }
 
 /** Backwards-compatible wrapper that returns just the components */

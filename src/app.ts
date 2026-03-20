@@ -60,7 +60,7 @@ export class VibeAgentApp {
 	private readonly extensionUiHost: DefaultExtensionUiHost;
 	private readonly startupController: DefaultStartupController;
 	private readonly inputController: DefaultInputController;
-	private previousRenderState = { hideThinking: false, toolOutputExpanded: false };
+	private previousRenderState = { showThinking: true, toolOutputExpanded: false };
 	private running = false;
 	private focusedComponent: Component | null = null;
 	private readonly authStorage: AuthStorage;
@@ -80,9 +80,10 @@ export class VibeAgentApp {
 				appRoot: process.cwd(),
 			});
 		this.stateStore = new DefaultAppStateStore();
-		this.previousRenderState = this.stateStoreSnapshot();
 		this.configPath = options.configPath ?? join(getAgentDir(), "vibe-agent-config.json");
 		this.appConfig = AppConfig.load(this.configPath);
+		this.stateStore.setShowThinking(this.appConfig.showThinking ?? true);
+		this.previousRenderState = this.stateStoreSnapshot();
 		this.authStorage = options.authStorage ?? AuthStorage.create();
 		this.modelRegistry = new ModelRegistry(this.authStorage);
 		this.envApiKeyLookup = options.getEnvApiKey ?? getEnvApiKey;
@@ -159,8 +160,7 @@ export class VibeAgentApp {
 					this.syncMessages();
 				},
 				onToggleThinking: () => {
-					this.stateStore.setHideThinking(!this.stateStore.getState().hideThinking);
-					this.syncMessages();
+					this.setThinkingVisibility(!this.stateStore.getState().showThinking);
 				},
 				onSubmit: async (text, streamingBehavior) => {
 					await this.submitEditor(text, streamingBehavior);
@@ -198,6 +198,7 @@ export class VibeAgentApp {
 					AppConfig.save(this.appConfig, this.configPath);
 					this.refreshCockpitContext();
 				},
+				setThinkingVisibility: (show) => this.setThinkingVisibility(show),
 			},
 		);
 		this.commandController = commandController;
@@ -210,6 +211,7 @@ export class VibeAgentApp {
 			this.stateStore,
 			this.overlayController,
 			this.commandController,
+			this.shellView,
 			this.debugger,
 			() => this.stop(),
 			() => this.shellView.toggleSessionsPanel(),
@@ -247,13 +249,13 @@ export class VibeAgentApp {
 		});
 		this.stateStore.subscribe((state) => {
 			if (
-				state.hideThinking !== this.previousRenderState.hideThinking ||
+				state.showThinking !== this.previousRenderState.showThinking ||
 				state.toolOutputExpanded !== this.previousRenderState.toolOutputExpanded
 			) {
 				this.syncMessages();
 			}
 			this.previousRenderState = {
-				hideThinking: state.hideThinking,
+				showThinking: state.showThinking,
 				toolOutputExpanded: state.toolOutputExpanded,
 			};
 		});
@@ -369,7 +371,7 @@ export class VibeAgentApp {
 	private syncMessages(): void {
 		try {
 			const renderResult = renderAgentMessages(this.host.getMessages(), {
-				hideThinking: this.stateStore.getState().hideThinking,
+				hideThinking: true,
 				toolOutputExpanded: this.stateStore.getState().toolOutputExpanded,
 				tui: this.shellView.tui,
 			});
@@ -414,12 +416,22 @@ export class VibeAgentApp {
 		this.stateStore.setStatusMessage(`${context}: ${error instanceof Error ? error.message : String(error)}`);
 	}
 
-	private stateStoreSnapshot(): { hideThinking: boolean; toolOutputExpanded: boolean } {
+	private stateStoreSnapshot(): { showThinking: boolean; toolOutputExpanded: boolean } {
 		const state = this.stateStore.getState();
 		return {
-			hideThinking: state.hideThinking,
+			showThinking: state.showThinking,
 			toolOutputExpanded: state.toolOutputExpanded,
 		};
+	}
+
+	private setThinkingVisibility(show: boolean): void {
+		this.stateStore.setShowThinking(show);
+		this.appConfig = {
+			...this.appConfig,
+			showThinking: show,
+		};
+		AppConfig.save(this.appConfig, this.configPath);
+		this.stateStore.setStatusMessage(show ? "Thinking tray enabled." : "Thinking tray hidden.");
 	}
 
 	private assessStartupGate(): StartupGateAssessment {
@@ -480,6 +492,17 @@ export class VibeAgentApp {
 			kind: "valid",
 			providerId,
 			modelId: savedModel.id,
+		};
+	}
+
+	private getActiveHostSelection(): { providerId: string; modelId: string } | undefined {
+		const hostModel = this.safeGetHostState()?.model;
+		if (!hostModel?.provider || !hostModel.id) {
+			return undefined;
+		}
+		return {
+			providerId: hostModel.provider,
+			modelId: hostModel.id,
 		};
 	}
 
@@ -589,6 +612,24 @@ export class VibeAgentApp {
 	}
 
 	private normalizeConfigFromAssessment(): void {
+		const hostSelection = this.getActiveHostSelection();
+		if (hostSelection) {
+			if (
+				this.appConfig.setupComplete
+				&& this.appConfig.selectedProvider === hostSelection.providerId
+				&& this.appConfig.selectedModelId === hostSelection.modelId
+			) {
+				return;
+			}
+			this.appConfig = {
+				...this.appConfig,
+				setupComplete: true,
+				selectedProvider: hostSelection.providerId,
+				selectedModelId: hostSelection.modelId,
+			};
+			AppConfig.save(this.appConfig, this.configPath);
+			return;
+		}
 		const validation = this.validateSavedDefault();
 		if (validation.kind !== "valid") {
 			return;
@@ -601,6 +642,7 @@ export class VibeAgentApp {
 			return;
 		}
 		this.appConfig = {
+			...this.appConfig,
 			setupComplete: true,
 			selectedProvider: validation.providerId,
 			selectedModelId: validation.modelId,
@@ -620,6 +662,7 @@ export class VibeAgentApp {
 		const gate = this.assessStartupGate();
 		const validation = this.validateSavedDefault();
 		const hostState = this.safeGetHostState();
+		const hostSelection = this.getActiveHostSelection();
 		const hasMessages = (hostState?.messageCount ?? 0) > 0;
 
 		if (gate.kind === "needs-provider") {
@@ -630,7 +673,7 @@ export class VibeAgentApp {
 			);
 			return;
 		}
-		if (validation.kind === "invalid-provider") {
+		if (!hostSelection && validation.kind === "invalid-provider") {
 			this.stateStore.setContextBanner(
 				"Invalid Provider",
 				validation.reason === "saved-provider-unavailable"
@@ -640,7 +683,7 @@ export class VibeAgentApp {
 			);
 			return;
 		}
-		if (validation.kind === "invalid-model") {
+		if (!hostSelection && validation.kind === "invalid-model") {
 			this.stateStore.setContextBanner(
 				"Invalid Model",
 				validation.reason === "saved-model-unavailable"
@@ -662,6 +705,9 @@ export class VibeAgentApp {
 	}
 
 	private applyStartupValidationStatus(): void {
+		if (this.getActiveHostSelection()) {
+			return;
+		}
 		const validation = this.validateSavedDefault();
 		if (validation.kind === "invalid-provider") {
 			this.stateStore.setStatusMessage("Invalid Provider");
