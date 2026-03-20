@@ -179,11 +179,13 @@ export function horizontalRule(width: number, char = "─", styler?: Styler): st
  * creating a visible rightward crawl effect.
  */
 export function separatorLine(width: number, offset: number, borderColor: string): string {
-	// Use a 4-char repeating pattern so the crawl is visible
-	const PATTERN = "╌╌·╌";
+	const GLYPHS = ['·', '∙', '•', '─', '╌', '═', '≡', '∽', '~', '╍', '÷', '×'];
+	const primes = [3, 5, 7, 11, 13, 17, 19, 23];
 	let line = "";
 	for (let i = 0; i < width; i++) {
-		line += PATTERN[(i + offset) % PATTERN.length];
+		const p = primes[i % primes.length]!;
+		const glyph = GLYPHS[(Math.floor(offset * p) + i) % GLYPHS.length]!;
+		line += glyph;
 	}
 	return style({ fg: borderColor })(line);
 }
