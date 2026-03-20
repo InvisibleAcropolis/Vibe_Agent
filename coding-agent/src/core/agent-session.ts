@@ -2586,9 +2586,9 @@ export class AgentSession {
 		this._pendingNextTurnMessages = [];
 
 		if (!selectedEntry.parentId) {
-			this.sessionManager.newSession({ parentSession: previousSessionFile });
+			this.sessionManager.newSession({ parentSession: previousSessionFile, promptSeed: selectedText });
 		} else {
-			this.sessionManager.createBranchedSession(selectedEntry.parentId);
+			this.sessionManager.createBranchedSession(selectedEntry.parentId, { promptSeed: selectedText });
 		}
 		this.agent.sessionId = this.sessionManager.getSessionId();
 

@@ -10,11 +10,12 @@ import {
 	readdirSync,
 	readFileSync,
 	readSync,
+	renameSync,
 	statSync,
 	writeFileSync,
 } from "fs";
 import { readdir, readFile, stat } from "fs/promises";
-import { join, resolve } from "path";
+import { basename, join, resolve } from "path";
 import { getAgentDir as getDefaultAgentDir, getSessionsDir } from "../config.js";
 import {
 	type BashExecutionMessage,
@@ -37,6 +38,7 @@ export interface SessionHeader {
 
 export interface NewSessionOptions {
 	parentSession?: string;
+	promptSeed?: string;
 }
 
 export interface SessionEntryBase {
@@ -193,6 +195,10 @@ export type ReadonlySessionManager = Pick<
 	| "getTree"
 	| "getSessionName"
 >;
+
+const FRIENDLY_SESSION_WORD_LIMIT = 3;
+const FRIENDLY_SESSION_FALLBACK_FOLDER = "session";
+const FRIENDLY_SESSION_FALLBACK_PROMPT = "session";
 
 /** Generate a unique short ID (8 hex chars, collision-checked) */
 function generateId(byId: { has(id: string): boolean }): string {
@@ -426,6 +432,36 @@ function getDefaultSessionDir(cwd: string): string {
 	return sessionDir;
 }
 
+function toFilenameSafeTimestamp(timestamp: string): string {
+	return timestamp.replace(/[:.]/g, "-");
+}
+
+function sanitizeFriendlyPart(value: string | undefined, fallback: string): string {
+	const cleaned = (value ?? "")
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "_")
+		.replace(/^_+|_+$/g, "")
+		.replace(/_+/g, "_");
+	return cleaned || fallback;
+}
+
+function extractPromptSlug(promptText: string | undefined): string {
+	const normalized = (promptText ?? "")
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, " ")
+		.trim();
+	const words = normalized.length > 0 ? normalized.split(/\s+/).filter(Boolean).slice(0, FRIENDLY_SESSION_WORD_LIMIT) : [];
+	return words.length > 0 ? words.join("_") : FRIENDLY_SESSION_FALLBACK_PROMPT;
+}
+
+function getFriendlyFolderSlug(cwd: string): string {
+	return sanitizeFriendlyPart(basename(cwd) || cwd, FRIENDLY_SESSION_FALLBACK_FOLDER);
+}
+
+export function buildFriendlySessionName(cwd: string, timestamp: string, promptText?: string): string {
+	return `${getFriendlyFolderSlug(cwd)}_${toFilenameSafeTimestamp(timestamp)}_${extractPromptSlug(promptText)}`;
+}
+
 /** Exported for testing */
 export function loadEntriesFromFile(filePath: string): FileEntry[] {
 	if (!existsSync(filePath)) return [];
@@ -500,6 +536,46 @@ function extractTextContent(message: Message): string {
 		.join(" ");
 }
 
+function extractFirstUserMessageText(entries: Iterable<FileEntry | SessionEntry>): string | undefined {
+	for (const entry of entries) {
+		if (entry.type !== "message") continue;
+		const message = entry.message;
+		if (!isMessageWithContent(message) || message.role !== "user") continue;
+		const text = extractTextContent(message).trim();
+		if (text) {
+			return text;
+		}
+	}
+	return undefined;
+}
+
+function getLatestSessionInfoName(entries: Iterable<FileEntry | SessionEntry>): { hasEntry: boolean; name?: string } {
+	let hasEntry = false;
+	let name: string | undefined;
+	for (const entry of entries) {
+		if (entry.type !== "session_info") continue;
+		hasEntry = true;
+		name = entry.name?.trim() || undefined;
+	}
+	return { hasEntry, name };
+}
+
+function deriveSessionDisplayName(
+	cwd: string,
+	timestamp: string,
+	entries: Iterable<FileEntry | SessionEntry>,
+	persist: boolean,
+): string | undefined {
+	const latestInfo = getLatestSessionInfoName(entries);
+	if (latestInfo.hasEntry) {
+		return latestInfo.name;
+	}
+	if (!persist) {
+		return undefined;
+	}
+	return buildFriendlySessionName(cwd, timestamp, extractFirstUserMessageText(entries));
+}
+
 function getLastActivityTime(entries: FileEntry[]): number | undefined {
 	let lastActivityTime: number | undefined;
 
@@ -562,14 +638,14 @@ async function buildSessionInfo(filePath: string): Promise<SessionInfo | null> {
 		let firstMessage = "";
 		const allMessages: string[] = [];
 		let name: string | undefined;
+		let hasSessionInfoEntry = false;
 
 		for (const entry of entries) {
 			// Extract session name (use latest)
 			if (entry.type === "session_info") {
 				const infoEntry = entry as SessionInfoEntry;
-				if (infoEntry.name) {
-					name = infoEntry.name.trim();
-				}
+				hasSessionInfoEntry = true;
+				name = infoEntry.name?.trim() || undefined;
 			}
 
 			if (entry.type !== "message") continue;
@@ -590,6 +666,9 @@ async function buildSessionInfo(filePath: string): Promise<SessionInfo | null> {
 
 		const cwd = typeof (header as SessionHeader).cwd === "string" ? (header as SessionHeader).cwd : "";
 		const parentSessionPath = (header as SessionHeader).parentSession;
+		if (!hasSessionInfoEntry) {
+			name = buildFriendlySessionName(cwd, (header as SessionHeader).timestamp, firstMessage || undefined);
+		}
 
 		const modified = getSessionModifiedDate(entries, header as SessionHeader, stats.mtime);
 
@@ -671,6 +750,7 @@ export class SessionManager {
 	private byId: Map<string, SessionEntry> = new Map();
 	private labelsById: Map<string, string> = new Map();
 	private leafId: string | null = null;
+	private autoNamePending = false;
 
 	private constructor(cwd: string, sessionDir: string, sessionFile: string | undefined, persist: boolean) {
 		this.cwd = cwd;
@@ -690,6 +770,7 @@ export class SessionManager {
 	/** Switch to a different session file (used for resume and branching) */
 	setSessionFile(sessionFile: string): void {
 		this.sessionFile = resolve(sessionFile);
+		this.autoNamePending = false;
 		if (existsSync(this.sessionFile)) {
 			this.fileEntries = loadEntriesFromFile(this.sessionFile);
 
@@ -736,10 +817,14 @@ export class SessionManager {
 		this.labelsById.clear();
 		this.leafId = null;
 		this.flushed = false;
+		this.autoNamePending = !options?.promptSeed;
 
 		if (this.persist) {
-			const fileTimestamp = timestamp.replace(/[:.]/g, "-");
-			this.sessionFile = join(this.getSessionDir(), `${fileTimestamp}_${this.sessionId}.jsonl`);
+			const friendlyName = buildFriendlySessionName(this.cwd, timestamp, options?.promptSeed);
+			this.sessionFile = join(this.getSessionDir(), `${friendlyName}.jsonl`);
+		}
+		if (this.persist && options?.promptSeed) {
+			this.appendSessionInfo(buildFriendlySessionName(this.cwd, timestamp, options.promptSeed));
 		}
 		return this.sessionFile;
 	}
@@ -788,6 +873,39 @@ export class SessionManager {
 		return this.sessionFile;
 	}
 
+	private _hasSessionInfoEntry(): boolean {
+		return this.fileEntries.some((entry) => entry.type === "session_info");
+	}
+
+	private _renameSessionFile(nextFile: string): void {
+		if (!this.persist) return;
+		const resolvedPath = resolve(nextFile);
+		if (this.sessionFile === resolvedPath) return;
+		if (this.sessionFile && existsSync(this.sessionFile)) {
+			renameSync(this.sessionFile, resolvedPath);
+		}
+		this.sessionFile = resolvedPath;
+	}
+
+	private _finalizeFriendlyIdentity(promptText: string | undefined): void {
+		if (!this.persist || !this.autoNamePending) {
+			return;
+		}
+
+		const header = this.getHeader();
+		if (!header) {
+			this.autoNamePending = false;
+			return;
+		}
+
+		const friendlyName = buildFriendlySessionName(this.cwd, header.timestamp, promptText);
+		this._renameSessionFile(join(this.getSessionDir(), `${friendlyName}.jsonl`));
+		if (!this._hasSessionInfoEntry()) {
+			this.appendSessionInfo(friendlyName);
+		}
+		this.autoNamePending = false;
+	}
+
 	_persist(entry: SessionEntry): void {
 		if (!this.persist || !this.sessionFile) return;
 
@@ -830,6 +948,10 @@ export class SessionManager {
 			message,
 		};
 		this._appendEntry(entry);
+		if (message.role === "user" && isMessageWithContent(message)) {
+			const promptText = extractTextContent(message).trim() || undefined;
+			this._finalizeFriendlyIdentity(promptText);
+		}
 		return entry.id;
 	}
 
@@ -912,15 +1034,11 @@ export class SessionManager {
 
 	/** Get the current session name from the latest session_info entry, if any. */
 	getSessionName(): string | undefined {
-		// Walk entries in reverse to find the latest session_info with a name
-		const entries = this.getEntries();
-		for (let i = entries.length - 1; i >= 0; i--) {
-			const entry = entries[i];
-			if (entry.type === "session_info" && entry.name) {
-				return entry.name;
-			}
+		const header = this.getHeader();
+		if (!header) {
+			return undefined;
 		}
-		return undefined;
+		return deriveSessionDisplayName(this.cwd, header.timestamp, this.getEntries(), this.persist);
 	}
 
 	/**
@@ -1153,20 +1271,20 @@ export class SessionManager {
 	 * Useful for extracting a single conversation path from a branched session.
 	 * Returns the new session file path, or undefined if not persisting.
 	 */
-	createBranchedSession(leafId: string): string | undefined {
+	createBranchedSession(leafId: string, options?: { promptSeed?: string }): string | undefined {
 		const previousSessionFile = this.sessionFile;
 		const path = this.getBranch(leafId);
 		if (path.length === 0) {
 			throw new Error(`Entry ${leafId} not found`);
 		}
 
-		// Filter out LabelEntry from path - we'll recreate them from the resolved map
-		const pathWithoutLabels = path.filter((e) => e.type !== "label");
+		// Filter out labels and inherited session names - labels are recreated and names should be fresh.
+		const pathWithoutMetadata = path.filter((e) => e.type !== "label" && e.type !== "session_info");
 
 		const newSessionId = randomUUID();
 		const timestamp = new Date().toISOString();
-		const fileTimestamp = timestamp.replace(/[:.]/g, "-");
-		const newSessionFile = join(this.getSessionDir(), `${fileTimestamp}_${newSessionId}.jsonl`);
+		const promptSeed = options?.promptSeed ?? extractFirstUserMessageText(pathWithoutMetadata);
+		const newSessionFile = join(this.getSessionDir(), `${buildFriendlySessionName(this.cwd, timestamp, promptSeed)}.jsonl`);
 
 		const header: SessionHeader = {
 			type: "session",
@@ -1178,7 +1296,7 @@ export class SessionManager {
 		};
 
 		// Collect labels for entries in the path
-		const pathEntryIds = new Set(pathWithoutLabels.map((e) => e.id));
+		const pathEntryIds = new Set(pathWithoutMetadata.map((e) => e.id));
 		const labelsToWrite: Array<{ targetId: string; label: string }> = [];
 		for (const [targetId, label] of this.labelsById) {
 			if (pathEntryIds.has(targetId)) {
@@ -1187,8 +1305,21 @@ export class SessionManager {
 		}
 
 		if (this.persist) {
+			const newEntries: SessionEntry[] = [...pathWithoutMetadata];
+			if (options?.promptSeed) {
+				const sessionInfoEntry: SessionInfoEntry = {
+					type: "session_info",
+					id: generateId(pathEntryIds),
+					parentId: newEntries[newEntries.length - 1]?.id ?? null,
+					timestamp: new Date().toISOString(),
+					name: buildFriendlySessionName(this.cwd, timestamp, options.promptSeed),
+				};
+				pathEntryIds.add(sessionInfoEntry.id);
+				newEntries.push(sessionInfoEntry);
+			}
+
 			// Build label entries
-			const lastEntryId = pathWithoutLabels[pathWithoutLabels.length - 1]?.id || null;
+			const lastEntryId = newEntries[newEntries.length - 1]?.id || null;
 			let parentId = lastEntryId;
 			const labelEntries: LabelEntry[] = [];
 			for (const { targetId, label } of labelsToWrite) {
@@ -1205,9 +1336,10 @@ export class SessionManager {
 				parentId = labelEntry.id;
 			}
 
-			this.fileEntries = [header, ...pathWithoutLabels, ...labelEntries];
+			this.fileEntries = [header, ...newEntries, ...labelEntries];
 			this.sessionId = newSessionId;
 			this.sessionFile = newSessionFile;
+			this.autoNamePending = false;
 			this._buildIndex();
 
 			// Only write the file now if it contains an assistant message.
@@ -1228,7 +1360,7 @@ export class SessionManager {
 
 		// In-memory mode: replace current session with the path + labels
 		const labelEntries: LabelEntry[] = [];
-		let parentId = pathWithoutLabels[pathWithoutLabels.length - 1]?.id || null;
+		let parentId = pathWithoutMetadata[pathWithoutMetadata.length - 1]?.id || null;
 		for (const { targetId, label } of labelsToWrite) {
 			const labelEntry: LabelEntry = {
 				type: "label",
@@ -1241,8 +1373,9 @@ export class SessionManager {
 			labelEntries.push(labelEntry);
 			parentId = labelEntry.id;
 		}
-		this.fileEntries = [header, ...pathWithoutLabels, ...labelEntries];
+		this.fileEntries = [header, ...pathWithoutMetadata, ...labelEntries];
 		this.sessionId = newSessionId;
+		this.autoNamePending = false;
 		this._buildIndex();
 		return undefined;
 	}
@@ -1317,8 +1450,8 @@ export class SessionManager {
 		// Create new session file with new ID but forked content
 		const newSessionId = randomUUID();
 		const timestamp = new Date().toISOString();
-		const fileTimestamp = timestamp.replace(/[:.]/g, "-");
-		const newSessionFile = join(dir, `${fileTimestamp}_${newSessionId}.jsonl`);
+		const promptSeed = extractFirstUserMessageText(sourceEntries);
+		const newSessionFile = join(dir, `${buildFriendlySessionName(targetCwd, timestamp, promptSeed)}.jsonl`);
 
 		// Write new header pointing to source as parent, with updated cwd
 		const newHeader: SessionHeader = {
@@ -1331,11 +1464,26 @@ export class SessionManager {
 		};
 		appendFileSync(newSessionFile, `${JSON.stringify(newHeader)}\n`);
 
-		// Copy all non-header entries from source
+		let lastEntryId: string | null = null;
+		const usedIds = new Set<string>();
+
+		// Copy all non-header entries from source, but do not inherit the old display name.
 		for (const entry of sourceEntries) {
-			if (entry.type !== "session") {
+			if (entry.type !== "session" && entry.type !== "session_info") {
 				appendFileSync(newSessionFile, `${JSON.stringify(entry)}\n`);
+				lastEntryId = entry.id;
+				usedIds.add(entry.id);
 			}
+		}
+		if (promptSeed) {
+			const sessionInfoEntry: SessionInfoEntry = {
+				type: "session_info",
+				id: generateId(usedIds),
+				parentId: lastEntryId,
+				timestamp: new Date().toISOString(),
+				name: buildFriendlySessionName(targetCwd, timestamp, promptSeed),
+			};
+			appendFileSync(newSessionFile, `${JSON.stringify(sessionInfoEntry)}\n`);
 		}
 
 		return new SessionManager(targetCwd, dir, newSessionFile, true);

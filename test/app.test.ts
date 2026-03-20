@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { AgentMessage, ThinkingLevel } from "@mariozechner/pi-agent-core";
@@ -10,7 +10,15 @@ import type { AgentHost, AgentHostState, HostCommand } from "../src/agent-host.j
 import { createAppDebugger } from "../src/app-debugger.js";
 import { AppConfig } from "../src/app-config.js";
 import { VibeAgentApp } from "../src/app.js";
-import { CustomEditor, ModelRegistry, type AgentSessionEvent, type ExtensionUIContext, type SessionInfo, type SessionStats } from "../src/local-coding-agent.js";
+import {
+	CustomEditor,
+	ModelRegistry,
+	SessionManager,
+	type AgentSessionEvent,
+	type ExtensionUIContext,
+	type SessionInfo,
+	type SessionStats,
+} from "../src/local-coding-agent.js";
 import type { VibeAgentAppOptions } from "../src/types.js";
 import { VirtualTerminal } from "./helpers/virtual-terminal.js";
 
@@ -68,7 +76,6 @@ class FakeHost implements AgentHost {
 	};
 	modelFallbackMessage?: string;
 	private listeners = new Set<(event: AgentSessionEvent) => void>();
-	private streamingAssistantIndex = -1;
 
 	constructor(options: { fallbackMessage?: string } = {}) {
 		this.modelFallbackMessage = options.fallbackMessage;
@@ -207,106 +214,6 @@ class FakeHost implements AgentHost {
 		this.emit({ type: "message_end" } as unknown as AgentSessionEvent);
 	}
 
-	beginAssistantStream(options: { provider?: string; model?: string; api?: string } = {}): void {
-		this.state.isStreaming = true;
-		const assistantMessage = {
-			role: "assistant",
-			content: [],
-			stopReason: "end_turn",
-			usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
-			provider: options.provider ?? "test",
-			model: options.model ?? "demo-model",
-			api: options.api ?? "openai-responses",
-			timestamp: Date.now(),
-		} as unknown as AgentMessage;
-		this.messages.push(assistantMessage);
-		this.streamingAssistantIndex = this.messages.length - 1;
-		this.emit({
-			type: "message_start",
-			message: this.snapshotStreamingAssistant(),
-		} as unknown as AgentSessionEvent);
-	}
-
-	streamThinkingStart(): void {
-		const message = this.requireStreamingAssistant();
-		(message.content as Array<Record<string, unknown>>).push({ type: "thinking", thinking: "" });
-		this.emit({
-			type: "message_update",
-			message: this.snapshotStreamingAssistant(),
-			assistantMessageEvent: {
-				type: "thinking_start",
-				contentIndex: message.content.length - 1,
-				partial: this.snapshotStreamingAssistant(),
-			},
-		} as unknown as AgentSessionEvent);
-	}
-
-	streamThinkingDelta(delta: string): void {
-		const message = this.requireStreamingAssistant();
-		const thinkingBlock = (message.content as Array<Record<string, unknown>>).find((content) => content.type === "thinking");
-		if (!thinkingBlock) {
-			throw new Error("No active thinking block");
-		}
-		thinkingBlock.thinking = `${String(thinkingBlock.thinking ?? "")}${delta}`;
-		this.emit({
-			type: "message_update",
-			message: this.snapshotStreamingAssistant(),
-			assistantMessageEvent: {
-				type: "thinking_delta",
-				contentIndex: 0,
-				delta,
-				partial: this.snapshotStreamingAssistant(),
-			},
-		} as unknown as AgentSessionEvent);
-	}
-
-	streamThinkingEnd(): void {
-		const message = this.requireStreamingAssistant();
-		const thinkingIndex = (message.content as Array<Record<string, unknown>>).findIndex((content) => content.type === "thinking");
-		this.emit({
-			type: "message_update",
-			message: this.snapshotStreamingAssistant(),
-			assistantMessageEvent: {
-				type: "thinking_end",
-				contentIndex: Math.max(0, thinkingIndex),
-				content: String(((message.content as Array<Record<string, unknown>>)[thinkingIndex] as Record<string, unknown> | undefined)?.thinking ?? ""),
-				partial: this.snapshotStreamingAssistant(),
-			},
-		} as unknown as AgentSessionEvent);
-	}
-
-	streamTextDelta(delta: string): void {
-		const message = this.requireStreamingAssistant();
-		let textBlock = (message.content as Array<Record<string, unknown>>).find((content) => content.type === "text");
-		if (!textBlock) {
-			textBlock = { type: "text", text: "" };
-			(message.content as Array<Record<string, unknown>>).push(textBlock);
-		}
-		textBlock.text = `${String(textBlock.text ?? "")}${delta}`;
-		this.emit({
-			type: "message_update",
-			message: this.snapshotStreamingAssistant(),
-			assistantMessageEvent: {
-				type: "text_delta",
-				contentIndex: message.content.length - 1,
-				delta,
-				partial: this.snapshotStreamingAssistant(),
-			},
-		} as unknown as AgentSessionEvent);
-	}
-
-	endAssistantStream(): void {
-		if (this.streamingAssistantIndex < 0) {
-			throw new Error("No active streaming assistant");
-		}
-		this.state.isStreaming = false;
-		this.emit({
-			type: "message_end",
-			message: this.snapshotStreamingAssistant(),
-		} as unknown as AgentSessionEvent);
-		this.streamingAssistantIndex = -1;
-	}
-
 	setActiveModel(model: AgentHostState["model"]): void {
 		this.state.model = model;
 		this.emit({ type: "message_end" } as unknown as AgentSessionEvent);
@@ -390,17 +297,6 @@ class FakeHost implements AgentHost {
 		for (const listener of this.listeners) {
 			listener(event);
 		}
-	}
-
-	private requireStreamingAssistant(): Record<string, any> {
-		if (this.streamingAssistantIndex < 0) {
-			throw new Error("No active streaming assistant");
-		}
-		return this.messages[this.streamingAssistantIndex] as unknown as Record<string, any>;
-	}
-
-	private snapshotStreamingAssistant(): AgentMessage {
-		return JSON.parse(JSON.stringify(this.requireStreamingAssistant())) as AgentMessage;
 	}
 }
 
@@ -1218,6 +1114,181 @@ tests.push({
 		assert.ok(output.includes("SESSIONS"), "Should show SESSIONS heading");
 		assert.ok(output.includes("Today"), "Should show Today group");
 		assert.ok(output.includes("my-project"), "Should show session name");
+	},
+});
+
+tests.push({
+	name: "SessionManager persists friendly file names and session metadata from the first prompt",
+	run: async () => {
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), "vibe-session-"));
+		const cwd = path.join(tempRoot, "Friendly Repo");
+		mkdirSync(cwd, { recursive: true });
+
+		try {
+			const session = SessionManager.create(cwd, tempRoot);
+			session.appendThinkingLevelChange("high");
+			session.appendMessage({
+				role: "user",
+				content: [{ type: "text", text: "Hello there general kenobi" }],
+				timestamp: Date.now(),
+			} as any);
+
+			const sessionFile = session.getSessionFile();
+			assert.ok(sessionFile, "Expected a persisted session file path");
+			const fileName = path.basename(sessionFile!);
+			assert.ok(fileName.startsWith("friendly_repo_"), `Unexpected file name: ${fileName}`);
+			assert.ok(fileName.endsWith("_hello_there_general.jsonl"), `Unexpected file name: ${fileName}`);
+
+			session.appendMessage({
+				role: "assistant",
+				content: [{ type: "text", text: "Ack" }],
+				stopReason: "stop",
+				usage: {
+					input: 1,
+					output: 1,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 2,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				provider: "test",
+				model: "demo-model",
+				api: "test",
+				timestamp: Date.now(),
+			} as any);
+
+			assert.ok(existsSync(sessionFile!), "Expected the named session file to be written after the first assistant turn");
+			const records = readFileSync(sessionFile!, "utf8")
+				.trim()
+				.split(/\r?\n/)
+				.map((line) => JSON.parse(line) as { type: string; name?: string });
+			const sessionInfo = records.find((record) => record.type === "session_info");
+			assert.ok(sessionInfo, "Expected session_info metadata to be persisted");
+			assert.strictEqual(sessionInfo?.name, fileName.replace(/\.jsonl$/, ""));
+		} finally {
+			rmSync(tempRoot, { recursive: true, force: true });
+		}
+	},
+});
+
+tests.push({
+	name: "SessionManager lists legacy sessions with derived friendly names",
+	run: async () => {
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), "vibe-legacy-"));
+		const cwd = path.join(tempRoot, "Legacy Repo");
+		mkdirSync(cwd, { recursive: true });
+
+		try {
+			const timestamp = "2026-03-20T20:08:01.306Z";
+			const sessionPath = path.join(tempRoot, "2026-03-20T20-08-01-306Z_legacy.jsonl");
+			const lines = [
+				{
+					type: "session",
+					version: 3,
+					id: "legacy-session",
+					timestamp,
+					cwd,
+				},
+				{
+					type: "message",
+					id: "msg-user",
+					parentId: null,
+					timestamp,
+					message: {
+						role: "user",
+						content: [{ type: "text", text: "What is up today?" }],
+						timestamp: Date.now(),
+					},
+				},
+				{
+					type: "message",
+					id: "msg-assistant",
+					parentId: "msg-user",
+					timestamp,
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "Not much." }],
+						stopReason: "stop",
+						usage: {
+							input: 1,
+							output: 1,
+							cacheRead: 0,
+							cacheWrite: 0,
+							totalTokens: 2,
+							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+						},
+						provider: "test",
+						model: "demo-model",
+						api: "test",
+						timestamp: Date.now(),
+					},
+				},
+			];
+			writeFileSync(sessionPath, `${lines.map((line) => JSON.stringify(line)).join(os.EOL)}${os.EOL}`, "utf8");
+
+			const sessions = await SessionManager.list(cwd, tempRoot);
+			assert.strictEqual(sessions.length, 1);
+			assert.strictEqual(sessions[0]?.name, "legacy_repo_2026-03-20T20-08-01-306Z_what_is_up");
+		} finally {
+			rmSync(tempRoot, { recursive: true, force: true });
+		}
+	},
+});
+
+tests.push({
+	name: "SessionManager creates branched sessions with fresh friendly names instead of inherited session_info",
+	run: async () => {
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), "vibe-branch-"));
+		const cwd = path.join(tempRoot, "Fork Repo");
+		mkdirSync(cwd, { recursive: true });
+
+		try {
+			const session = SessionManager.create(cwd, tempRoot);
+			session.appendThinkingLevelChange("high");
+			session.appendMessage({
+				role: "user",
+				content: [{ type: "text", text: "Original prompt" }],
+				timestamp: Date.now(),
+			} as any);
+			const assistantId = session.appendMessage({
+				role: "assistant",
+				content: [{ type: "text", text: "Original answer" }],
+				stopReason: "stop",
+				usage: {
+					input: 1,
+					output: 1,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 2,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				provider: "test",
+				model: "demo-model",
+				api: "test",
+				timestamp: Date.now(),
+			} as any);
+			session.appendSessionInfo("manual-old-name");
+			session.appendMessage({
+				role: "user",
+				content: [{ type: "text", text: "Second prompt" }],
+				timestamp: Date.now(),
+			} as any);
+
+			const branchedFile = session.createBranchedSession(assistantId, { promptSeed: "Fresh branch prompt" });
+			assert.ok(branchedFile, "Expected a branched session file");
+			assert.ok(existsSync(branchedFile!), "Expected branched session file to be written immediately");
+
+			const records = readFileSync(branchedFile!, "utf8")
+				.trim()
+				.split(/\r?\n/)
+				.map((line) => JSON.parse(line) as { type: string; name?: string });
+			const infoEntries = records.filter((record) => record.type === "session_info");
+			assert.strictEqual(infoEntries.length, 1);
+			assert.strictEqual(infoEntries[0]?.name, path.basename(branchedFile!, ".jsonl"));
+			assert.ok(!records.some((record) => record.name === "manual-old-name"));
+		} finally {
+			rmSync(tempRoot, { recursive: true, force: true });
+		}
 	},
 });
 

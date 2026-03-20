@@ -56,11 +56,11 @@ export class DefaultInputController implements InputController {
 		}
 
 		if (this.overlayController.getOverlayDepth() === 0) {
-			if (matchesKey(data, "pageup") || data === "\x1b[5~") {
+			if (data === "\x1b[5~") {
 				this.shellView.scrollTranscript(-10);
 				return { consume: true };
 			}
-			if (matchesKey(data, "pagedown") || data === "\x1b[6~") {
+			if (data === "\x1b[6~") {
 				this.shellView.scrollTranscript(10);
 				return { consume: true };
 			}

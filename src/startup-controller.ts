@@ -8,6 +8,9 @@ import type { AgentSessionEvent } from "./local-coding-agent.js";
 import { extractThinkingTextFromAssistantMessage, renderAgentMessages } from "./message-renderer.js";
 import type { ShellView } from "./shell-view.js";
 
+const OPENAI_REASONING_APIS = new Set(["openai-responses", "azure-openai-responses", "openai-codex-responses"]);
+const THINKING_ERROR_TEXT = "* e r r o r *";
+
 function getEventDetails(event: AgentSessionEvent): Record<string, unknown> {
 	const details: Record<string, unknown> = { type: event.type };
 	if ("reason" in event) details.reason = event.reason;
@@ -51,6 +54,10 @@ function createThinkingState(
 		turnActive: options.turnActive,
 		...getThinkingMeta(options.message as AgentMessage),
 	};
+}
+
+function isOpenAiReasoningApi(api: string | undefined): boolean {
+	return !!api && OPENAI_REASONING_APIS.has(api);
 }
 
 export interface StartupController {
@@ -188,6 +195,8 @@ export class DefaultStartupController implements StartupController {
 			const assistant = event.message as AssistantMessage;
 			const current = this.stateStore.getState().activeThinking;
 			const finalThinkingText = extractThinkingTextFromAssistantMessage(assistant);
+			const hostState = this.host.getState();
+			const reasoningExpected = hostState.thinkingLevel !== "off" && isOpenAiReasoningApi(assistant.api);
 			if (finalThinkingText) {
 				this.stateStore.setActiveThinking(
 					createThinkingState(finalThinkingText, {
@@ -200,6 +209,31 @@ export class DefaultStartupController implements StartupController {
 				return;
 			}
 
+			if (reasoningExpected) {
+				this.stateStore.setActiveThinking(
+					createThinkingState(THINKING_ERROR_TEXT, {
+						hasTurnState: true,
+						hasThinkingEvents: current.hasThinkingEvents,
+						turnActive: false,
+						message: event.message,
+					}),
+				);
+				this.debuggerSink.log("thinking.absent", {
+					provider: assistant.provider,
+					modelId: assistant.model,
+					api: assistant.api,
+					reasoningExpected,
+					hasThinkingEvents: current.hasThinkingEvents,
+					thinkingLevel: hostState.thinkingLevel,
+					contentTypes: assistant.content.map((content) => content.type),
+					thinkingSignaturesPresent: assistant.content.filter((content) => content.type === "thinking").map((content) => {
+						const block = content as Extract<AssistantMessage["content"][number], { type: "thinking" }>;
+						return typeof block.thinkingSignature === "string" && block.thinkingSignature.length > 0;
+					}),
+				});
+				return;
+			}
+
 			if (current.hasTurnState) {
 				const nextState = createThinkingState("", {
 					hasTurnState: true,
@@ -208,11 +242,13 @@ export class DefaultStartupController implements StartupController {
 					message: event.message,
 				});
 				this.stateStore.setActiveThinking(nextState);
-				if (assistant.api === "openai-responses" && !current.hasThinkingEvents) {
+				if (isOpenAiReasoningApi(assistant.api) && !current.hasThinkingEvents) {
 					this.debuggerSink.log("thinking.absent", {
 						provider: assistant.provider,
 						modelId: assistant.model,
 						api: assistant.api,
+						reasoningExpected: false,
+						hasThinkingEvents: current.hasThinkingEvents,
 					});
 				}
 			}

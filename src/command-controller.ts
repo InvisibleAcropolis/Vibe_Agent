@@ -11,7 +11,7 @@ import type { FooterDataProvider } from "./footer-data-provider.js";
 import type { ShellView } from "./shell-view.js";
 import { getThemeNames, setActiveTheme, getActiveTheme, type ThemeName } from "./themes/index.js";
 import { AppConfig } from "./app-config.js";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { getAgentDir } from "./local-coding-agent.js";
 
 interface SetupActions {
@@ -250,7 +250,7 @@ export class DefaultCommandController implements CommandController {
 					`Switch to a ${scope} session.`,
 					sessions.map((session) => ({
 						value: session,
-						label: session.name ? `${session.name} · ${session.id}` : session.id,
+						label: session.name ?? basename(session.path) ?? session.id,
 						description: session.path,
 					})),
 					(session) => {

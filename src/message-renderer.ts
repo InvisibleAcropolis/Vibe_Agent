@@ -4,6 +4,16 @@ import { Markdown, TUI, type Component } from "@mariozechner/pi-tui";
 import { AssistantMessageComponent, getMarkdownTheme, ToolExecutionComponent, UserMessageComponent } from "./local-coding-agent.js";
 import type { Artifact } from "./types.js";
 
+type ThinkingSignatureSummary = {
+	summary?: Array<{ text?: string }>;
+	reasoning?: {
+		summary?: Array<{ text?: string }>;
+		summary_text?: string;
+	};
+	summary_text?: string;
+	summaryText?: string;
+};
+
 function getTextContent(content: unknown): string {
 	if (typeof content === "string") {
 		return content;
@@ -164,12 +174,68 @@ export function extractThinkingTextFromAssistantMessage(message: AssistantMessag
 	}
 	const thinkingBlocks = message.content
 		.filter((content): content is Extract<AssistantMessage["content"][number], { type: "thinking" }> => content.type === "thinking")
-		.map((content) => content.thinking.trim())
+		.flatMap((content) => {
+			const inlineThinking = content.thinking.trim();
+			if (inlineThinking.length > 0) {
+				return [inlineThinking];
+			}
+			const summaryThinking = extractThinkingSummaryFromSignature(content.thinkingSignature);
+			return summaryThinking ? [summaryThinking] : [];
+		})
 		.filter(Boolean);
 	if (thinkingBlocks.length === 0) {
-		return undefined;
+		return extractFallbackThinkingSummary(message);
 	}
 	return thinkingBlocks.join("\n\n");
+}
+
+function extractThinkingSummaryFromSignature(signature: string | undefined): string | undefined {
+	if (!signature || !signature.trim().startsWith("{")) {
+		return undefined;
+	}
+	try {
+		const parsed = JSON.parse(signature) as ThinkingSignatureSummary;
+		const summaryParts = parsed.summary ?? parsed.reasoning?.summary;
+		const summaryText = joinSummaryParts(summaryParts);
+		if (summaryText) {
+			return summaryText;
+		}
+		return cleanSummaryText(parsed.summary_text ?? parsed.summaryText ?? parsed.reasoning?.summary_text);
+	} catch {
+		return undefined;
+	}
+}
+
+function extractFallbackThinkingSummary(message: AssistantMessage): string | undefined {
+	const unknownMessage = message as AssistantMessage & {
+		reasoning?: {
+			summary?: Array<{ text?: string }>;
+			summary_text?: string;
+		};
+		summaryText?: string;
+	};
+	const structuredSummary = joinSummaryParts(unknownMessage.reasoning?.summary);
+	if (structuredSummary) {
+		return structuredSummary;
+	}
+	return cleanSummaryText(unknownMessage.reasoning?.summary_text ?? unknownMessage.summaryText);
+}
+
+function joinSummaryParts(parts: Array<{ text?: string }> | undefined): string | undefined {
+	if (!Array.isArray(parts)) {
+		return undefined;
+	}
+	const summary = parts
+		.map((part) => cleanSummaryText(part?.text))
+		.filter((part): part is string => !!part)
+		.join("\n\n")
+		.trim();
+	return summary || undefined;
+}
+
+function cleanSummaryText(value: string | undefined): string | undefined {
+	const trimmed = value?.trim();
+	return trimmed ? trimmed : undefined;
 }
 
 /** Backwards-compatible wrapper that returns just the components */

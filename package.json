@@ -12,7 +12,8 @@
 		"dev:debug": "node ./bin/vibe-agent-debug.js",
 		"start": "node ./bin/vibe-agent.js",
 		"check": "tsc --noEmit -p tsconfig.json && npm run test",
-		"test": "node --import tsx ./test/app.test.ts"
+		"test": "node --import tsx ./test/app.test.ts",
+		"test:real-thinking": "node --import tsx ./test/real-thinking.integration.ts"
 	},
 	"dependencies": {
 		"@mariozechner/jiti": "^2.6.2",

@@ -1,5 +1,6 @@
 import { ProcessTerminal, type Component } from "@mariozechner/pi-tui";
-import { getEnvApiKey } from "@mariozechner/pi-ai";
+import { getEnvApiKey, stream, streamSimple, supportsXhigh, type ProviderStreamOptions } from "@mariozechner/pi-ai";
+import type { StreamFn } from "@mariozechner/pi-agent-core";
 import { join } from "node:path";
 import { createAppDebugger, type PiMonoAppDebugger } from "./app-debugger.js";
 import { AppConfig } from "./app-config.js";
@@ -38,6 +39,29 @@ type SavedDefaultValidation =
 	| { kind: "valid"; providerId: string; modelId: string }
 	| { kind: "invalid-provider"; reason: "missing-provider" | "saved-provider-unavailable" }
 	| { kind: "invalid-model"; providerId: string; reason: "missing-model" | "saved-model-unavailable" };
+
+const OPENAI_REASONING_APIS = new Set(["openai-responses", "azure-openai-responses", "openai-codex-responses"]);
+
+function createOpenAIReasoningSummaryStreamFn(): StreamFn {
+	return (model, context, options) => {
+		if (!OPENAI_REASONING_APIS.has(model.api) || !model.reasoning || !options?.reasoning) {
+			return streamSimple(model, context, options);
+		}
+
+		const reasoningEffort =
+			options.reasoning === "xhigh" && !supportsXhigh(model)
+				? "high"
+				: options.reasoning;
+
+		const providerOptions: ProviderStreamOptions = {
+			...options,
+			reasoning: undefined,
+			reasoningEffort,
+			reasoningSummary: "detailed",
+		};
+		return stream(model, context, providerOptions);
+	};
+}
 
 /**
  * Vibe Agent: A professional Agentic CLI application that provides
@@ -104,6 +128,7 @@ export class VibeAgentApp {
 			createOptions: {
 				authStorage: this.authStorage,
 				modelRegistry: this.modelRegistry,
+				streamFn: createOpenAIReasoningSummaryStreamFn(),
 			},
 			onSessionReady: async (session) => {
 				await this.applyConfiguredModelToSession(session);
