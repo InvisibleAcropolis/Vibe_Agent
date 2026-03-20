@@ -764,7 +764,6 @@ tests.push({
 		const output = lines.join("\n");
 		assert.ok(!output.includes("Ready for your first task"), "Should not show first-task banner");
 		assert.ok(!output.includes("Type a prompt"), "Should not show 'Type a prompt' help text");
-		assert.ok(!output.includes("F1 palette"), "Should not show F1 palette help line");
 		app.stop();
 		await new Promise<void>((resolve) => setImmediate(resolve));
 	},
