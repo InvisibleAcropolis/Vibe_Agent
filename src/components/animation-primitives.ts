@@ -335,3 +335,113 @@ export function renderNoiseField(
 	}
 	return rowStrings.join('\n');
 }
+
+// ─── Preset 9: Doom Fire ─────────────────────────────────────────────────────
+
+export interface DoomFireOptions {
+	width?: number;           // default 20
+	height?: number;          // default 8
+	coolingStrength?: number; // default 0.15 — fraction of bottom-row cells zeroed per tick
+}
+
+export function createDoomFire(opts?: DoomFireOptions): (animState: AnimationState, theme: ThemeConfig) => string {
+	const W = opts?.width ?? 20;
+	const H = opts?.height ?? 8;
+	const coolingStrength = opts?.coolingStrength ?? 0.15;
+
+	const buf = new Uint8Array(W * H);
+	// Seed bottom row to max heat
+	for (let x = 0; x < W; x++) buf[(H - 1) * W + x] = 255;
+
+	const PAL = ' .,:;+=ox#%@';
+
+	return (_animState: AnimationState, theme: ThemeConfig): string => {
+		// Propagate fire upward (Sanglard algorithm — integer subtraction, NOT multiplier)
+		for (let y = 1; y < H; y++) {
+			for (let x = 0; x < W; x++) {
+				const rand = Math.floor(Math.random() * 3); // 0, 1, or 2
+				const srcHeat = buf[y * W + x]!;
+				const dstX = Math.max(0, Math.min(W - 1, x - rand + 1));
+				buf[(y - 1) * W + dstX] = Math.max(0, srcHeat - (rand & 1));
+			}
+		}
+		// Randomly cool bottom row cells to create flame shape variation
+		for (let x = 0; x < W; x++) {
+			if (Math.random() < coolingStrength) buf[(H - 1) * W + x] = 0;
+			else buf[(H - 1) * W + x] = 255;
+		}
+
+		const rows: string[] = [];
+		for (let y = 0; y < H; y++) {
+			let row = '';
+			for (let x = 0; x < W; x++) {
+				const heat = buf[y * W + x]!;
+				const t = heat / 255;
+				const charIdx = Math.min(PAL.length - 1, Math.floor(t * PAL.length));
+				const char = PAL[charIdx]!;
+				if (heat < 8) {
+					row += style({ fg: '#1a3348' })(char);
+				} else {
+					row += style({ fg: lerpColor(theme.breathBaseColor, theme.breathPeakColor, t) })(char);
+				}
+			}
+			rows.push(row);
+		}
+		return rows.join('\n');
+	};
+}
+
+// ─── Preset 10: Spectrum Bars ────────────────────────────────────────────────
+
+export interface SpectrumBarsOptions {
+	cols?: number;   // default 12
+	rows?: number;   // default 6
+	speed?: number;  // default 1.0
+}
+
+export function createSpectrumBars(opts?: SpectrumBarsOptions): (animState: AnimationState, theme: ThemeConfig) => string {
+	const cols = opts?.cols ?? 12;
+	const rows = opts?.rows ?? 6;
+	const speed = opts?.speed ?? 1.0;
+
+	// Each bar has an independent phase accumulator, slightly different rate
+	const phases = Array.from({ length: cols }, (_, i) => i * 0.4);
+
+	const EIGHTHS = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'] as const;
+	const DIM = '#1a3348';
+
+	return (_animState: AnimationState, theme: ThemeConfig): string => {
+		// Advance phases and compute bar values
+		const vals = phases.map((ph, i) => {
+			phases[i] = ph + (0.06 + i * 0.004) * speed;
+			return (Math.sin(phases[i]!) * 0.5 + 0.5) * 0.9 + 0.05;
+		});
+
+		const grid: string[][] = Array.from({ length: rows }, () => new Array(cols).fill(''));
+
+		for (let x = 0; x < cols; x++) {
+			const v = vals[x]!;
+			const filledCells = v * rows;
+			const fullRows = Math.floor(filledCells);
+			const frac = filledCells - fullRows;
+
+			for (let y = 0; y < rows; y++) {
+				const fromBottom = rows - 1 - y;
+				const color = lerpColor(theme.breathBaseColor, theme.breathPeakColor, v);
+
+				if (fromBottom < fullRows) {
+					grid[y]![x] = style({ fg: color })('█');
+				} else if (fromBottom === fullRows) {
+					const eighthIdx = Math.round(frac * 8);
+					grid[y]![x] = eighthIdx === 0
+						? style({ fg: DIM })('·')
+						: style({ fg: color })(EIGHTHS[eighthIdx]!);
+				} else {
+					grid[y]![x] = style({ fg: DIM })('·');
+				}
+			}
+		}
+
+		return grid.map(r => r.join('')).join('\n');
+	};
+}
