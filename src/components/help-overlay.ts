@@ -56,7 +56,7 @@ export class HelpOverlay implements MouseAwareOverlay, Focusable {
 
 		lines.push(paintLine(top, width, bg));
 
-		lines.push(heading("FutureIDE Agent - Help"));
+		lines.push(heading("Vibe Agent - Help"));
 		lines.push(blank());
 
 		lines.push(heading("Setup Hub"));
@@ -66,7 +66,7 @@ export class HelpOverlay implements MouseAwareOverlay, Focusable {
 		lines.push(row("/model", "Pick the default model for the active provider"));
 		lines.push(row("/logout", "Disconnect a provider and clear invalid saved defaults"));
 		lines.push(note("Recommended defaults: Google Antigravity OAuth, then OpenAI Codex OAuth."));
-		lines.push(note("Credentials persist in auth.json; app defaults persist in future-ide-agent-config.json."));
+		lines.push(note("Credentials persist in auth.json; app defaults persist in vibe-agent-config.json."));
 		lines.push(blank());
 
 		lines.push(heading("Global Keybindings"));

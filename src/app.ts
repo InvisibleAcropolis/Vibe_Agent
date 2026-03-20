@@ -27,7 +27,7 @@ import {
 	type AgentSession,
 } from "./local-coding-agent.js";
 import { getThemeNames, onThemeConfigChange, setActiveTheme, type ThemeName } from "./themes/index.js";
-import type { FutureIdeAgentAppOptions } from "./types.js";
+import type { VibeAgentAppOptions } from "./types.js";
 import { type SetupRunRequest, WelcomeController } from "./welcome-controller.js";
 
 type SetupAssessment =
@@ -37,16 +37,16 @@ type SetupAssessment =
 	| { kind: "needs-model"; providerId: string; reason: "model-choice-needed" | "saved-model-unavailable" };
 
 /**
- * FutureIDE Agent: A professional Agentic CLI application that provides
+ * Vibe Agent: A professional Agentic CLI application that provides
  * full terminal-based parity with the coding-agent's WebUI.
  *
  * Architecture:
- * - Uses the TUI shell shape from future-ide-tui (header/footer/body/overlays)
+ * - Uses the TUI shell shape from pi-tui (header/footer/body/overlays)
  * - Wires directly to the coding-agent's AgentSession for all AI interactions
  * - Deprecates the WebUI in favor of this unified TUI experience
  * - Full feature parity: chat, tool execution, artifacts, sessions, extensions
  */
-export class FutureIdeAgentApp {
+export class VibeAgentApp {
 	readonly debugger: PiMonoAppDebugger;
 	readonly host: AgentHost;
 	readonly stateStore: AppStateStore;
@@ -69,16 +69,16 @@ export class FutureIdeAgentApp {
 	private setupFlowActive = false;
 	private readonly animEngine: AnimationEngine;
 
-	constructor(options: FutureIdeAgentAppOptions = {}) {
+	constructor(options: VibeAgentAppOptions = {}) {
 		this.debugger =
 			options.debugger ??
 			createAppDebugger({
-				appName: "future-ide-agent",
+				appName: "vibe-agent",
 				appRoot: process.cwd(),
 			});
 		this.stateStore = new DefaultAppStateStore();
 		this.previousRenderState = this.stateStoreSnapshot();
-		this.configPath = options.configPath ?? join(getAgentDir(), "future-ide-agent-config.json");
+		this.configPath = options.configPath ?? join(getAgentDir(), "vibe-agent-config.json");
 		this.appConfig = AppConfig.load(this.configPath);
 		this.authStorage = options.authStorage ?? AuthStorage.create();
 		this.modelRegistry = new ModelRegistry(this.authStorage);
@@ -250,7 +250,7 @@ export class FutureIdeAgentApp {
 		if (this.running) return;
 		this.running = true;
 		this.debugger.log("app.start", { cwd: process.cwd() });
-		this.shellView.setTitle("FutureIDE Agent");
+		this.shellView.setTitle("Vibe Agent");
 		this.animEngine.start();
 		this.shellView.start();
 		void this.runStartupSequence().catch((error) => {
@@ -517,7 +517,7 @@ export class FutureIdeAgentApp {
 			}
 		} finally {
 			this.setupFlowActive = false;
-			this.shellView.setTitle("FutureIDE Agent");
+			this.shellView.setTitle("Vibe Agent");
 			this.shellView.setEditor(this.editorController.getComponent());
 			this.setFocus(this.editorController.getComponent(), "editor");
 			this.refreshCockpitContext();
@@ -542,14 +542,14 @@ export class FutureIdeAgentApp {
 				},
 			);
 
-			this.shellView.setTitle("FutureIDE Agent · Logout");
+			this.shellView.setTitle("Vibe Agent · Logout");
 			this.shellView.setEditor(selector);
 			this.shellView.tui.setFocus(selector as any);
 			this.shellView.tui.requestRender();
 		});
 
 		this.setupFlowActive = false;
-		this.shellView.setTitle("FutureIDE Agent");
+		this.shellView.setTitle("Vibe Agent");
 		this.shellView.setEditor(this.editorController.getComponent());
 		this.setFocus(this.editorController.getComponent(), "editor");
 		this.refreshCockpitContext();
@@ -632,7 +632,7 @@ export class FutureIdeAgentApp {
 		if (assessment.kind === "needs-provider-choice") {
 			this.stateStore.setContextBanner(
 				"Choose a preferred provider",
-				"Multiple authenticated providers are available. Use /setup to pick the default path for FutureIDE Agent.",
+				"Multiple authenticated providers are available. Use /setup to pick the default path for Vibe Agent.",
 				"info",
 			);
 			return;

@@ -182,7 +182,7 @@ class NoopAppDebugger implements PiMonoAppDebugger {
 
 	writeSnapshot(snapshot: AppDebuggerSnapshot): string | undefined {
 		const manualDebugger = new FileAppDebugger({
-			appName: "future-ide-agent",
+			appName: "vibe-agent",
 			appRoot: process.cwd(),
 			bundleDir: createBundleDir(process.cwd()),
 		});
@@ -191,7 +191,7 @@ class NoopAppDebugger implements PiMonoAppDebugger {
 
 	describeInput(data: string): Record<string, unknown> {
 		const manualDebugger = new FileAppDebugger({
-			appName: "future-ide-agent",
+			appName: "vibe-agent",
 			appRoot: process.cwd(),
 			bundleDir: undefined,
 		});

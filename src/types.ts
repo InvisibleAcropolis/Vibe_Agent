@@ -16,7 +16,7 @@ export interface MouseAwareOverlay extends Component {
 
 export type AppEditorComponent = EditorComponent & Component;
 
-export interface FutureIdeAgentAppOptions {
+export interface VibeAgentAppOptions {
 	terminal?: Terminal;
 	host?: import("./agent-host.js").AgentHost;
 	debugger?: PiMonoAppDebugger;

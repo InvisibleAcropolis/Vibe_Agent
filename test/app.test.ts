@@ -9,9 +9,9 @@ import { Text } from "@mariozechner/pi-tui";
 import type { AgentHost, AgentHostState, HostCommand } from "../src/agent-host.js";
 import { createAppDebugger } from "../src/app-debugger.js";
 import { AppConfig } from "../src/app-config.js";
-import { FutureIdeAgentApp } from "../src/app.js";
+import { VibeAgentApp } from "../src/app.js";
 import { CustomEditor, ModelRegistry, type AgentSessionEvent, type ExtensionUIContext, type SessionInfo, type SessionStats } from "../src/local-coding-agent.js";
-import type { FutureIdeAgentAppOptions } from "../src/types.js";
+import type { VibeAgentAppOptions } from "../src/types.js";
 import { VirtualTerminal } from "./helpers/virtual-terminal.js";
 
 async function flush(terminal: VirtualTerminal): Promise<string[]> {
@@ -296,7 +296,7 @@ function createAuthStorageStub(initialProviders: string[] = []) {
 	} as any;
 }
 
-function createReadyAppOptions(): FutureIdeAgentAppOptions {
+function createReadyAppOptions(): VibeAgentAppOptions {
 	const registryAuthStorage = createAuthStorageStub();
 	registryAuthStorage.hasAuth = () => true;
 	const registry = new ModelRegistry(registryAuthStorage);
@@ -324,11 +324,11 @@ function createReadyAppOptions(): FutureIdeAgentAppOptions {
 
 async function withApp(
 	host: AgentHost,
-	run: (app: FutureIdeAgentApp, terminal: VirtualTerminal) => Promise<void>,
-	options: Partial<FutureIdeAgentAppOptions> = {},
+	run: (app: VibeAgentApp, terminal: VirtualTerminal) => Promise<void>,
+	options: Partial<VibeAgentAppOptions> = {},
 ): Promise<void> {
 	const terminal = new VirtualTerminal(110, 32);
-	const app = new FutureIdeAgentApp({ terminal, host, ...options });
+	const app = new VibeAgentApp({ terminal, host, ...options });
 	app.start();
 	try {
 		await flush(terminal);
@@ -470,7 +470,7 @@ const tests: TestCase[] = [
 				appRoot,
 				bundleDir: path.join(appRoot, ".debug", "test-run"),
 			});
-			const app = new FutureIdeAgentApp({ terminal, host, debugger: debuggerSink, ...createReadyAppOptions() });
+			const app = new VibeAgentApp({ terminal, host, debugger: debuggerSink, ...createReadyAppOptions() });
 			app.start();
 			try {
 				await flush(terminal);
@@ -646,7 +646,7 @@ const tests: TestCase[] = [
 		run: async () => {
 			const host = new FakeHost();
 			const terminal = new VirtualTerminal(110, 32);
-			const app = new FutureIdeAgentApp({ terminal, host, ...createReadyAppOptions() });
+			const app = new VibeAgentApp({ terminal, host, ...createReadyAppOptions() });
 			app.start();
 			try {
 				const viewport = await flush(terminal);
@@ -730,6 +730,21 @@ const tests: TestCase[] = [
 		},
 	},
 ];
+
+// New test: verify app title contains "Vibe Agent"
+const vibeAgentTitleTest: TestCase = {
+	name: "app title is Vibe Agent",
+	run: async () => {
+		const terminal = new VirtualTerminal(120, 40);
+		const app = new VibeAgentApp({ terminal });
+		app.start();
+		const lines = await flush(terminal);
+		assert.ok(lines.some(l => l.includes("Vibe Agent")), `Expected 'Vibe Agent' in output, got:\n${lines.join("\n")}`);
+		app.stop();
+		await new Promise<void>((resolve) => setImmediate(resolve));
+	},
+};
+tests.push(vibeAgentTitleTest);
 
 let failures = 0;
 for (const test of tests) {

@@ -1,6 +1,6 @@
-# FutureIDE Agent
+# Vibe Agent
 
-A professional terminal-based AI coding agent that provides a unified TUI (Terminal User Interface) experience. FutureIDE Agent deprecates the WebUI of the underlying coding-agent package in favor of a complete terminal-based interface using the TUI shell from `@mariozechner/pi-tui`.
+A professional terminal-based AI coding agent that provides a unified TUI (Terminal User Interface) experience. Vibe Agent deprecates the WebUI of the underlying coding-agent package in favor of a complete terminal-based interface using the TUI shell from `@mariozechner/pi-tui`.
 
 ## Table of Contents
 
@@ -20,7 +20,7 @@ A professional terminal-based AI coding agent that provides a unified TUI (Termi
 
 ## Overview
 
-FutureIDE Agent is a terminal-based AI coding assistant that provides full feature parity with web-based coding agents while maintaining the efficiency and speed of a terminal interface. Built on top of the `@mariozechner/pi-coding-agent` package, it offers a unified TUI experience for all AI interactions.
+Vibe Agent is a terminal-based AI coding assistant that provides full feature parity with web-based coding agents while maintaining the efficiency and speed of a terminal interface. Built on top of the `@mariozechner/pi-coding-agent` package, it offers a unified TUI experience for all AI interactions.
 
 ### Key Concepts
 
@@ -59,7 +59,7 @@ FutureIDE Agent is a terminal-based AI coding assistant that provides full featu
 ### Install from Source
 
 ```bash
-cd future-ide-agent
+cd vibe-agent
 npm install
 npm run build
 npm test
@@ -72,7 +72,7 @@ The `coding-agent/` and `tui-shell/` directories are vendored reference code and
 
 ```bash
 npm link
-future-ide-agent
+vibe-agent
 ```
 
 ---
@@ -120,7 +120,7 @@ The interface is organized from top to bottom:
 
 ### Header
 
-- **Title Bar**: Shows "FutureIDE Agent", current session name, and git branch
+- **Title Bar**: Shows "Vibe Agent", current session name, and git branch
 - **Help Bar**: Quick keybinding hints (F1 for palette, Ctrl+L for model, etc.)
 - **Connection Status**: Provider connection indicator (● connected, ○ disconnected)
 
@@ -232,7 +232,7 @@ Type `/` in the editor to trigger commands.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  FutureIdeAgentApp (main.ts)                                │
+│  VibeAgentApp (main.ts)                                     │
 │  ├─ ShellView (TUI shell container)                         │
 │  │   ├─ Header (chrome + custom header)                     │
 │  │   ├─ Messages Area (chat container)                      │
@@ -317,7 +317,7 @@ State changes trigger UI refreshes via subscribers.
 ### Project Structure
 
 ```
-future-ide-agent/
+vibe-agent/
 ├── src/
 │   ├── main.ts                    # Entry point
 │   ├── app.ts                     # Main application class
@@ -501,7 +501,7 @@ Press `Shift+Ctrl+D` to write a manual snapshot.
 
 ### App Config File
 
-Located at `~/.pi/agent/future-ide-agent-config.json`:
+Located at `~/.pi/agent/vibe-agent-config.json`:
 
 ```json
 {

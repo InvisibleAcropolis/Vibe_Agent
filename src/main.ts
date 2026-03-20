@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * FutureIDE Agent - Professional Agentic CLI Application
+ * Vibe Agent - Professional Agentic CLI Application
  *
  * This application deprecates the WebUI of the coding-agent package and
  * provides a complete terminal-based experience using the TUI shell shape
@@ -24,13 +24,13 @@
 
 import { createAppDebugger } from "./app-debugger.js";
 import { createDefaultAgentHost } from "./debug-agent-host.js";
-import { FutureIdeAgentApp } from "./app.js";
+import { VibeAgentApp } from "./app.js";
 
 const debuggerSink = createAppDebugger({
-	appName: "future-ide-agent",
+	appName: "vibe-agent",
 	appRoot: process.cwd(),
 });
-const app = new FutureIdeAgentApp({
+const app = new VibeAgentApp({
 	debugger: debuggerSink,
 	host: createDefaultAgentHost(debuggerSink),
 });

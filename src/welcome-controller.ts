@@ -55,7 +55,7 @@ class SetupIntroComponent extends Container implements Focusable {
 	) {
 		super();
 		this.addChild(new Spacer(1));
-		this.addChild(new Text(agentTheme.accentStrong("  FutureIDE Agent setup"), 1, 0));
+		this.addChild(new Text(agentTheme.accentStrong("  Vibe Agent setup"), 1, 0));
 		this.addChild(new Text(agentTheme.bannerBody("  Connect a provider, choose a default model, and launch into chat with a clean cockpit."), 1, 0));
 		this.addChild(new Spacer(1));
 		this.addChild(new Text(agentTheme.bannerAccent("  ★ Recommended providers"), 1, 0));
@@ -64,7 +64,7 @@ class SetupIntroComponent extends Container implements Focusable {
 		this.addChild(new Spacer(1));
 		this.addChild(new Text(agentTheme.bannerInfo("  What setup will persist locally"), 1, 0));
 		this.addChild(new TruncatedText(agentTheme.bannerBody("    auth.json credentials via Pi-mono AuthStorage"), 0, 0));
-		this.addChild(new TruncatedText(agentTheme.bannerBody("    future-ide-agent-config.json default provider/model"), 0, 0));
+		this.addChild(new TruncatedText(agentTheme.bannerBody("    vibe-agent-config.json default provider/model"), 0, 0));
 		this.addChild(new Spacer(1));
 		this.addChild(new Text(agentTheme.bannerDim("  Enter continue  |  Esc skip for now"), 1, 0));
 	}
@@ -273,7 +273,7 @@ class SetupCompletionComponent extends Container implements Focusable {
 		super();
 		this.addChild(new Spacer(1));
 		this.addChild(new Text(agentTheme.bannerSuccess("  Setup complete"), 1, 0));
-		this.addChild(new Text(agentTheme.bannerBody("  FutureIDE Agent is ready to launch with your default connection."), 1, 0));
+		this.addChild(new Text(agentTheme.bannerBody("  Vibe Agent is ready to launch with your default connection."), 1, 0));
 		this.addChild(new Spacer(1));
 		this.addChild(new TruncatedText(agentTheme.bannerBody(`    Provider  ${providerId}`), 0, 0));
 		this.addChild(new TruncatedText(agentTheme.bannerBody(`    Model     ${modelId}`), 0, 0));
@@ -345,7 +345,7 @@ export class WelcomeController {
 			showCompletion: request.showCompletion ?? true,
 		};
 		this.activeProviderId = request.providerId ?? this.currentConfig.selectedProvider;
-		this.shellView.setTitle("FutureIDE Agent · Setup");
+		this.shellView.setTitle("Vibe Agent · Setup");
 
 		return new Promise<SetupFlowResult>((resolve) => {
 			this.resolveRun = resolve;
@@ -431,7 +431,7 @@ export class WelcomeController {
 				(modelId) => void this.handleModelSelected(providerId, modelId),
 				() => this.showProviderSelector("Pick a provider or reconnect to continue setup."),
 				models.length > 0
-					? "This becomes the default model whenever FutureIDE Agent starts."
+					? "This becomes the default model whenever Vibe Agent starts."
 					: "Go back to choose a different provider.",
 			),
 		);

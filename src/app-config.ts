@@ -23,7 +23,7 @@ function normalizeConfig(config: Partial<AppConfig>): AppConfig {
 }
 
 function defaultConfigPath(): string {
-	return join(getAgentDir(), "future-ide-agent-config.json");
+	return join(getAgentDir(), "vibe-agent-config.json");
 }
 
 export const AppConfig = {

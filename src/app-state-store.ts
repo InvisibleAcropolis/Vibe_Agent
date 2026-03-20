@@ -47,7 +47,7 @@ export interface AppStateStore {
 
 export class DefaultAppStateStore implements AppStateStore {
 	private state: AppShellState = {
-		statusMessage: "Starting FutureIDE Agent...",
+		statusMessage: "Starting Vibe Agent...",
 		hideThinking: false,
 		toolOutputExpanded: false,
 		focusLabel: "editor",

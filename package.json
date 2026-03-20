@@ -1,16 +1,16 @@
 {
-	"name": "@futureide/agent",
+	"name": "@vibeagent/agent",
 	"version": "1.0.0",
 	"private": true,
 	"type": "module",
 	"bin": {
-		"future-ide-agent": "./bin/future-ide-agent.js"
+		"vibe-agent": "./bin/vibe-agent.js"
 	},
 	"scripts": {
 		"build": "tsc --noEmit -p tsconfig.json",
-		"dev": "node ./bin/future-ide-agent.js",
-		"dev:debug": "node ./bin/future-ide-agent-debug.js",
-		"start": "node ./bin/future-ide-agent.js",
+		"dev": "node ./bin/vibe-agent.js",
+		"dev:debug": "node ./bin/vibe-agent-debug.js",
+		"start": "node ./bin/vibe-agent.js",
 		"check": "tsc --noEmit -p tsconfig.json && npm run test",
 		"test": "node --import tsx ./test/app.test.ts"
 	},

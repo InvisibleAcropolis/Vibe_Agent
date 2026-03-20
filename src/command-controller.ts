@@ -443,7 +443,7 @@ export class DefaultCommandController implements CommandController {
 		setActiveTheme(arg as ThemeName);
 		// Persist to config
 		try {
-			const configPath = join(getAgentDir(), "future-ide-agent-config.json");
+			const configPath = join(getAgentDir(), "vibe-agent-config.json");
 			const config = AppConfig.load(configPath);
 			AppConfig.save({ ...config, selectedTheme: arg }, configPath);
 		} catch {
