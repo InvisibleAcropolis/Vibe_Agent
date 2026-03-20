@@ -1048,3 +1048,70 @@ export function createLaserScan(opts?: LaserScanOptions): (animState: AnimationS
 		return rowStrings.join('\n');
 	};
 }
+
+// ─── Preset 19: Lissajous Curve ──────────────────────────────────────────────
+
+export interface LissajousOptions {
+	cols?: number;         // default 24
+	rows?: number;         // default 12
+	a?: number;            // default 3 — x frequency
+	b?: number;            // default 2 — y frequency
+	deltaSpeed?: number;   // default 0.008 — phase shift per tick
+	trailPoints?: number;  // default 300 — curve samples per frame
+	decay?: number;        // default 0.92 — density buffer decay per tick
+}
+
+export function createLissajous(opts?: LissajousOptions): (animState: AnimationState, theme: ThemeConfig) => string {
+	const cols = opts?.cols ?? 24;
+	const rows = opts?.rows ?? 12;
+	const a = opts?.a ?? 3;
+	const b = opts?.b ?? 2;
+	const deltaSpeed = opts?.deltaSpeed ?? 0.008;
+	const trailPoints = opts?.trailPoints ?? 300;
+	const decay = opts?.decay ?? 0.92;
+
+	const A = cols / 2 - 1; // x amplitude in cells
+	const B = rows / 2 - 1; // y amplitude in cells
+	const cx = cols / 2;
+	const cy = rows / 2;
+
+	const density = new Float32Array(cols * rows);
+	let delta = 0;
+
+	const CHARS = ['·', '•', '●', '◉'] as const;
+
+	return (_animState: AnimationState, theme: ThemeConfig): string => {
+		delta += deltaSpeed;
+
+		// Decay existing density
+		for (let i = 0; i < density.length; i++) density[i]! > 0 && (density[i] = density[i]! * decay);
+
+		// Sample curve and accumulate density
+		for (let i = 0; i < trailPoints; i++) {
+			const param = (i / trailPoints) * Math.PI * 2;
+			const px = cx + A * Math.sin(a * param + delta);
+			const py = cy + B * Math.sin(b * param);
+			const ix = Math.round(px), iy = Math.round(py);
+			if (ix >= 0 && ix < cols && iy >= 0 && iy < rows) {
+				density[iy * cols + ix] = Math.min(1, (density[iy * cols + ix]! + 0.15));
+			}
+		}
+
+		const rowStrings: string[] = [];
+		for (let y = 0; y < rows; y++) {
+			let row = '';
+			for (let x = 0; x < cols; x++) {
+				const d = density[y * cols + x]!;
+				if (d < 0.05) {
+					row += ' ';
+				} else {
+					const charIdx = Math.min(CHARS.length - 1, Math.floor(d * CHARS.length));
+					const color = lerpColor(theme.breathBaseColor, theme.breathPeakColor, d);
+					row += style({ fg: color })(CHARS[charIdx]!);
+				}
+			}
+			rowStrings.push(row);
+		}
+		return rowStrings.join('\n');
+	};
+}
