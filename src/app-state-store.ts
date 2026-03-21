@@ -59,6 +59,7 @@ export interface AppStateStore {
 	removeOverlay(id: string): void;
 	clearOverlays(): void;
 	setLastStartupPhase(phase: string | undefined): void;
+	setArtifacts(artifacts: Artifact[]): void;
 	addArtifact(artifact: Artifact): void;
 	clearArtifacts(): void;
 	setShowArtifactPanel(show: boolean): void;
@@ -167,6 +168,10 @@ export class DefaultAppStateStore implements AppStateStore {
 
 	setLastStartupPhase(phase: string | undefined): void {
 		this.update({ lastStartupPhase: phase });
+	}
+
+	setArtifacts(artifacts: Artifact[]): void {
+		this.update({ artifacts: [...artifacts] });
 	}
 
 	addArtifact(artifact: Artifact): void {

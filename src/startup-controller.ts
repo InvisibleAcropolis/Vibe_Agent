@@ -1,11 +1,12 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AssistantMessage } from "@mariozechner/pi-ai";
+import { AppMessageSyncService } from "./app/app-message-sync-service.js";
 import type { PiMonoAppDebugger } from "./app-debugger.js";
 import type { ActiveThinkingState, AppStateStore } from "./app-state-store.js";
 import type { AgentHost } from "./agent-host.js";
 import type { ExtensionUiHost } from "./extension-ui-host.js";
 import type { AgentSessionEvent } from "./local-coding-agent.js";
-import { extractThinkingTextFromAssistantMessage, renderAgentMessages } from "./message-renderer.js";
+import { extractThinkingTextFromAssistantMessage } from "./message-renderer.js";
 import type { ShellView } from "./shell-view.js";
 
 const OPENAI_REASONING_APIS = new Set(["openai-responses", "azure-openai-responses", "openai-codex-responses"]);
@@ -75,6 +76,7 @@ export class DefaultStartupController implements StartupController {
 		private readonly stateStore: AppStateStore,
 		private readonly debuggerSink: PiMonoAppDebugger,
 		private readonly writeDebugSnapshot: (reason: string) => string | undefined,
+		private readonly messageSync: AppMessageSyncService,
 	) {}
 
 	async initialize(): Promise<void> {
@@ -90,17 +92,7 @@ export class DefaultStartupController implements StartupController {
 				);
 			}
 			this.stateStore.setStatusMessage("Agent ready.");
-
-			const renderResult = renderAgentMessages(result.messages, {
-				hideThinking: true,
-				toolOutputExpanded: this.stateStore.getState().toolOutputExpanded,
-				tui: this.shellView.tui,
-			});
-			this.shellView.setMessages(renderResult.components);
-			for (const artifact of renderResult.artifacts) {
-				this.stateStore.addArtifact(artifact);
-			}
-			this.shellView.refresh();
+			this.messageSync.sync({ messages: result.messages, hostState: result.state });
 			this.debuggerSink.log("app.phase.end", { phase: "host.start", availableProviderCount: result.availableProviderCount });
 
 			this.stateStore.setLastStartupPhase("host.subscribe");
@@ -126,27 +118,7 @@ export class DefaultStartupController implements StartupController {
 	}
 
 	private syncFromHost(): void {
-		const messages = this.host.getMessages();
-		const renderResult = renderAgentMessages(messages, {
-			hideThinking: true,
-			toolOutputExpanded: this.stateStore.getState().toolOutputExpanded,
-			tui: this.shellView.tui,
-		});
-		this.shellView.setMessages(renderResult.components);
-
-		// Sync new artifacts into state store
-		const existingIds = new Set(this.stateStore.getState().artifacts.map((a) => a.id));
-		for (const artifact of renderResult.artifacts) {
-			if (!existingIds.has(artifact.id)) {
-				this.stateStore.addArtifact(artifact);
-			}
-		}
-
-		if (messages.length === 0 && !this.host.getState().isStreaming) {
-			this.stateStore.resetActiveThinking();
-		}
-
-		this.shellView.refresh();
+		this.messageSync.sync();
 	}
 
 	private syncThinkingFromEvent(event: AgentSessionEvent): void {

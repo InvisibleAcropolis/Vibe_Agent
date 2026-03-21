@@ -7,6 +7,7 @@ import { ArtifactViewer } from "./components/artifact-viewer.js";
 import { HelpOverlay } from "./components/help-overlay.js";
 import type { ShellMenuItem } from "./components/shell-menu-overlay.js";
 import { SessionStatsOverlay } from "./components/session-stats-overlay.js";
+import { WorkbenchInventoryService } from "./durable/workbench-inventory-service.js";
 import type { FooterDataProvider } from "./footer-data-provider.js";
 import type { ShellView } from "./shell-view.js";
 import { getThemeNames, setActiveTheme, getActiveTheme, type ThemeName } from "./themes/index.js";
@@ -98,6 +99,7 @@ export class DefaultCommandController implements CommandController {
 		private readonly footerData: FooterDataProvider,
 		private readonly clearMessages: () => void,
 		private readonly shellView: ShellView,
+		private readonly inventory: WorkbenchInventoryService,
 		private readonly setupActions: SetupActions,
 	) {}
 
@@ -395,10 +397,9 @@ export class DefaultCommandController implements CommandController {
 	}
 
 	openArtifactViewer(): void {
-		const artifacts = this.stateStore.getState().artifacts;
 		this.overlayController.showCustomOverlay(
 			"artifact-viewer",
-			new ArtifactViewer(artifacts, () => this.overlayController.closeOverlay("artifact-viewer")),
+			new ArtifactViewer(this.inventory.listArtifactViews(), () => this.overlayController.closeOverlay("artifact-viewer")),
 			{ width: "85%", maxHeight: "80%", anchor: "center", margin: 1 },
 		);
 	}

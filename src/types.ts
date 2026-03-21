@@ -1,6 +1,12 @@
 import type { Component, EditorComponent, OverlayOptions, TUI, Terminal } from "@mariozechner/pi-tui";
 import type { PiMonoAppDebugger } from "./app-debugger.js";
+import type { ArtifactCatalogService } from "./durable/artifacts/artifact-catalog-service.js";
+import type { LogCatalogService } from "./durable/logs/log-catalog-service.js";
+import type { MemoryStoreService } from "./durable/memory/memory-store-service.js";
+import type { WorkbenchInventoryService } from "./durable/workbench-inventory-service.js";
 import type { MouseEvent, Rect } from "./mouse.js";
+import type { AgentRuntime } from "./runtime/agent-runtime.js";
+import type { RuntimeCoordinator } from "./runtime/runtime-coordinator.js";
 import type { agentTheme } from "./theme.js";
 
 export interface OverlayRecord {
@@ -23,6 +29,12 @@ export interface VibeAgentAppOptions {
 	configPath?: string;  // Optional override for config file path (used in tests)
 	authStorage?: import("./local-coding-agent.js").AuthStorage;
 	getEnvApiKey?: (providerId: string) => string | undefined;
+	runtimes?: AgentRuntime[];
+	runtimeCoordinator?: RuntimeCoordinator;
+	artifactCatalog?: ArtifactCatalogService;
+	memoryStoreService?: MemoryStoreService;
+	logCatalogService?: LogCatalogService;
+	inventoryService?: WorkbenchInventoryService;
 }
 
 export interface AppContext {

@@ -2,6 +2,9 @@ import { ProcessTerminal, type Component } from "@mariozechner/pi-tui";
 import { getEnvApiKey, stream, streamSimple, supportsXhigh, type ProviderStreamOptions } from "@mariozechner/pi-ai";
 import type { StreamFn } from "@mariozechner/pi-agent-core";
 import { join } from "node:path";
+import { AppLifecycleController } from "./app/app-lifecycle-controller.js";
+import { AppMessageSyncService } from "./app/app-message-sync-service.js";
+import { AppSetupService, type SavedDefaultValidation, type StartupGateAssessment } from "./app/app-setup-service.js";
 import { createAppDebugger, type PiMonoAppDebugger } from "./app-debugger.js";
 import { AppConfig } from "./app-config.js";
 import { DefaultAppStateStore, type AppStateStore } from "./app-state-store.js";
@@ -9,10 +12,13 @@ import type { AgentHost } from "./agent-host.js";
 import { AnimationEngine, setGlobalAnimationEngine } from "./animation-engine.js";
 import { DefaultCommandController } from "./command-controller.js";
 import { createDefaultAgentHost } from "./debug-agent-host.js";
+import { ArtifactCatalogService } from "./durable/artifacts/artifact-catalog-service.js";
+import { LogCatalogService } from "./durable/logs/log-catalog-service.js";
+import { MemoryStoreService } from "./durable/memory/memory-store-service.js";
+import { WorkbenchInventoryService } from "./durable/workbench-inventory-service.js";
 import { DefaultEditorController } from "./editor-controller.js";
 import { DefaultExtensionUiHost } from "./extension-ui-host.js";
 import { DefaultInputController } from "./input-controller.js";
-import { renderAgentMessages } from "./message-renderer.js";
 import { MouseEnabledTerminal } from "./mouse-enabled-terminal.js";
 import { DefaultOverlayController } from "./overlay-controller.js";
 import { LogoBlockSystem } from "./logo-block-system.js";
@@ -28,18 +34,12 @@ import {
 	onThemeChange,
 	type AgentSession,
 } from "./local-coding-agent.js";
+import { CompatAgentRuntime } from "./runtime/compat-agent-runtime.js";
+import { CoordinatedAgentHost } from "./runtime/coordinated-agent-host.js";
+import { RuntimeCoordinator } from "./runtime/runtime-coordinator.js";
 import { getThemeNames, onThemeConfigChange, setActiveTheme, type ThemeName } from "./themes/index.js";
 import type { VibeAgentAppOptions } from "./types.js";
 import { type SetupRunRequest, WelcomeController } from "./welcome-controller.js";
-
-type StartupGateAssessment =
-	| { kind: "continue" }
-	| { kind: "needs-provider"; reason: "first-run" | "disconnected" };
-
-type SavedDefaultValidation =
-	| { kind: "valid"; providerId: string; modelId: string }
-	| { kind: "invalid-provider"; reason: "missing-provider" | "saved-provider-unavailable" }
-	| { kind: "invalid-model"; providerId: string; reason: "missing-model" | "saved-model-unavailable" };
 
 const OPENAI_REASONING_APIS = new Set(["openai-responses", "azure-openai-responses", "openai-codex-responses"]);
 
@@ -64,21 +64,16 @@ function createOpenAIReasoningSummaryStreamFn(): StreamFn {
 	};
 }
 
-/**
- * Vibe Agent: A professional Agentic CLI application that provides
- * full terminal-based parity with the coding-agent's WebUI.
- *
- * Architecture:
- * - Uses the TUI shell shape from pi-tui (header/footer/body/overlays)
- * - Wires directly to the coding-agent's AgentSession for all AI interactions
- * - Deprecates the WebUI in favor of this unified TUI experience
- * - Full feature parity: chat, tool execution, artifacts, sessions, extensions
- */
 export class VibeAgentApp {
 	readonly debugger: PiMonoAppDebugger;
 	readonly host: AgentHost;
 	readonly stateStore: AppStateStore;
 	readonly shellView: ShellView;
+	readonly runtimeCoordinator: RuntimeCoordinator;
+	readonly artifactCatalog: ArtifactCatalogService;
+	readonly memoryStoreService: MemoryStoreService;
+	readonly logCatalogService: LogCatalogService;
+	readonly inventoryService: WorkbenchInventoryService;
 	private readonly overlayController: DefaultOverlayController;
 	private readonly editorController: DefaultEditorController;
 	private readonly commandController: DefaultCommandController;
@@ -87,18 +82,18 @@ export class VibeAgentApp {
 	private readonly inputController: DefaultInputController;
 	private readonly logoBlockSystem: LogoBlockSystem;
 	private readonly terminal: MouseEnabledTerminal;
-	private previousRenderState = { showThinking: true, toolOutputExpanded: false };
-	private running = false;
-	private bootLogoDismissed = false;
-	private focusedComponent: Component | null = null;
 	private readonly authStorage: AuthStorage;
 	private readonly modelRegistry: ModelRegistry;
-	private appConfig: AppConfig;
 	private readonly configPath: string;
-	private readonly envApiKeyLookup: (providerId: string) => string | undefined;
+	private readonly animEngine: AnimationEngine;
+	private readonly setupService: AppSetupService;
+	private readonly messageSync: AppMessageSyncService;
+	private readonly lifecycle: AppLifecycleController;
+	private appConfig: AppConfig;
+	private previousRenderState = { showThinking: true, toolOutputExpanded: false };
+	private bootLogoDismissed = false;
 	private hostInitialized = false;
 	private setupFlowActive = false;
-	private readonly animEngine: AnimationEngine;
 
 	constructor(options: VibeAgentAppOptions = {}) {
 		this.debugger =
@@ -114,10 +109,9 @@ export class VibeAgentApp {
 		this.previousRenderState = this.stateStoreSnapshot();
 		this.authStorage = options.authStorage ?? AuthStorage.create();
 		this.modelRegistry = new ModelRegistry(this.authStorage);
-		this.envApiKeyLookup = options.getEnvApiKey ?? getEnvApiKey;
+		this.setupService = new AppSetupService(this.authStorage, this.modelRegistry, options.getEnvApiKey ?? getEnvApiKey);
 		initTheme("dark", false);
 
-		// Apply persisted theme before creating UI
 		if (this.appConfig.selectedTheme) {
 			const validNames = getThemeNames() as string[];
 			if (validNames.includes(this.appConfig.selectedTheme)) {
@@ -128,18 +122,57 @@ export class VibeAgentApp {
 		this.animEngine = new AnimationEngine();
 		setGlobalAnimationEngine(this.animEngine);
 
-		this.host = options.host ?? createDefaultAgentHost(this.debugger, {
-			createOptions: {
-				authStorage: this.authStorage,
-				modelRegistry: this.modelRegistry,
-				streamFn: createOpenAIReasoningSummaryStreamFn(),
-			},
-			onSessionReady: async (session) => {
-				await this.applyConfiguredModelToSession(session);
-			},
-		});
+		const innerHost =
+			options.host ??
+			createDefaultAgentHost(this.debugger, {
+				createOptions: {
+					authStorage: this.authStorage,
+					modelRegistry: this.modelRegistry,
+					streamFn: createOpenAIReasoningSummaryStreamFn(),
+				},
+				onSessionReady: async (session) => {
+					await this.applyConfiguredModelToSession(session);
+				},
+			});
+
+		this.runtimeCoordinator =
+			options.runtimeCoordinator ??
+			new RuntimeCoordinator(
+				options.runtimes ?? [
+					new CompatAgentRuntime(
+						{
+							id: "coding",
+							kind: "coding",
+							displayName: "Coding Runtime",
+							capabilities: ["interactive-prompt", "session-management", "model-selection", "artifact-source", "log-source"],
+							primary: true,
+						},
+						innerHost,
+					),
+				],
+				{
+					onRuntimeError: (runtimeId, phase, error) => {
+						this.debugger.logError(`runtime.${phase}.${runtimeId}`, error);
+					},
+				},
+			);
+		this.host = new CoordinatedAgentHost(this.runtimeCoordinator);
+		this.artifactCatalog = options.artifactCatalog ?? new ArtifactCatalogService();
+		this.memoryStoreService = options.memoryStoreService ?? new MemoryStoreService();
+		this.logCatalogService = options.logCatalogService ?? new LogCatalogService();
+		this.inventoryService =
+			options.inventoryService
+			?? new WorkbenchInventoryService(this.artifactCatalog, this.memoryStoreService, this.logCatalogService);
+
 		this.terminal = new MouseEnabledTerminal(options.terminal ?? new ProcessTerminal());
-		this.shellView = new DefaultShellView(this.terminal, this.stateStore, () => this.safeGetHostState(), () => this.safeGetMessages(), () => this.host, this.animEngine);
+		this.shellView = new DefaultShellView(
+			this.terminal,
+			this.stateStore,
+			() => this.safeGetHostState(),
+			() => this.safeGetMessages(),
+			() => this.host,
+			this.animEngine,
+		);
 		this.logoBlockSystem = new LogoBlockSystem(this.terminal.columns, (lines) => {
 			this.shellView.setSplashFrame(lines);
 		});
@@ -148,6 +181,15 @@ export class VibeAgentApp {
 		});
 		this.stateStore.setOnStatusChange((msg) => this.animEngine.setTypewriterTarget(msg));
 		const keybindings = InternalKeybindingsManager.create();
+
+		this.messageSync = new AppMessageSyncService(
+			this.host,
+			this.shellView,
+			this.stateStore,
+			this.artifactCatalog,
+			this.inventoryService,
+			() => this.getRuntimeContext(),
+		);
 
 		this.overlayController = new DefaultOverlayController(
 			this.shellView.tui,
@@ -217,6 +259,7 @@ export class VibeAgentApp {
 			this.shellView.footerData,
 			() => this.shellView.clearMessages(),
 			this.shellView,
+			this.inventoryService,
 			{
 				openSetupHub: () => this.openSetupFlow({ startStep: "intro", showCompletion: true, reason: "first-run" }),
 				openProviderSetup: () => this.openSetupFlow({ startStep: "provider", showCompletion: true, reason: "provider-choice-needed" }),
@@ -224,13 +267,12 @@ export class VibeAgentApp {
 				openLogoutFlow: () => this.openLogoutFlow(),
 				setDefaultModel: async (providerId, modelId) => {
 					await this.host.setModel(providerId, modelId);
-					this.appConfig = {
+					this.persistConfig({
 						...this.appConfig,
 						setupComplete: true,
 						selectedProvider: providerId,
 						selectedModelId: modelId,
-					};
-					AppConfig.save(this.appConfig, this.configPath);
+					});
 					this.refreshCockpitContext();
 				},
 				setThinkingVisibility: (show) => this.setThinkingVisibility(show),
@@ -239,8 +281,6 @@ export class VibeAgentApp {
 		this.commandController = commandController;
 
 		this.shellView.setEditor(this.editorController.getComponent());
-		this.setFocus(this.editorController.getComponent(), "editor");
-
 		this.inputController = new DefaultInputController(
 			this.shellView.tui,
 			this.stateStore,
@@ -271,6 +311,18 @@ export class VibeAgentApp {
 			this.stateStore,
 			this.debugger,
 			(reason) => this.writeDebugSnapshot(reason),
+			this.messageSync,
+		);
+
+		this.lifecycle = new AppLifecycleController(
+			this.shellView,
+			this.stateStore,
+			this.debugger,
+			this.animEngine,
+			this.logoBlockSystem,
+			this.startupController,
+			this.overlayController,
+			this.host,
 		);
 
 		this.shellView.tui.onDebug = () => {
@@ -297,20 +349,12 @@ export class VibeAgentApp {
 		this.inputController.attach();
 		this.refreshProviderAvailability();
 		this.refreshCockpitContext();
+		this.setFocus(this.editorController.getComponent(), "editor");
 	}
 
 	start(): void {
-		if (this.running) return;
-		this.running = true;
 		this.bootLogoDismissed = false;
-		this.debugger.log("app.start", { cwd: process.cwd() });
-		this.shellView.setTitle("Vibe Agent");
-		this.animEngine.start();
-		this.shellView.start();
-		this.logoBlockSystem.start();
-		void this.runStartupSequence().catch((error) => {
-			this.debugger.logError("startup.sequence.error", error);
-		});
+		this.lifecycle.start(async () => await this.runStartupSequence());
 	}
 
 	private async runStartupSequence(): Promise<void> {
@@ -335,32 +379,8 @@ export class VibeAgentApp {
 		}
 	}
 
-	private anyEnvApiKeySet(): boolean {
-		const providers = ["anthropic", "openai", "google-antigravity", "openai-codex", "github-copilot", "google-gemini-cli"];
-		return providers.some((id) => !!this.envApiKeyLookup(id));
-	}
-
-	private hasCredentialSource(): boolean {
-		return this.authStorage.list().length > 0 || this.anyEnvApiKeySet();
-	}
-
 	stop(): void {
-		if (!this.running) {
-			return;
-		}
-		this.running = false;
-		this.debugger.log("app.stop.start");
-		this.logoBlockSystem.dispose();
-		this.animEngine.stop();
-		this.startupController.dispose();
-		this.overlayController.closeAllOverlays();
-		void this.host
-			.stop()
-			.catch((error) => this.debugger.logError("app.stop.host", error))
-			.finally(() => {
-				this.shellView.stop();
-				this.debugger.log("app.stop.end");
-			});
+		this.lifecycle.stop();
 	}
 
 	writeDebugSnapshot(reason: string): string | undefined {
@@ -373,10 +393,20 @@ export class VibeAgentApp {
 				statusMessage: this.stateStore.getState().statusMessage,
 				workingMessage: this.stateStore.getState().workingMessage,
 				helpMessage: this.stateStore.getState().helpMessage,
-				focusedComponent: this.focusedComponent,
+				focusedComponent: this.lifecycle.getFocusedComponent(),
 				editorText: this.editorController.getText(),
 				editorCursor: this.editorController.getCursor(),
 			});
+			if (bundleDir) {
+				this.logCatalogService.registerLog({
+					ownerRuntimeId: this.getRuntimeContext().runtimeId,
+					sessionId: this.safeGetHostState()?.sessionId,
+					sourcePath: bundleDir,
+					logType: "debug-snapshot",
+					label: "Debug Snapshot",
+					reason,
+				});
+			}
 			this.debugger.log("app.snapshot.complete", { reason, bundleDir });
 			return bundleDir;
 		} catch (error) {
@@ -412,29 +442,14 @@ export class VibeAgentApp {
 
 	private syncMessages(): void {
 		try {
-			const renderResult = renderAgentMessages(this.host.getMessages(), {
-				hideThinking: true,
-				toolOutputExpanded: this.stateStore.getState().toolOutputExpanded,
-				tui: this.shellView.tui,
-			});
-			this.shellView.setMessages(renderResult.components);
-
-			// Sync artifacts
-			const existingIds = new Set(this.stateStore.getState().artifacts.map((a) => a.id));
-			for (const artifact of renderResult.artifacts) {
-				if (!existingIds.has(artifact.id)) {
-					this.stateStore.addArtifact(artifact);
-				}
-			}
+			this.messageSync.sync();
 		} catch (error) {
 			this.handleRuntimeError("syncMessages", error);
 		}
 	}
 
 	private setFocus(component: Component | null, label: string): void {
-		this.focusedComponent = component;
-		this.stateStore.setFocusLabel(label);
-		this.shellView.setFocus(component);
+		this.lifecycle.setFocus(component, label);
 	}
 
 	private safeGetMessages() {
@@ -454,8 +469,7 @@ export class VibeAgentApp {
 	}
 
 	private handleRuntimeError(context: string, error: unknown): void {
-		this.debugger.logError(`runtime.${context}`, error);
-		this.stateStore.setStatusMessage(`${context}: ${error instanceof Error ? error.message : String(error)}`);
+		this.lifecycle.handleRuntimeError(context, error);
 	}
 
 	private stateStoreSnapshot(): { showThinking: boolean; toolOutputExpanded: boolean } {
@@ -468,84 +482,19 @@ export class VibeAgentApp {
 
 	private setThinkingVisibility(show: boolean): void {
 		this.stateStore.setShowThinking(show);
-		this.appConfig = {
+		this.persistConfig({
 			...this.appConfig,
 			showThinking: show,
-		};
-		AppConfig.save(this.appConfig, this.configPath);
+		});
 		this.stateStore.setStatusMessage(show ? "Thinking tray enabled." : "Thinking tray hidden.");
 	}
 
 	private assessStartupGate(): StartupGateAssessment {
-		if (this.hasCredentialSource()) {
-			return { kind: "continue" };
-		}
-		return {
-			kind: "needs-provider",
-			reason: this.appConfig.setupComplete ? "disconnected" : "first-run",
-		};
+		return this.setupService.assessStartupGate(this.appConfig);
 	}
 
 	private validateSavedDefault(): SavedDefaultValidation {
-		const providerId = this.appConfig.selectedProvider;
-		if (!providerId) {
-			return {
-				kind: "invalid-provider",
-				reason: "missing-provider",
-			};
-		}
-
-		const modelId = this.appConfig.selectedModelId;
-		if (!modelId) {
-			return {
-				kind: "invalid-model",
-				providerId,
-				reason: "missing-model",
-			};
-		}
-
-		const availableModels = this.modelRegistry.getAvailable();
-		if (availableModels.length === 0) {
-			return {
-				kind: "valid",
-				providerId,
-				modelId,
-			};
-		}
-
-		const providerModels = availableModels.filter((model) => model.provider === providerId);
-		if (providerModels.length === 0) {
-			return {
-				kind: "invalid-provider",
-				reason: "saved-provider-unavailable",
-			};
-		}
-
-		const savedModel = providerModels.find((model) => model.id === modelId);
-		if (!savedModel) {
-			return {
-				kind: "invalid-model",
-				providerId,
-				reason: "saved-model-unavailable",
-			};
-		}
-
-		return {
-			kind: "valid",
-			providerId,
-			modelId: savedModel.id,
-		};
-	}
-
-	private getActiveHostSelection(): { providerId: string; modelId: string } | undefined {
-		const hostModel = this.safeGetHostState()?.model;
-		if (!hostModel?.provider || !hostModel.id) {
-			return undefined;
-		}
-		return {
-			providerId: hostModel.provider,
-			modelId: hostModel.id,
-		};
+		return this.setupService.validateSavedDefault(this.appConfig);
 	}
 
 	private async openSetupFlow(request: SetupRunRequest): Promise<void> {
@@ -624,14 +573,12 @@ export class VibeAgentApp {
 		this.authStorage.logout(providerId);
 		this.modelRegistry.refresh();
 
-		const nextConfig: AppConfig = {
+		this.persistConfig({
 			...this.appConfig,
 			selectedProvider: this.appConfig.selectedProvider === providerId ? undefined : this.appConfig.selectedProvider,
 			selectedModelId: this.appConfig.selectedProvider === providerId ? undefined : this.appConfig.selectedModelId,
 			setupComplete: false,
-		};
-		this.appConfig = nextConfig;
-		AppConfig.save(nextConfig, this.configPath);
+		});
 
 		this.refreshProviderAvailability();
 		this.refreshCockpitContext();
@@ -654,47 +601,14 @@ export class VibeAgentApp {
 	}
 
 	private normalizeConfigFromAssessment(): void {
-		const hostSelection = this.getActiveHostSelection();
-		if (hostSelection) {
-			if (
-				this.appConfig.setupComplete
-				&& this.appConfig.selectedProvider === hostSelection.providerId
-				&& this.appConfig.selectedModelId === hostSelection.modelId
-			) {
-				return;
-			}
-			this.appConfig = {
-				...this.appConfig,
-				setupComplete: true,
-				selectedProvider: hostSelection.providerId,
-				selectedModelId: hostSelection.modelId,
-			};
-			AppConfig.save(this.appConfig, this.configPath);
-			return;
+		const normalized = this.setupService.normalizeConfig(this.appConfig, this.safeGetHostState());
+		if (normalized) {
+			this.persistConfig(normalized);
 		}
-		const validation = this.validateSavedDefault();
-		if (validation.kind !== "valid") {
-			return;
-		}
-		if (
-			this.appConfig.setupComplete
-			&& this.appConfig.selectedProvider === validation.providerId
-			&& this.appConfig.selectedModelId === validation.modelId
-		) {
-			return;
-		}
-		this.appConfig = {
-			...this.appConfig,
-			setupComplete: true,
-			selectedProvider: validation.providerId,
-			selectedModelId: validation.modelId,
-		};
-		AppConfig.save(this.appConfig, this.configPath);
 	}
 
 	private refreshProviderAvailability(): void {
-		const providerCount = new Set(this.modelRegistry.getAvailable().map((model) => model.provider)).size;
-		this.shellView.footerData.setAvailableProviderCount(providerCount);
+		this.shellView.footerData.setAvailableProviderCount(this.setupService.countAvailableProviders());
 	}
 
 	private refreshCockpitContext(): void {
@@ -704,7 +618,7 @@ export class VibeAgentApp {
 		const gate = this.assessStartupGate();
 		const validation = this.validateSavedDefault();
 		const hostState = this.safeGetHostState();
-		const hostSelection = this.getActiveHostSelection();
+		const hostSelection = this.setupService.getActiveHostSelection(hostState);
 		const hasMessages = (hostState?.messageCount ?? 0) > 0;
 
 		if (gate.kind === "needs-provider") {
@@ -742,12 +656,11 @@ export class VibeAgentApp {
 			return;
 		}
 
-		// No default help banner — status is shown in the logo info bar
 		this.stateStore.setContextBanner(undefined, undefined);
 	}
 
 	private applyStartupValidationStatus(): void {
-		if (this.getActiveHostSelection()) {
+		if (this.setupService.getActiveHostSelection(this.safeGetHostState())) {
 			return;
 		}
 		const validation = this.validateSavedDefault();
@@ -767,13 +680,31 @@ export class VibeAgentApp {
 		if (!providerId || !modelId) {
 			return;
 		}
-		this.appConfig = {
+		this.persistConfig({
 			...this.appConfig,
 			setupComplete: true,
 			selectedProvider: providerId,
 			selectedModelId: modelId,
-		};
-		AppConfig.save(this.appConfig, this.configPath);
+		});
 		this.refreshCockpitContext();
+	}
+
+	private persistConfig(config: AppConfig): void {
+		this.appConfig = config;
+		AppConfig.save(config, this.configPath);
+	}
+
+	private getRuntimeContext(): { runtimeId: string; sessionId?: string } {
+		try {
+			return {
+				runtimeId: this.runtimeCoordinator.getActiveRuntime().descriptor.id,
+				sessionId: this.safeGetHostState()?.sessionId,
+			};
+		} catch {
+			return {
+				runtimeId: "coding",
+				sessionId: this.safeGetHostState()?.sessionId,
+			};
+		}
 	}
 }
