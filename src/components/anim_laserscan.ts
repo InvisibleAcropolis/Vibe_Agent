@@ -18,9 +18,9 @@ export interface LaserScanOptions {
 const DEFAULT_GLYPHS = '▐▓▒░█▄▀◆■•─╌═≡∽╣╗╝╔╩╦╠╬┼┤├┐└│⣾⣽⣻⢿⡿⣟⣯⣷÷×~+#@$%&*=';
 
 export function createLaserScan(opts?: LaserScanOptions): (animState: AnimationState, theme: ThemeConfig) => string {
-	const cols = opts?.cols ?? 28;
-	const rows = opts?.rows ?? 6;
-	const speed = opts?.speed ?? 0.5;
+	const cols = opts?.cols ?? 64;
+	const rows = opts?.rows ?? 2;
+	const speed = opts?.speed ?? 1.5;
 	const beamWidth = opts?.beamWidth ?? 5;
 	const beamCount = opts?.beamCount ?? 1;
 	const glyphSet = opts?.glyphSet ?? DEFAULT_GLYPHS;
