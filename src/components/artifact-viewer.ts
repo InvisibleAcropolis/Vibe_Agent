@@ -2,6 +2,8 @@ import { matchesKey, type Focusable } from "@mariozechner/pi-tui";
 import { horizontalRule, paintLine } from "../ansi.js";
 import type { MouseEvent, Rect } from "../mouse.js";
 import { pointInRect } from "../mouse.js";
+import { createOverlayPreviewRuntime, sampleArtifacts } from "../style-test-fixtures.js";
+import { defineStyleTestDemos } from "../style-test-contract.js";
 import { agentTheme } from "../theme.js";
 import type { Artifact, MouseAwareOverlay } from "../types.js";
 
@@ -148,3 +150,25 @@ export class ArtifactViewer implements MouseAwareOverlay, Focusable {
 		}
 	}
 }
+
+export const styleTestDemos = defineStyleTestDemos({
+	exports: {
+		ArtifactViewer: {
+			title: "Artifact Viewer Overlay",
+			category: "Overlays",
+			kind: "overlay",
+			description: "Artifact overlay with fixture code and diff output.",
+			createRuntime: (_moduleNamespace, _exportName, _exportValue, context) =>
+				createOverlayPreviewRuntime(
+					"Artifact overlay with fixture code and diff output.",
+					"src/components/artifact-viewer.ts",
+					() =>
+						context.showOverlay(
+							"styletest-artifacts",
+							new ArtifactViewer(sampleArtifacts(), () => context.closeOverlay("styletest-artifacts")),
+							{ width: "80%", maxHeight: "75%", anchor: "center", margin: 1 },
+						),
+				),
+		},
+	},
+});

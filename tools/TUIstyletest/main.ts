@@ -11,4 +11,4 @@ const stopApp = () => {
 process.on("SIGINT", stopApp);
 process.on("SIGTERM", stopApp);
 
-app.start();
+void app.start();

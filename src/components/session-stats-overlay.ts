@@ -2,6 +2,8 @@ import { matchesKey, type Focusable } from "@mariozechner/pi-tui";
 import { horizontalRule, paintLine } from "../ansi.js";
 import type { AgentHostState } from "../agent-host.js";
 import type { SessionStats } from "../local-coding-agent.js";
+import { createOverlayPreviewRuntime, sampleHostState, sampleStats } from "../style-test-fixtures.js";
+import { defineStyleTestDemos } from "../style-test-contract.js";
 import { agentTheme } from "../theme.js";
 import type { MouseAwareOverlay } from "../types.js";
 
@@ -116,3 +118,27 @@ export class SessionStatsOverlay implements MouseAwareOverlay, Focusable {
 		return String(n);
 	}
 }
+
+export const styleTestDemos = defineStyleTestDemos({
+	exports: {
+		SessionStatsOverlay: {
+			title: "Session Stats Overlay",
+			category: "Overlays",
+			kind: "overlay",
+			description: "Session metadata overlay rendered with fixture host stats.",
+			createRuntime: (_moduleNamespace, _exportName, _exportValue, context) =>
+				createOverlayPreviewRuntime(
+					"Session metadata overlay rendered with fixture host stats.",
+					"src/components/session-stats-overlay.ts",
+					() =>
+						context.showOverlay(
+							"styletest-session-stats",
+							new SessionStatsOverlay(sampleStats(), sampleHostState(), "codex/stylelab", () =>
+								context.closeOverlay("styletest-session-stats"),
+							),
+							{ width: 72, maxHeight: "80%", anchor: "center", margin: 1 },
+						),
+				),
+		},
+	},
+});

@@ -1,6 +1,8 @@
 import { matchesKey, type Focusable } from "@mariozechner/pi-tui";
 import { basename } from "path";
 import { paintLine, style } from "../ansi.js";
+import { createComponentRuntime, sampleSessions } from "../style-test-fixtures.js";
+import { defineStyleTestDemos } from "../style-test-contract.js";
 import { agentTheme } from "../theme.js";
 import type { SessionInfo } from "../local-coding-agent.js";
 
@@ -246,3 +248,23 @@ export class SessionsPanel implements Focusable {
 		}
 	}
 }
+
+export const styleTestDemos = defineStyleTestDemos({
+	exports: {
+		SessionsPanel: {
+			title: "Sessions Panel",
+			category: "Components",
+			kind: "component",
+			description: "Fixture-backed panel using the production sessions component.",
+			createRuntime: () =>
+				createComponentRuntime(
+					new SessionsPanel({
+						getSessions: async () => sampleSessions(),
+						getCurrentSessionFile: () => "sessions/current.json",
+						onSwitch: async () => undefined,
+						onClose: () => undefined,
+					}),
+				),
+		},
+	},
+});

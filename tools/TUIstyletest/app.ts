@@ -11,18 +11,15 @@ import { DefaultOverlayController } from "../../src/overlay-controller.js";
 import { SideBySideContainer } from "../../src/components/side-by-side-container.js";
 import { renderMenuBar, type MenuBarItem } from "../../src/components/menu-bar.js";
 import { agentTheme, createDynamicTheme } from "../../src/theme.js";
+import type {
+	StyleTestControl,
+	StyleTestControlValues,
+	StyleTestDemoDefinition,
+	StyleTestRuntime,
+	StyleTestRuntimeContext,
+} from "../../src/style-test-contract.js";
 import { getActiveTheme, getThemeNames, setActiveTheme, type ThemeName } from "../../src/themes/index.js";
-import {
-	getDefaultDemoId,
-	getDefaultDemoValues,
-	getDemoById,
-	getDemoRegistry,
-	type DemoControl,
-	type DemoControlValues,
-	type DemoDefinition,
-	type DemoRuntime,
-	type DemoRuntimeContext,
-} from "./demo-registry.js";
+import { buildDemoCatalog, createCatalogErrorDemo, getDefaultDemoId, getDefaultDemoValues, getDemoById } from "./catalog/build-demo-catalog.js";
 
 type FocusPane = "browser" | "preview" | "controls";
 
@@ -46,7 +43,7 @@ class BrowserPanel implements MouseAwareComponent {
 	public maxHeight = 20;
 
 	constructor(
-		private readonly getDemos: () => DemoDefinition[],
+		private readonly getDemos: () => StyleTestDemoDefinition[],
 		private readonly getSelectedId: () => string,
 		private readonly onSelect: (id: string) => void,
 		private readonly isFocused: () => boolean,
@@ -81,7 +78,7 @@ class BrowserPanel implements MouseAwareComponent {
 	render(width: number): string[] {
 		const selectedId = this.getSelectedId();
 		const demos = this.getDemos();
-		const grouped = new Map<string, DemoDefinition[]>();
+		const grouped = new Map<string, StyleTestDemoDefinition[]>();
 		for (const demo of demos) {
 			const existing = grouped.get(demo.sourceFile) ?? [];
 			existing.push(demo);
@@ -132,8 +129,8 @@ class ControlsPanel implements MouseAwareComponent {
 	public maxHeight = 20;
 
 	constructor(
-		private readonly getDemo: () => DemoDefinition,
-		private readonly getValues: () => DemoControlValues,
+		private readonly getDemo: () => StyleTestDemoDefinition,
+		private readonly getValues: () => StyleTestControlValues,
 		private readonly getThemeName: () => ThemeName,
 		private readonly isFocused: () => boolean,
 		private readonly onAdjust: (controlId: string, delta: number) => void,
@@ -145,7 +142,7 @@ class ControlsPanel implements MouseAwareComponent {
 
 	invalidate(): void {}
 
-	private controlsForRender(): Array<DemoControl | { id: string; label: string; type: "action" }> {
+	private controlsForRender(): Array<StyleTestControl | { id: string; label: string; type: "action" }> {
 		const demo = this.getDemo();
 		const actionRows: Array<{ id: string; label: string; type: "action" }> = [
 			{ id: "action-cycle-theme", label: `Theme: ${this.getThemeName()}`, type: "action" },
@@ -284,8 +281,8 @@ class PreviewPanel implements MouseAwareComponent {
 	public maxHeight = 20;
 
 	constructor(
-		private readonly getDemo: () => DemoDefinition,
-		private readonly getRuntime: () => DemoRuntime | undefined,
+		private readonly getDemo: () => StyleTestDemoDefinition,
+		private readonly getRuntime: () => StyleTestRuntime | undefined,
 		private readonly isFocused: () => boolean,
 	) {}
 
@@ -339,25 +336,23 @@ export class TUIStyleTestApp {
 	private readonly debuggerSink = createAppDebugger({ appName: "tuistyletest", appRoot: process.cwd() });
 	private readonly animationEngine = new AnimationEngine();
 	private readonly overlayController: DefaultOverlayController;
-	private readonly demos = getDemoRegistry();
+	private demos: StyleTestDemoDefinition[] = [createCatalogErrorDemo("Catalog has not been loaded yet.")];
 	private readonly browserPanel: BrowserPanel;
 	private readonly controlsPanel: ControlsPanel;
 	private readonly previewPanel: PreviewPanel;
 	private readonly innerContent: SideBySideContainer;
 	private readonly outerContent: SideBySideContainer;
-	private readonly values = new Map<string, DemoControlValues>();
-	private runtime?: DemoRuntime;
+	private readonly values = new Map<string, StyleTestControlValues>();
+	private runtime?: StyleTestRuntime;
 	private running = false;
 	private focusedPane: FocusPane = "browser";
-	private selectedDemoId = getDefaultDemoId();
+	private selectedDemoId = "catalog#error";
 
 	constructor(options: StyleTestAppOptions = {}) {
 		this.terminal = new MouseEnabledTerminal(options.terminal ?? new ProcessTerminal());
 		this.tui = new TUI(this.terminal, true);
 		setGlobalAnimationEngine(this.animationEngine);
-		for (const demo of this.demos) {
-			this.values.set(demo.id, getDefaultDemoValues(demo.id));
-		}
+		this.values.set(this.demos[0]!.id, getDefaultDemoValues(this.demos[0]!));
 		this.browserPanel = new BrowserPanel(
 			() => this.demos,
 			() => this.selectedDemoId,
@@ -396,8 +391,9 @@ export class TUIStyleTestApp {
 		this.rebuildRuntime();
 	}
 
-	start(): void {
+	async start(): Promise<void> {
 		if (this.running) return;
+		await this.loadCatalog();
 		this.running = true;
 		this.refreshChrome();
 		this.animationEngine.setOnTick(() => {
@@ -421,11 +417,11 @@ export class TUIStyleTestApp {
 		this.tui.stop();
 	}
 
-	currentDemo(): DemoDefinition {
-		return getDemoById(this.selectedDemoId);
+	currentDemo(): StyleTestDemoDefinition {
+		return getDemoById(this.demos, this.selectedDemoId);
 	}
 
-	currentValues(): DemoControlValues {
+	currentValues(): StyleTestControlValues {
 		return { ...(this.values.get(this.selectedDemoId) ?? {}) };
 	}
 
@@ -478,6 +474,22 @@ export class TUIStyleTestApp {
 		const index = order.indexOf(this.focusedPane);
 		const next = order[(index + direction + order.length) % order.length]!;
 		this.setFocusPane(next);
+	}
+
+	private async loadCatalog(): Promise<void> {
+		try {
+			const demos = await buildDemoCatalog();
+			this.demos = demos.length > 0 ? demos : [createCatalogErrorDemo("No style demos were discovered.")];
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			this.demos = [createCatalogErrorDemo(`Failed to build the live style catalog: ${message}`)];
+		}
+		this.values.clear();
+		for (const demo of this.demos) {
+			this.values.set(demo.id, getDefaultDemoValues(demo));
+		}
+		this.selectedDemoId = getDefaultDemoId(this.demos);
+		this.rebuildRuntime();
 	}
 
 	private refreshChrome(): void {
@@ -580,7 +592,7 @@ export class TUIStyleTestApp {
 		this.runtime?.dispose?.();
 		const demo = this.currentDemo();
 		const values = this.currentValues();
-		const context: DemoRuntimeContext = {
+		const context: StyleTestRuntimeContext = {
 			tui: this.tui,
 			getAnimationState: () => this.animationEngine.getState(),
 			getTheme: () => getActiveTheme(),
@@ -614,7 +626,7 @@ export class TUIStyleTestApp {
 		this.runtime = demo.createRuntime(context, values);
 	}
 
-	private currentControl(controlId: string): DemoControl | undefined {
+	private currentControl(controlId: string): StyleTestControl | undefined {
 		return this.currentDemo().controls.find((control) => control.id === controlId);
 	}
 
@@ -653,7 +665,7 @@ export class TUIStyleTestApp {
 
 	private runAction(actionId: string): void {
 		if (actionId === "action-reset") {
-			this.values.set(this.selectedDemoId, getDefaultDemoValues(this.selectedDemoId));
+			this.values.set(this.selectedDemoId, getDefaultDemoValues(this.currentDemo()));
 			this.rebuildRuntime();
 			this.tui.requestRender();
 			return;

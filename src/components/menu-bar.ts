@@ -1,4 +1,7 @@
 import { paintBoxLineTwoParts } from "../ansi.js";
+import { createTextRuntime } from "../style-test-fixtures.js";
+import { defineStyleTestDemos } from "../style-test-contract.js";
+import { agentTheme } from "../theme.js";
 import type { Styler } from "../ansi.js";
 
 export interface MenuBarItem {
@@ -78,3 +81,34 @@ export function measureMenuBarItems(items: MenuBarItem[]): MenuBarItemLayout[] {
 
 	return layouts;
 }
+
+export const styleTestDemos = defineStyleTestDemos({
+	exports: {
+		renderMenuBar: {
+			title: "Menu Bar",
+			category: "Components",
+			kind: "component",
+			description: "Top chrome bar rendered with the shared menu-bar renderer.",
+			controls: [
+				{ id: "width", label: "Width", type: "number", defaultValue: 64, min: 24, max: 96, step: 1 },
+				{ id: "labelA", label: "Item A", type: "text", defaultValue: "Library" },
+				{ id: "labelB", label: "Item B", type: "text", defaultValue: "Overlays" },
+			],
+			createRuntime: (_moduleNamespace, _exportName, _exportValue, _context, values) =>
+				createTextRuntime([
+					renderMenuBar(
+						[
+							{ key: "F1", label: String(values.labelA) },
+							{ key: "F2", label: String(values.labelB) },
+							{ key: "F3", label: "Themes" },
+						],
+						Number(values.width),
+						agentTheme.accent,
+						agentTheme.dim,
+						agentTheme.muted,
+						agentTheme.dim,
+					),
+				]),
+		},
+	},
+});

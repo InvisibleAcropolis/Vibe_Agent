@@ -1,5 +1,7 @@
 import { Container, Spacer, Text, type Focusable, type TUI } from "@mariozechner/pi-tui";
 import { CustomEditor, getEditorTheme, type KeybindingsManager } from "../local-coding-agent.js";
+import { createOverlayPreviewRuntime } from "../style-test-fixtures.js";
+import { defineStyleTestDemos } from "../style-test-contract.js";
 import { agentTheme } from "../theme.js";
 import type { MouseAwareOverlay } from "../types.js";
 
@@ -44,3 +46,23 @@ export class EditorOverlay extends Container implements MouseAwareOverlay, Focus
 		return this.editor;
 	}
 }
+
+export const styleTestDemos = defineStyleTestDemos({
+	exports: {
+		EditorOverlay: {
+			title: "Editor Overlay",
+			category: "Overlays",
+			kind: "overlay",
+			description: "Full editor overlay using the production prompt editor.",
+			controls: [
+				{ id: "prefill", label: "Prefill", type: "text", defaultValue: "const theme = cycleTheme(activeTheme);" },
+			],
+			createRuntime: (_moduleNamespace, _exportName, _exportValue, context, values) =>
+				createOverlayPreviewRuntime(
+					"Full editor overlay using the production prompt editor.",
+					"src/components/editor-overlay.ts",
+					() => context.openEditorPrompt("Editor Overlay", String(values.prefill)),
+				),
+		},
+	},
+});

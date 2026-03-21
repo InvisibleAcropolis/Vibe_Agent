@@ -3,6 +3,8 @@ import { createDynamicTheme, agentTheme } from "../theme.js";
 import { getGlobalAnimationState } from "../animation-engine.js";
 import type { MouseEvent, Rect } from "../mouse.js";
 import { pointInRect } from "../mouse.js";
+import { createOverlayPreviewRuntime, sampleShellMenuDefinition } from "../style-test-fixtures.js";
+import { defineStyleTestDemos } from "../style-test-contract.js";
 import type { MouseAwareOverlay } from "../types.js";
 
 export interface ShellMenuActionItem {
@@ -372,3 +374,20 @@ export class ShellMenuOverlay implements MouseAwareOverlay, Focusable {
 		targetRow[col - 1] = value;
 	}
 }
+
+export const styleTestDemos = defineStyleTestDemos({
+	exports: {
+		ShellMenuOverlay: {
+			title: "Shell Menu Overlay",
+			category: "Overlays",
+			kind: "overlay",
+			description: "Nested shell-style overlay menu.",
+			createRuntime: (_moduleNamespace, _exportName, _exportValue, context) =>
+				createOverlayPreviewRuntime(
+					"Nested shell-style overlay menu.",
+					"src/components/shell-menu-overlay.ts",
+					() => context.openShellMenu("styletest-shell-menu", sampleShellMenuDefinition()),
+				),
+		},
+	},
+});

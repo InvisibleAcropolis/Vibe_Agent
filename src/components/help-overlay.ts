@@ -1,5 +1,7 @@
 import { matchesKey, type Focusable } from "@mariozechner/pi-tui";
 import { paintLine } from "../ansi.js";
+import { createOverlayPreviewRuntime } from "../style-test-fixtures.js";
+import { defineStyleTestDemos } from "../style-test-contract.js";
 import { agentTheme } from "../theme.js";
 import type { MouseAwareOverlay } from "../types.js";
 
@@ -135,3 +137,26 @@ export class HelpOverlay implements MouseAwareOverlay, Focusable {
 		return lines;
 	}
 }
+
+export const styleTestDemos = defineStyleTestDemos({
+	exports: {
+		HelpOverlay: {
+			title: "Help Overlay",
+			category: "Overlays",
+			kind: "overlay",
+			description: "Scrollable keybinding help overlay.",
+			createRuntime: (_moduleNamespace, _exportName, _exportValue, context) =>
+				createOverlayPreviewRuntime(
+					"Scrollable keybinding help overlay.",
+					"src/components/help-overlay.ts",
+					() =>
+						context.showOverlay("styletest-help", new HelpOverlay(() => context.closeOverlay("styletest-help")), {
+							width: "80%",
+							maxHeight: "70%",
+							anchor: "center",
+							margin: 1,
+						}),
+				),
+		},
+	},
+});

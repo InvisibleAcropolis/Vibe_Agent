@@ -1,4 +1,6 @@
 import { Markdown, truncateToWidth, visibleWidth, type Component } from "@mariozechner/pi-tui";
+import { createComponentRuntime } from "../style-test-fixtures.js";
+import { defineStyleTestDemos } from "../style-test-contract.js";
 import { agentTheme } from "../theme.js";
 
 export class ThinkingTray implements Component {
@@ -78,3 +80,29 @@ export class ThinkingTray implements Component {
 		return lines;
 	}
 }
+
+export const styleTestDemos = defineStyleTestDemos({
+	exports: {
+		ThinkingTray: {
+			title: "Thinking Tray",
+			category: "Components",
+			kind: "component",
+			description: "Expandable reasoning tray with markdown rendering.",
+			controls: [
+				{ id: "enabled", label: "Enabled", type: "boolean", defaultValue: true },
+				{
+					id: "text",
+					label: "Text",
+					type: "text",
+					defaultValue: "Evaluating a new border cadence.\n\n- tune palette\n- check scroll behavior",
+				},
+			],
+			createRuntime: (_moduleNamespace, _exportName, _exportValue, _context, values) => {
+				const tray = new ThinkingTray();
+				tray.setEnabled(Boolean(values.enabled));
+				tray.setThinkingText(String(values.text));
+				return createComponentRuntime(tray);
+			},
+		},
+	},
+});

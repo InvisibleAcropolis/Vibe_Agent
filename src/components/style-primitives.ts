@@ -2,6 +2,8 @@ export { paintBoxLineTwoParts, separatorLine, paintLine, style } from "../ansi.j
 export type { Styler } from "../ansi.js";
 
 import { paintBoxLineTwoParts, separatorLine } from "../ansi.js";
+import { createTextRuntime } from "../style-test-fixtures.js";
+import { defineStyleTestDemos } from "../style-test-contract.js";
 import type { Styler } from "../ansi.js";
 
 /**
@@ -25,6 +27,34 @@ export function renderBoxLine(
 export function renderSeparator(width: number, offset: number, borderColor: string): string {
 	return separatorLine(width, offset, borderColor);
 }
+
+export const styleTestDemos = defineStyleTestDemos({
+	autoExports: false,
+	exports: {
+		renderBoxLine: {
+			title: "Style Primitives",
+			category: "Primitives",
+			kind: "primitive",
+			description: "Box lines and separators using the shared ANSI helper layer.",
+			controls: [
+				{ id: "width", label: "Width", type: "number", defaultValue: 36, min: 16, max: 60, step: 1 },
+				{ id: "left", label: "Left", type: "text", defaultValue: " Demo Surface " },
+				{ id: "right", label: "Right", type: "text", defaultValue: " 80x24 " },
+			],
+			createRuntime: (_moduleNamespace, _exportName, _exportValue, _context, values) =>
+				createTextRuntime([
+					renderBoxLine(String(values.left), String(values.right), Number(values.width), "═"),
+					renderSeparator(Number(values.width), 4, "#60d2ff"),
+					renderBoxLine("╭", "╮", Number(values.width), "─"),
+					renderBoxLine("│ style helpers", "live", Number(values.width), " "),
+					renderBoxLine("╰", "╯", Number(values.width), "─"),
+				]),
+		},
+		renderSeparator: {
+			hidden: true,
+		},
+	},
+});
 
 // Animation presets — drop-in reusable animations keyed to the active theme
 export {

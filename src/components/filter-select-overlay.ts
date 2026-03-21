@@ -2,6 +2,8 @@ import { Input, SelectList, matchesKey, type Focusable } from "@mariozechner/pi-
 import { paintLine } from "../ansi.js";
 import type { MouseEvent, Rect } from "../mouse.js";
 import { pointInRect } from "../mouse.js";
+import { createOverlayPreviewRuntime } from "../style-test-fixtures.js";
+import { defineStyleTestDemos } from "../style-test-contract.js";
 import { agentTheme } from "../theme.js";
 import type { MouseAwareOverlay } from "../types.js";
 
@@ -188,3 +190,35 @@ export class FilterSelectOverlay<T> implements MouseAwareOverlay, Focusable {
 		return true;
 	}
 }
+
+export const styleTestDemos = defineStyleTestDemos({
+	exports: {
+		FilterSelectOverlay: {
+			title: "Filter Select Overlay",
+			category: "Overlays",
+			kind: "overlay",
+			description: "Searchable list overlay with keyboard and mouse support.",
+			createRuntime: (_moduleNamespace, _exportName, _exportValue, context) =>
+				createOverlayPreviewRuntime(
+					"Searchable list overlay with keyboard and mouse support.",
+					"src/components/filter-select-overlay.ts",
+					() =>
+						context.showOverlay(
+							"styletest-filter",
+							new FilterSelectOverlay(
+								"Overlay Test",
+								"Search the available demo presets.",
+								[
+									{ value: "plasma", label: "Plasma", description: "Animated scalar field" },
+									{ value: "matrix", label: "Matrix Rain", description: "Glyph columns" },
+									{ value: "shell", label: "Shell Menu", description: "Nested overlay" },
+								],
+								() => undefined,
+								() => context.closeOverlay("styletest-filter"),
+							),
+							{ width: 72, maxHeight: 14, anchor: "center", margin: 1 },
+						),
+				),
+		},
+	},
+});

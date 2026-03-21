@@ -1,4 +1,6 @@
 import { visibleWidth, type Component } from "@mariozechner/pi-tui";
+import { createComponentRuntime, StaticTextComponent } from "../style-test-fixtures.js";
+import { defineStyleTestDemos } from "../style-test-contract.js";
 
 /**
  * Renders two components side by side, joined by a separator character.
@@ -62,3 +64,38 @@ export class SideBySideContainer implements Component {
 		return result;
 	}
 }
+
+export const styleTestDemos = defineStyleTestDemos({
+	exports: {
+		SideBySideContainer: {
+			title: "Side By Side Container",
+			category: "Components",
+			kind: "component",
+			description: "Shared split container with optional wipe transition fill.",
+			controls: [
+				{ id: "rightWidth", label: "Right Width", type: "number", defaultValue: 22, min: 10, max: 30, step: 1 },
+				{ id: "wipe", label: "Wipe", type: "boolean", defaultValue: false },
+			],
+			createRuntime: (_moduleNamespace, _exportName, _exportValue, _context, values) => {
+				const left = new StaticTextComponent([
+					"Preview",
+					"",
+					"The left side tracks the active demo output.",
+					"It reuses the same shared split container as the app shell.",
+				]);
+				const right = new StaticTextComponent([
+					"Inspector",
+					"",
+					"The right side is a fixed-width rail.",
+					"Toggle wipe to force the transition fill path.",
+				]);
+				const split = new SideBySideContainer(left, right, Number(values.rightWidth));
+				if (Boolean(values.wipe)) {
+					split.wipeChar = "▓";
+					split.maxHeight = 10;
+				}
+				return createComponentRuntime(split);
+			},
+		},
+	},
+});
