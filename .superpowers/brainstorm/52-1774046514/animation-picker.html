@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Animation Presets — Pick Your Favorites</title>
+<script src="/helper.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #090e14;
+    color: #c9d1d9;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    padding: 24px;
+  }
+  h1 { font-size: 18px; color: #4fc3f7; margin-bottom: 6px; letter-spacing: .5px; }
+  .subtitle { font-size: 13px; color: #4a7fa5; margin-bottom: 20px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 14px;
+  }
+  .card {
+    background: #0d1117;
+    border: 1.5px solid #1e3a5f;
+    border-radius: 10px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color .15s, transform .1s;
+    user-select: none;
+  }
+  .card:hover { border-color: #2a6fa8; transform: translateY(-1px); }
+  .card.selected { border-color: #4fc3f7; background: #0c1e30; }
+  .card.selected .card-label { color: #4fc3f7; }
+  .preview-box {
+    height: 90px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+    font-size: 11.5px;
+    line-height: 1.45;
+    white-space: pre;
+    overflow: hidden;
+    padding: 6px 10px;
+    background: #060a0f;
+    position: relative;
+  }
+  .card-info { padding: 10px 13px 12px; }
+  .card-label { font-size: 12px; font-weight: 600; color: #a0c4e0; margin-bottom: 3px; letter-spacing: .3px; }
+  .card-desc { font-size: 11.5px; color: #4a6a7f; line-height: 1.4; }
+  .check {
+    position: absolute; top: 7px; right: 9px;
+    font-size: 15px; color: #4fc3f7;
+    opacity: 0; transition: opacity .15s;
+  }
+  .card.selected .check { opacity: 1; }
+  .footer {
+    margin-top: 22px;
+    display: flex; align-items: center; gap: 16px;
+    font-size: 13px; color: #4a7fa5;
+  }
+  #count { color: #4fc3f7; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<h1>New Animation Presets — Pick Your Favorites</h1>
+<p class="subtitle">Click to select the ones you want added. Multi-select. Research sourced from TTE, tarts, cava, btop, demoscene & the Coding Train.</p>
+
+<div class="grid" id="grid"></div>
+
+<div class="footer">
+  <span><span id="count">0</span> selected — confirm your picks in the terminal when ready.</span>
+</div>
+
+<script>
+// ── color helpers ─────────────────────────────────────────────────────────
+function lerp(a,b,t){ return a+(b-a)*t; }
+function lerpRGB(c1,c2,t){
+  return [Math.round(lerp(c1[0],c2[0],t)),
+          Math.round(lerp(c1[1],c2[1],t)),
+          Math.round(lerp(c1[2],c2[2],t))];
+}
+const BASE=[0x0a,0x33,0x50], PEAK=[0x4f,0xc3,0xf7];
+function themeColor(t){ const c=lerpRGB(BASE,PEAK,t); return `rgb(${c[0]},${c[1]},${c[2]})`; }
+function col(ch,t,extra=''){ return `<span style="color:${themeColor(t)};${extra}">${ch}</span>`; }
+function dimCol(ch){ return `<span style="color:#1a3348">${ch}</span>`; }
+function fireCol(ch,h){ // 0=cold … 255=hot
+  const r=Math.min(255,h*2), g=Math.max(0,h-128)*2, b=0;
+  return `<span style="color:rgb(${r},${g},${b})">${ch}</span>`;
+}
+
+const GLYPHS='▐▓▒░█▄▀◆■•─╌═≡∽╣╗╝╔╩╦╠╬┼┤├┐└│⣾⣽⣻⢿⡿⣟⣯⣷÷×~+#@$%&*=';
+const BRAILLE=['⣾','⣽','⣻','⢿','⡿','⣟','⣯','⣷'];
+function rndG(){ return GLYPHS[Math.floor(Math.random()*GLYPHS.length)]; }
+
+// ── effect definitions ────────────────────────────────────────────────────
+const effects = [
+
+  { id:'fire', label:'A · Doom Fire',
+    desc:'Heat buffer propagates upward with cooling. Bottom row stays white-hot; top dims to smoke.',
+    init(W,H){
+      const buf=new Float32Array(W*H);
+      for(let x=0;x<W;x++) buf[(H-1)*W+x]=255;
+      return {buf,W,H};
+    },
+    tick(s){
+      const {buf,W,H}=s;
+      for(let y=0;y<H-1;y++) for(let x=0;x<W;x++){
+        const src=(y+1)*W+x;
+        const nx=x+Math.floor(Math.random()*3)-1;
+        const ix=Math.max(0,Math.min(W-1,nx));
+        buf[y*W+ix]=Math.max(0,buf[src]*0.97-Math.random()*4);
+      }
+      for(let x=0;x<W;x++) buf[(H-1)*W+x]=Math.random()>.15?255:0;
+    },
+    render(s){
+      const {buf,W,H}=s; const PAL=' .,:;+=ox#%@';
+      let out=''; const rows=[];
+      for(let y=0;y<H;y++){
+        let row='';
+        for(let x=0;x<W;x++){
+          const h=buf[y*W+x];
+          const ci=Math.floor(h/255*(PAL.length-1));
+          row+=fireCol(PAL[ci]||' ',h);
+        }
+        rows.push(row);
+      }
+      return rows.join('\n');
+    }
+  },
+
+  { id:'specbars', label:'B · Spectrum Bars',
+    desc:'Vertical bars driven by any numeric data. Sub-cell precision via eighth-block characters (▁▂▃▄▅▆▇█).',
+    init(W,H){ return {W,H,vals:Array.from({length:W},(_,i)=>Math.sin(i/W*Math.PI)*.8+.1),phases:Array.from({length:W},(_,i)=>i*0.4)}; },
+    tick(s){ s.vals=s.vals.map((_,i)=>{s.phases[i]+=0.08+i*0.005; return (Math.sin(s.phases[i])*.5+.5)*.9+.05;}); },
+    render(s){
+      const {W,H,vals}=s; const EIGHTHS=' ▁▂▃▄▅▆▇█';
+      const rows=Array.from({length:H},()=>new Array(W).fill(''));
+      for(let x=0;x<W;x++){
+        const v=vals[x]; const filled=v*H;
+        for(let y=0;y<H;y++){
+          const fromBottom=H-1-y;
+          const t=v*(1-fromBottom/H*.3);
+          if(fromBottom<Math.floor(filled)) rows[y][x]=col('█',t);
+          else if(fromBottom===Math.floor(filled)){
+            const frac=filled-Math.floor(filled);
+            rows[y][x]=col(EIGHTHS[Math.round(frac*8)]||' ',t);
+          } else rows[y][x]=' ';
+        }
+      }
+      return rows.map(r=>r.join('')).join('\n');
+    }
+  },
+
+  { id:'plasma', label:'C · Plasma Wave',
+    desc:'Sum of sine waves at offset frequencies creates a morphing iridescent field. Pure math, no state.',
+    init(W,H){ return {W,H,t:0}; },
+    tick(s){ s.t+=0.06; },
+    render(s){
+      const {W,H,t}=s; const PAL='░▒▓█';
+      const rows=[];
+      for(let y=0;y<H;y++){
+        let row='';
+        for(let x=0;x<W;x++){
+          const v1=Math.sin(x/2.5+t);
+          const v2=Math.sin(y/2.0+t*.7);
+          const cx=x+.5*Math.sin(t/5); const cy=y+.5*Math.cos(t/3);
+          const v3=Math.sin(Math.sqrt(cx*cx+cy*cy+1)+t);
+          const val=(v1+v2+v3)/3;
+          const ci=Math.floor((val+1)/2*(PAL.length-1));
+          const t2=(val+1)/2;
+          // cycle hue via lerp between two theme-ish colors
+          const hueShift=Math.sin(t*.3+val*2)*.5+.5;
+          const c=lerpRGB(BASE,PEAK,t2*(0.4+hueShift*.6));
+          row+=`<span style="color:rgb(${c[0]},${c[1]},${c[2]})">${PAL[ci]||'░'}</span>`;
+        }
+        rows.push(row);
+      }
+      return rows.join('\n');
+    }
+  },
+
+  { id:'matrix', label:'D · Matrix Rain',
+    desc:'Independent columns fall at different speeds. Head glyph glows bright; trail fades with distance.',
+    init(W,H){
+      const cols=Array.from({length:W},(_,i)=>({y:Math.random()*H,speed:.4+Math.random()*.6,len:4+Math.floor(Math.random()*H),chars:Array.from({length:H+5},rndG)}));
+      return {W,H,cols,t:0};
+    },
+    tick(s){
+      s.t++; s.cols.forEach(c=>{
+        c.y+=c.speed;
+        if(c.y>s.H+c.len){ c.y=-Math.random()*s.H*.5; c.speed=.4+Math.random()*.6; c.len=4+Math.floor(Math.random()*s.H); }
+        if(s.t%3===0) c.chars[Math.floor(Math.random()*c.chars.length)]=rndG();
+      });
+    },
+    render(s){
+      const {W,H,cols}=s;
+      const grid=Array.from({length:H},()=>Array(W).fill(' '));
+      const colors=Array.from({length:H},()=>Array(W).fill(null));
+      cols.forEach((c,x)=>{
+        const headY=Math.floor(c.y);
+        for(let i=0;i<c.len;i++){
+          const y=headY-i;
+          if(y>=0&&y<H){
+            const t=1-i/c.len;
+            grid[y][x]=c.chars[(y+i)%c.chars.length]||'·';
+            colors[y][x]=i===0?[0xdf,0xff,0xdf]:lerpRGB([0x0a,0x33,0x50],PEAK,t*.85);
+          }
+        }
+      });
+      return grid.map((row,y)=>row.map((ch,x)=>{
+        const c=colors[y][x];
+        if(!c) return dimCol(ch==' '?' ':'·');
+        return `<span style="color:rgb(${c[0]},${c[1]},${c[2]})">${ch}</span>`;
+      }).join('')).join('\n');
+    }
+  },
+
+  { id:'gol', label:'E · Game of Life',
+    desc:'B3/S23 cellular automaton. Track cell age for color — young cells glow bright, old ones dim. Auto-resets.',
+    init(W,H){
+      const g=new Uint8Array(W*H); const age=new Uint8Array(W*H);
+      for(let i=0;i<g.length;i++) g[i]=Math.random()>.65?1:0;
+      return {W,H,g,age,gen:0};
+    },
+    tick(s){
+      const {W,H,g,age}=s;
+      const next=new Uint8Array(W*H); const nextAge=new Uint8Array(W*H);
+      for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+        let n=0;
+        for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){
+          if(dx===0&&dy===0) continue;
+          const nx=(x+dx+W)%W, ny=(y+dy+H)%H;
+          n+=g[ny*W+nx];
+        }
+        const alive=g[y*W+x];
+        next[y*W+x]=(alive?(n===2||n===3):(n===3))?1:0;
+        nextAge[y*W+x]=next[y*W+x]?(age[y*W+x]+1):0;
+      }
+      s.g=next; s.age=nextAge; s.gen++;
+      if(s.gen>300){ s.gen=0; for(let i=0;i<s.g.length;i++) s.g[i]=Math.random()>.65?1:0; }
+    },
+    render(s){
+      const {W,H,g,age}=s;
+      const rows=[];
+      for(let y=0;y<H;y++){
+        let row='';
+        for(let x=0;x<W;x++){
+          if(g[y*W+x]){
+            const a=age[y*W+x]; const t=Math.min(1,a/30);
+            row+=col('█',1-t*.6);
+          } else row+=dimCol(' ');
+        }
+        rows.push(row);
+      }
+      return rows.join('\n');
+    }
+  },
+
+  { id:'starfield', label:'F · Starfield',
+    desc:'3D stars projected onto 2D, rushing toward the viewer from a central vanishing point. Depth = brightness + character.',
+    init(W,H){
+      const N=60;
+      const stars=Array.from({length:N},()=>({x:(Math.random()-.5)*2,y:(Math.random()-.5)*2,z:Math.random()}));
+      return {W,H,stars};
+    },
+    tick(s){ s.stars.forEach(st=>{ st.z-=.018; if(st.z<=0){ st.x=(Math.random()-.5)*2; st.y=(Math.random()-.5)*2; st.z=1; } }); },
+    render(s){
+      const {W,H,stars}=s;
+      const grid=Array.from({length:H},()=>Array(W).fill(' '));
+      const bright=Array.from({length:H},()=>Array(W).fill(0));
+      stars.forEach(st=>{
+        const b=1-st.z;
+        const sx=Math.floor(st.x/st.z*(W/3)+W/2);
+        const sy=Math.floor(st.y/st.z*(H/2)+H/2);
+        if(sx>=0&&sx<W&&sy>=0&&sy<H){
+          const ch=b>.85?'★':b>.6?'✦':b>.3?'·':'.';
+          if(b>bright[sy][sx]){ grid[sy][sx]=ch; bright[sy][sx]=b; }
+        }
+      });
+      return grid.map((row,y)=>row.map((ch,x)=>{
+        const b=bright[y][x]; if(b===0) return ' ';
+        return col(ch,b*.9+.1);
+      }).join('')).join('\n');
+    }
+  },
+
+  { id:'ripple', label:'G · Water Ripple',
+    desc:'2-buffer wave propagation with damping. Disturbances radiate outward and interfere like real water.',
+    init(W,H){
+      const cur=new Float32Array(W*H), prv=new Float32Array(W*H);
+      return {W,H,cur,prv,t:0};
+    },
+    tick(s){
+      const {W,H,cur,prv}=s; s.t++;
+      if(s.t%40===0){
+        const rx=2+Math.floor(Math.random()*(W-4)), ry=1+Math.floor(Math.random()*(H-2));
+        cur[ry*W+rx]=180;
+      }
+      const next=new Float32Array(W*H);
+      for(let y=1;y<H-1;y++) for(let x=1;x<W-1;x++){
+        next[y*W+x]=((cur[(y-1)*W+x]+cur[(y+1)*W+x]+cur[y*W+x-1]+cur[y*W+x+1])/2-prv[y*W+x])*.98;
+      }
+      s.prv=s.cur; s.cur=next;
+    },
+    render(s){
+      const {W,H,cur}=s; const PAL=' ·:;|+=*#@';
+      const rows=[];
+      for(let y=0;y<H;y++){
+        let row='';
+        for(let x=0;x<W;x++){
+          const v=Math.abs(cur[y*W+x]);
+          const ci=Math.min(PAL.length-1,Math.floor(v/20*PAL.length));
+          const t=v/160;
+          row+=t>.05?col(PAL[ci]||'·',Math.min(1,t)):dimCol('·');
+        }
+        rows.push(row);
+      }
+      return rows.join('\n');
+    }
+  },
+
+  { id:'synthgrid', label:'H · Synthgrid',
+    desc:'Perspective grid receding to a vanishing point, scrolling forward. Retrowave aesthetic — lines converge at top-center.',
+    init(W,H){ return {W,H,t:0}; },
+    tick(s){ s.t+=.5; },
+    render(s){
+      const {W,H,t}=s;
+      const rows=[];
+      const VX=W/2, VY=0;
+      for(let y=0;y<H;y++){
+        const row=new Array(W).fill(' ');
+        const progress=y/(H-1);
+        // horizontal lines — perspective spacing
+        const lineInterval=3+Math.floor(progress*6);
+        const phase=t%lineInterval;
+        const drawHoriz=Math.floor(((y/H)*20+t/3))%3===0;
+        if(drawHoriz){
+          const tColor=progress*.8+.2;
+          for(let x=0;x<W;x++) row[x]=col('─',tColor);
+        }
+        // vertical lines converging to vanishing point
+        const numVLines=6;
+        for(let vi=0;vi<=numVLines;vi++){
+          const edgeX=(vi/numVLines)*W;
+          const vx=Math.round(VX+(edgeX-VX)*progress);
+          if(vx>=0&&vx<W){
+            const tColor=progress*.7+.15;
+            row[vx]=drawHoriz?col('┼',tColor):col('│',tColor);
+          }
+        }
+        rows.push(row.join(''));
+      }
+      return rows.join('\n');
+    }
+  },
+
+  { id:'boids', label:'I · Boids Flocking',
+    desc:'Emergent flocking: separation, alignment, cohesion. Each boid is a directional arrow character.',
+    init(W,H){
+      const N=22;
+      const boids=Array.from({length:N},()=>({x:Math.random()*W,y:Math.random()*H,vx:(Math.random()-.5)*.4,vy:(Math.random()-.5)*.3}));
+      return {W,H,boids};
+    },
+    tick(s){
+      const {W,H,boids}=s; const R=5, MAXSPEED=.5;
+      boids.forEach(b=>{
+        let ax=0,ay=0,cx=0,cy=0,sx=0,sy=0,nc=0;
+        boids.forEach(o=>{
+          if(o===b) return;
+          const dx=o.x-b.x, dy=o.y-b.y, d=Math.hypot(dx,dy);
+          if(d<R&&d>0){
+            nc++;
+            if(d<1.5){sx-=dx/d*.05;sy-=dy/d*.05;}
+            ax+=o.vx; ay+=o.vy;
+            cx+=o.x; cy+=o.y;
+          }
+        });
+        if(nc>0){
+          b.vx+=(ax/nc-b.vx)*.02+(cx/nc-b.x)*.005+sx;
+          b.vy+=(ay/nc-b.vy)*.02+(cy/nc-b.y)*.005+sy;
+        }
+        const spd=Math.hypot(b.vx,b.vy);
+        if(spd>MAXSPEED){b.vx=b.vx/spd*MAXSPEED;b.vy=b.vy/spd*MAXSPEED;}
+        b.x=(b.x+b.vx+W)%W; b.y=(b.y+b.vy+H)%H;
+      });
+    },
+    render(s){
+      const {W,H,boids}=s;
+      const grid=Array.from({length:H},()=>Array(W).fill(' '));
+      const DIRS=['→','↗','↑','↖','←','↙','↓','↘'];
+      boids.forEach(b=>{
+        const x=Math.floor(b.x), y=Math.floor(b.y);
+        if(x>=0&&x<W&&y>=0&&y<H){
+          const angle=Math.atan2(b.vy,b.vx);
+          const di=Math.round(((angle/(Math.PI*2))*8+8))%8;
+          const spd=Math.hypot(b.vx,b.vy)/0.5;
+          grid[y][x]=col(DIRS[di]||'→',0.4+spd*.6);
+        }
+      });
+      return grid.map(r=>r.join('')).join('\n');
+    }
+  },
+
+  { id:'vortex', label:'J · Vortex / Orbital Spiral',
+    desc:'Particles orbit a center point in decaying spirals. Angular velocity increases near the singularity.',
+    init(W,H){
+      const N=30;
+      const particles=Array.from({length:N},()=>({
+        angle:Math.random()*Math.PI*2,
+        radius:.5+Math.random()*(Math.min(W,H*1.8)/2-.5),
+        speed:.03+Math.random()*.05,
+        pull:.04+Math.random()*.04
+      }));
+      return {W,H,particles};
+    },
+    tick(s){
+      s.particles.forEach(p=>{
+        p.angle+=p.speed*(3/Math.max(.5,p.radius));
+        p.radius-=p.pull;
+        if(p.radius<=.3){ p.radius=Math.min(s.W,s.H*1.8)/2*.8; p.angle=Math.random()*Math.PI*2; }
+      });
+    },
+    render(s){
+      const {W,H,particles}=s;
+      const grid=Array.from({length:H},()=>Array(W).fill(' '));
+      const brig=Array.from({length:H},()=>Array(W).fill(0));
+      const cx=W/2, cy=H/2;
+      const CHARS=['✦','◉','•','∙','·'];
+      particles.forEach(p=>{
+        const x=Math.floor(cx+p.radius*Math.cos(p.angle));
+        const y=Math.floor(cy+p.radius*Math.sin(p.angle)*.5);
+        if(x>=0&&x<W&&y>=0&&y<H){
+          const maxR=Math.min(W,H*1.8)/2;
+          const t=1-p.radius/maxR;
+          if(t>brig[y][x]){
+            const ci=Math.min(CHARS.length-1,Math.floor(t*CHARS.length));
+            grid[y][x]=col(CHARS[ci]||'·',t);
+            brig[y][x]=t;
+          }
+        }
+      });
+      return grid.map(r=>r.join('')).join('\n');
+    }
+  },
+
+  { id:'noise', label:'K · Noise Field',
+    desc:'Animated 2D value-noise grid — smooth organic turbulence. Characters and colors driven by noise intensity.',
+    init(W,H){ return {W,H,t:0}; },
+    tick(s){ s.t+=.025; },
+    render(s){
+      const {W,H,t}=s; const PAL='░▒▓█';
+      // simple smooth noise via trig (no lib needed)
+      function n2(x,y,t){
+        return (Math.sin(x*.7+t)*Math.cos(y*.5-t*.3)+
+                Math.cos(x*.3+t*.7)*Math.sin(y*.8+t*.2)+
+                Math.sin((x+y)*.4+t*.5))*.333;
+      }
+      const rows=[];
+      for(let y=0;y<H;y++){
+        let row='';
+        for(let x=0;x<W;x++){
+          const v=n2(x,y,t); // -1..1
+          const t2=(v+1)/2;
+          const ci=Math.min(PAL.length-1,Math.floor(t2*(PAL.length-1)+.5));
+          row+=col(PAL[ci]||'░',t2*.85+.15);
+        }
+        rows.push(row);
+      }
+      return rows.join('\n');
+    }
+  },
+
+  { id:'flowfield', label:'L · Flow Field Particles',
+    desc:'Particles drift through an invisible noise vector field, leaving directional character trails.',
+    init(W,H){
+      const N=35;
+      const p=Array.from({length:N},()=>({x:Math.random()*W,y:Math.random()*H,vx:0,vy:0,trail:[]}));
+      return {W,H,p,t:0};
+    },
+    tick(s){
+      s.t+=.015;
+      const {W,H,p,t}=s;
+      p.forEach(pt=>{
+        const angle=(Math.sin(pt.x*.3+t)*Math.cos(pt.y*.25-t*.4))*Math.PI*2;
+        pt.vx=pt.vx*.85+Math.cos(angle)*.25;
+        pt.vy=pt.vy*.85+Math.sin(angle)*.25;
+        pt.trail.push({x:Math.floor(pt.x),y:Math.floor(pt.y)});
+        if(pt.trail.length>4) pt.trail.shift();
+        pt.x=(pt.x+pt.vx+W)%W; pt.y=(pt.y+pt.vy+H)%H;
+      });
+    },
+    render(s){
+      const {W,H,p}=s;
+      const grid=Array.from({length:H},()=>Array(W).fill(null));
+      const DIRS=['→','↗','↑','↖','←','↙','↓','↘'];
+      p.forEach(pt=>{
+        pt.trail.forEach((pos,i)=>{
+          if(pos.x>=0&&pos.x<W&&pos.y>=0&&pos.y<H){
+            const t=i/pt.trail.length;
+            const angle=Math.atan2(pt.vy,pt.vx);
+            const di=Math.round(((angle/(Math.PI*2))*8+8))%8;
+            grid[pos.y][pos.x]={ch:i===pt.trail.length-1?(DIRS[di]||'→'):'·',t};
+          }
+        });
+      });
+      return grid.map(r=>r.map(c=>c?col(c.ch,c.t*.7+.2):' ').join('')).join('\n');
+    }
+  },
+
+  { id:'scan', label:'M · Laser Scan Beam',
+    desc:'A bright horizontal beam sweeps across the widget, "illuminating" a data grid beneath it with glowing intensity.',
+    init(W,H){
+      const data=Array.from({length:H},()=>Array.from({length:W},rndG));
+      return {W,H,data,beam:0};
+    },
+    tick(s){ s.beam=(s.beam+.6)%(s.W+12); },
+    render(s){
+      const {W,H,data,beam}=s;
+      const rows=[];
+      for(let y=0;y<H;y++){
+        let row='';
+        for(let x=0;x<W;x++){
+          const d=Math.abs(x-beam);
+          if(d<1) row+=`<span style="color:#ffffff;text-shadow:0 0 6px #4fc3f7">${data[y][x]}</span>`;
+          else if(d<3) row+=col(data[y][x],1-d*.15);
+          else if(d<7) row+=col(data[y][x],.3-d*.02);
+          else row+=dimCol(data[y][x]);
+        }
+        rows.push(row);
+      }
+      return rows.join('\n');
+    }
+  },
+
+];
+
+// ── render & animate ──────────────────────────────────────────────────────
+const selected = new Set();
+const states = {};
+const W=22, H=6;
+
+effects.forEach(e=>{ states[e.id]=e.init(W,H); });
+
+function buildCard(e){
+  const div=document.createElement('div');
+  div.className='card'; div.dataset.id=e.id;
+  div.innerHTML=`
+    <div class="check">✓</div>
+    <div class="preview-box"><div id="p-${e.id}" style="text-align:left"></div></div>
+    <div class="card-info">
+      <div class="card-label">${e.label}</div>
+      <div class="card-desc">${e.desc}</div>
+    </div>`;
+  div.onclick=()=>{
+    if(selected.has(e.id)) selected.delete(e.id); else selected.add(e.id);
+    div.classList.toggle('selected');
+    document.getElementById('count').textContent=selected.size;
+    if(window.recordSelection) window.recordSelection(e.id, [...selected].join(','));
+  };
+  return div;
+}
+
+const grid=document.getElementById('grid');
+effects.forEach(e=>grid.appendChild(buildCard(e)));
+
+setInterval(()=>{
+  effects.forEach(e=>{
+    e.tick(states[e.id]);
+    const el=document.getElementById('p-'+e.id);
+    if(el) el.innerHTML=e.render(states[e.id]);
+  });
+},100);
+</script>
+</body>
+</html>

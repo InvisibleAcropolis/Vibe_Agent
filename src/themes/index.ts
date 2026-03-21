@@ -54,7 +54,7 @@ export function onThemeConfigChange(cb: () => void): void {
 	themeChangeCallbacks.push(cb);
 }
 
-function lerpColor(from: string, to: string, t: number): string {
+export function lerpColor(from: string, to: string, t: number): string {
 	const parseHex = (h: string) => {
 		const n = h.replace("#", "");
 		return [

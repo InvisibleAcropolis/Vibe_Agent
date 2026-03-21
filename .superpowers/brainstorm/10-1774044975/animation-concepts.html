@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Animation Presets — VibeAgent TUI</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #060e18;
+    color: #e4edf5;
+    font-family: 'Consolas', 'Lucida Console', 'Courier New', monospace;
+    padding: 28px 32px;
+    line-height: 1.5;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  h1 { color: #60d2ff; font-size: 1.25em; margin-bottom: 4px; letter-spacing: 1px; }
+  .subtitle { color: #6c8399; font-size: 0.85em; margin-bottom: 28px; }
+
+  /* ── Section headers ── */
+  .section-label {
+    color: #60d2ff;
+    font-size: 0.7em;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #254560;
+  }
+
+  /* ── Featured cascade card ── */
+  .featured-card {
+    background: #0e1c2a;
+    border: 1px solid #254560;
+    border-radius: 3px;
+    padding: 16px 20px;
+    margin-bottom: 28px;
+  }
+  .card-title { color: #e4edf5; font-size: 1em; margin-bottom: 3px; }
+  .card-desc { color: #6c8399; font-size: 0.78em; margin-bottom: 14px; }
+  .anim-stage {
+    background: #060e18;
+    border: 1px solid #1a3348;
+    padding: 16px 20px;
+    min-height: 160px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Consolas', 'Lucida Console', 'Courier New', monospace;
+    font-size: 1em;
+    white-space: pre;
+    line-height: 1.45;
+    overflow: hidden;
+  }
+
+  /* ── Options grid ── */
+  .options-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-top: 10px;
+  }
+  .preset-card {
+    background: #0e1c2a;
+    border: 1px solid #254560;
+    border-radius: 3px;
+    cursor: pointer;
+    overflow: hidden;
+    transition: border-color 0.15s;
+    user-select: none;
+  }
+  .preset-card:hover { border-color: #5cd4ff; }
+  .preset-card.selected { border-color: #60d2ff; background: #122e48; }
+  .card-header {
+    display: flex;
+    align-items: center;
+    padding: 12px 14px 8px;
+    gap: 10px;
+  }
+  .card-letter {
+    background: #254560;
+    color: #60d2ff;
+    width: 26px; height: 26px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: bold; font-size: 0.85em;
+    flex-shrink: 0;
+    border-radius: 2px;
+  }
+  .preset-card.selected .card-letter { background: #60d2ff; color: #060e18; }
+  .card-name { color: #e4edf5; font-size: 0.9em; }
+  .card-purpose { color: #6c8399; font-size: 0.75em; padding: 0 14px 10px; }
+  .mini-stage {
+    background: #060e18;
+    border-top: 1px solid #1a3348;
+    padding: 10px 14px;
+    min-height: 52px;
+    font-family: 'Consolas', 'Lucida Console', 'Courier New', monospace;
+    font-size: 0.88em;
+    white-space: pre;
+    line-height: 1.5;
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+  }
+
+  /* ── Selected count indicator ── */
+  .selection-bar {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: #0a1a2c;
+    border-top: 1px solid #254560;
+    padding: 10px 32px;
+    font-size: 0.8em;
+    color: #6c8399;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .selection-bar span { color: #60d2ff; }
+  body { padding-bottom: 52px; }
+</style>
+</head>
+<body>
+
+<h1>▐ ANIMATION PRESETS — VibeAgent TUI</h1>
+<p class="subtitle">All animations run at the TUI 80ms tick rate. Colors use your active theme's breathBaseColor → breathPeakColor gradient.</p>
+
+<!-- ── GLYPH CASCADE (required) ─────────────────────────── -->
+<div class="section-label">★ Glyph Cascade — Required (your spec)</div>
+<div class="featured-card">
+  <div class="card-title">Glyph Cascade</div>
+  <div class="card-desc">Expands 1 → 8 glyphs then contracts 8 → 1, looping. Each tick randomizes the glyphs. Colors interpolate across breathBaseColor → breathPeakColor. Shown here with trailing history rows forming the diamond shape.</div>
+  <div class="anim-stage" id="cascade-stage"></div>
+</div>
+
+<!-- ── ADDITIONAL PRESETS ────────────────────────────────── -->
+<div class="section-label">Choose additional presets (click to select, multi-select)</div>
+<div class="options-grid">
+
+  <div class="preset-card" id="opt-pulse" onclick="pickPreset(this,'pulse')">
+    <div class="card-header">
+      <div class="card-letter">A</div>
+      <div class="card-name">Pulse Meter</div>
+    </div>
+    <div class="card-purpose">Shows a live value (tokens, latency, CPU %) as a colored glyph-fill bar. Ideal for monitoring panels and footers.</div>
+    <div class="mini-stage" id="pulse-stage"></div>
+  </div>
+
+  <div class="preset-card" id="opt-orbit" onclick="pickPreset(this,'orbit')">
+    <div class="card-header">
+      <div class="card-letter">B</div>
+      <div class="card-name">Orbit Arc</div>
+    </div>
+    <div class="card-purpose">A rotating arc of glyphs that trails into dim echoes. Loading / waiting indicator, driven by the breath sine wave.</div>
+    <div class="mini-stage" id="orbit-stage"></div>
+  </div>
+
+  <div class="preset-card" id="opt-rain" onclick="pickPreset(this,'rain')">
+    <div class="card-header">
+      <div class="card-letter">C</div>
+      <div class="card-name">Data Rain</div>
+    </div>
+    <div class="card-purpose">Vertical columns of glyphs fading bright-to-dim. Ambient background for panels while the agent is processing.</div>
+    <div class="mini-stage" id="rain-stage"></div>
+  </div>
+
+  <div class="preset-card" id="opt-wave" onclick="pickPreset(this,'wave')">
+    <div class="card-header">
+      <div class="card-letter">D</div>
+      <div class="card-name">Wave Sweep</div>
+    </div>
+    <div class="card-purpose">A bright crest sweeps across a line of dim glyphs. Use as an animated progress bar or "thinking" indicator.</div>
+    <div class="mini-stage" id="wave-stage"></div>
+  </div>
+
+</div>
+
+<!-- Selection bar (manual, since we're in a full-doc) -->
+<div class="selection-bar">
+  <div>Additional presets selected: <span id="sel-count">0</span> of 4</div>
+  <div id="sel-names" style="color:#98afc2;"></div>
+</div>
+
+<script>
+// ─── Theme colors (default theme) ───────────────────────────────
+const C_LOW  = '#254560';   // breathBaseColor
+const C_HIGH = '#60d2ff';   // breathPeakColor
+const C_DIM  = '#1a3348';
+
+// ─── Utilities ───────────────────────────────────────────────────
+function hexToRgb(h) {
+  return [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
+}
+function lerp(a, b, t) { return a + (b - a) * t; }
+function lerpColor(c1, c2, t) {
+  const [r1,g1,b1] = hexToRgb(c1), [r2,g2,b2] = hexToRgb(c2);
+  return `rgb(${Math.round(lerp(r1,r2,t))},${Math.round(lerp(g1,g2,t))},${Math.round(lerp(b1,b2,t))})`;
+}
+
+const GLYPHS = '▐▓▒░█▄▀◆■•─╌═≡∽╣╗╝╔╩╦╠╬┼┤├┐└│⣾⣽⣻⢿⡿⣟⣯⣷+#@$%&*=÷×~';
+function rg() { return GLYPHS[Math.floor(Math.random() * GLYPHS.length)]; }
+function cg(glyph, t) { return `<span style="color:${lerpColor(C_LOW, C_HIGH, t)}">${glyph}</span>`; }
+function dg(glyph, dim) { return `<span style="color:${lerpColor(C_DIM, C_LOW, dim)}">${glyph}</span>`; }
+
+// ─── Cascade ─────────────────────────────────────────────────────
+let cascadeN = 1, cascadeDir = 1;
+const cascadeHistory = [];
+const HIST_MAX = 11;
+
+function stepCascade() {
+  const row = [];
+  for (let i = 0; i < cascadeN; i++) {
+    const t = cascadeN <= 1 ? 0.5 : i / (cascadeN - 1);
+    row.push(cg(rg(), t));
+  }
+  cascadeHistory.push(row.join(''));
+  if (cascadeHistory.length > HIST_MAX) cascadeHistory.shift();
+  cascadeN += cascadeDir;
+  if (cascadeN >= 8) cascadeDir = -1;
+  if (cascadeN <= 0) { cascadeDir = 1; cascadeN = 1; }
+}
+
+function renderCascade() {
+  document.getElementById('cascade-stage').innerHTML = cascadeHistory.join('\n');
+}
+
+// ─── Pulse Meter ─────────────────────────────────────────────────
+let pulseVal = 0.35, pulseDir2 = 1;
+const PULSE_W = 28;
+const FILL_CHARS = ['░','▒','▓','█'];
+
+function renderPulse() {
+  const filled = Math.round(pulseVal * PULSE_W);
+  let row = '<span style="color:#98afc2">▐</span>';
+  for (let i = 0; i < PULSE_W; i++) {
+    const t = i / (PULSE_W - 1);
+    if (i < filled) {
+      const ci = Math.min(3, Math.floor(t * 4));
+      row += `<span style="color:${lerpColor(C_LOW, C_HIGH, t)}">${FILL_CHARS[3-ci]}</span>`;
+    } else {
+      row += `<span style="color:${C_DIM}">·</span>`;
+    }
+  }
+  const pct = Math.round(pulseVal * 100);
+  row += `<span style="color:#98afc2">▌ ${String(pct).padStart(3)}%</span>`;
+  document.getElementById('pulse-stage').innerHTML = row;
+
+  pulseVal += 0.007 * pulseDir2;
+  if (pulseVal >= 1) pulseDir2 = -1;
+  if (pulseVal <= 0) pulseDir2 = 1;
+}
+
+// ─── Orbit Arc ───────────────────────────────────────────────────
+const BRAILLE = ['⣾','⣽','⣻','⢿','⡿','⣟','⣯','⣷'];
+const TRAIL   = ['●','◉','•','∙','·',' ',' '];
+let orbitTick = 0;
+
+function renderOrbit() {
+  const frame = orbitTick % 8;
+  const ARC = 6;
+  let row = cg(BRAILLE[frame], 1.0);
+  for (let i = 0; i < ARC; i++) {
+    const t = 1 - (i + 1) / (ARC + 1);
+    row += `<span style="color:${lerpColor(C_DIM, C_LOW, t)}">${TRAIL[Math.min(i, TRAIL.length-1)]}</span>`;
+  }
+  row += `<span style="color:#6c8399"> waiting…</span>`;
+  document.getElementById('orbit-stage').innerHTML = row;
+  orbitTick++;
+}
+
+// ─── Data Rain ───────────────────────────────────────────────────
+const RAIN_COLS = 4, RAIN_ROWS = 3;
+const rainCols = Array.from({length: RAIN_COLS}, () => ({
+  glyphs: Array.from({length: RAIN_ROWS}, rg),
+  speed: 0.2 + Math.random() * 0.4
+}));
+let rainTick = 0;
+
+function renderRain() {
+  rainTick++;
+  rainCols.forEach(col => {
+    if (Math.random() < col.speed * 0.25) {
+      col.glyphs = col.glyphs.map(rg);
+    }
+  });
+  let html = '';
+  for (let r = 0; r < RAIN_ROWS; r++) {
+    let line = '';
+    for (let c = 0; c < RAIN_COLS; c++) {
+      const t = 1 - (r / (RAIN_ROWS - 1)) * 0.85;
+      line += cg(rainCols[c].glyphs[r], t) + ' ';
+    }
+    html += line + '\n';
+  }
+  document.getElementById('rain-stage').innerHTML = html;
+}
+
+// ─── Wave Sweep ──────────────────────────────────────────────────
+let wavePos = 0;
+const WAVE_W = 28;
+const WAVE_CHARS = ['·','∙','•','─','╌','═','≡','═','╌','─','•','∙','·'];
+
+function renderWave() {
+  let row = '';
+  for (let i = 0; i < WAVE_W; i++) {
+    const dist = Math.abs(i - wavePos);
+    const intensity = Math.max(0, 1 - dist / 7);
+    if (intensity > 0.05) {
+      const ci = Math.min(WAVE_CHARS.length-1, Math.round(intensity * (WAVE_CHARS.length-1)));
+      row += `<span style="color:${lerpColor(C_LOW, C_HIGH, intensity)}">${WAVE_CHARS[ci]}</span>`;
+    } else {
+      row += `<span style="color:${C_DIM}">·</span>`;
+    }
+  }
+  document.getElementById('wave-stage').innerHTML = row;
+  wavePos = (wavePos + 0.55) % WAVE_W;
+}
+
+// ─── Selection state ─────────────────────────────────────────────
+const selected = new Set();
+const NAMES = { pulse: 'Pulse Meter', orbit: 'Orbit Arc', rain: 'Data Rain', wave: 'Wave Sweep' };
+
+function pickPreset(el, key) {
+  if (selected.has(key)) {
+    selected.delete(key);
+    el.classList.remove('selected');
+  } else {
+    selected.add(key);
+    el.classList.add('selected');
+  }
+  document.getElementById('sel-count').textContent = selected.size;
+  document.getElementById('sel-names').textContent = [...selected].map(k => NAMES[k]).join(', ');
+
+  // Emit selection event for the helper script to pick up
+  if (window.__superpowers_record_event) {
+    window.__superpowers_record_event({ type: 'click', choice: [...selected].join(','), text: [...selected].map(k => NAMES[k]).join(', ') });
+  }
+}
+
+// ─── Tick loop ───────────────────────────────────────────────────
+// Prime cascade history first
+for (let i = 0; i < HIST_MAX; i++) stepCascade();
+
+function tick() {
+  stepCascade(); renderCascade();
+  renderPulse();
+  renderOrbit();
+  renderRain();
+  renderWave();
+}
+
+setInterval(tick, 80);
+tick();
+</script>
+</body>
+</html>
