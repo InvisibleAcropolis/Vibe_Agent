@@ -1,85 +1,77 @@
+# Agent Notes: You must ALWAYS update the README.md [changelog] area with whatever changes you make to this repo
+
+---
+
 # Vibe Agent
 
-A professional terminal-based AI coding agent that provides a unified TUI (Terminal User Interface) experience. Vibe Agent deprecates the WebUI of the underlying coding-agent package in favor of a complete terminal-based interface using the TUI shell from `@mariozechner/pi-tui`.
+> A professional terminal-based AI coding agent with a unified TUI (Terminal User Interface) experience.
+
+Vibe Agent is built on the [pi-mono framework](https://github.com/badlogic/pi-mono/) and extends it with a comprehensive terminal-based interface using the TUI shell from `@mariozechner/pi-tui`. While pi-mono provides the core agent runtime and LLM integration, VibeAgent adds multi-runtime coordination, durable storage catalogs, a rich animation system, and an extensible overlay UI.
 
 ## Table of Contents
 
 - [Overview](#overview)
-- [Features](#features)
-- [Installation](#installation)
 - [Quick Start](#quick-start)
-- [User Interface](#user-interface)
-- [Commands](#commands)
-- [Keyboard Shortcuts](#keyboard-shortcuts)
 - [Architecture](#architecture)
-- [Development Guide](#development-guide)
+  - [System Overview](#system-overview)
+  - [pi-mono Extensions](#pi-mono-extensions)
+  - [Runtime Coordinator System](#runtime-coordinator-system)
+  - [Data Flow Pipeline](#data-flow-pipeline)
+  - [Durable Storage Layer](#durable-storage-layer)
+  - [UI Architecture](#ui-architecture)
+- [User Interface](#user-interface)
+  - [Shell Layout](#shell-layout)
+  - [Overlay System](#overlay-system)
+  - [Theme System](#theme-system)
+  - [Animation System](#animation-system)
+- [Commands & Shortcuts](#commands--shortcuts)
 - [Configuration](#configuration)
-- [Troubleshooting](#troubleshooting)
+- [Related Documentation](#related-documentation)
+- [Changelog](#changelog)
 
 ---
 
 ## Overview
 
-Vibe Agent is a terminal-based AI coding assistant that provides full feature parity with web-based coding agents while maintaining the efficiency and speed of a terminal interface. Built on top of the `@mariozechner/pi-coding-agent` package, it offers a unified TUI experience for all AI interactions.
+Vibe Agent is a terminal-based AI coding assistant that provides full feature parity with web-based coding agents while maintaining the efficiency and speed of a terminal interface.
 
 ### Key Concepts
 
-- **Shell Shape**: The TUI follows a shell pattern with header, body, footer, and overlays
-- **Agent Host**: Direct integration with the coding agent's AgentSession for AI interactions
-- **Extensions**: Full support for the coding-agent extension system
-- **Artifacts**: Files and code created by the agent are tracked as viewable artifacts
-- **Sessions**: Conversations are organized into sessions with branching and navigation
+- **Runtime Coordinator**: VibeAgent extends pi-mono's single-agent model to support multiple concurrent runtimes (coding, worker, tool), managed by a `RuntimeCoordinator`.
+- **Durable Storage**: Beyond pi-mono's session storage, VibeAgent introduces catalog services for artifacts, memory stores, and logs that persist across sessions.
+- **Shell UI**: A complete terminal UI with chrome (header/footer), content area, and modal overlays.
+- **Animation Engine**: A global animation system driving visual effects like breathing borders, crawling separators, and glitch effects.
+- **Theme System**: Dynamic themes with breath color interpolation and hue cycling.
+
+### Built on pi-mono
+
+VibeAgent depends on three pi-mono packages:
+
+| Package | Purpose |
+|---------|---------|
+| `@mariozechner/pi-agent-core` | Core agent runtime with tool calling and state management |
+| `@mariozechner/pi-ai` | Unified multi-provider LLM API (OpenAI, Anthropic, Google) |
+| `@mariozechner/pi-tui` | Terminal UI library with differential rendering and components |
 
 ---
 
-## Features
-
-- **Full Chat Interface**: Streaming responses with markdown rendering
-- **Tool Execution Display**: Visual feedback for read, write, edit, bash, grep, find, and ls operations
-- **Artifact Viewer**: Browse files and code created by the agent
-- **Session Management**: New, resume, fork, and tree navigation
-- **Model Selection**: Switch between models and providers with OAuth support
-- **Thinking Levels**: Adjust reasoning budget (off, minimal, low, medium, high, xhigh)
-- **Extension Support**: Custom tools, commands, UI components, and event handlers
-- **Statistics**: Token usage tracking and session metrics
-- **HTML Export**: Export conversations as HTML
-- **Debug Snapshots**: Comprehensive debugging system
-- **Mouse Support**: Click and scroll in overlays and lists
-- **Theming**: Customizable themes for the terminal interface
-
----
-
-## Installation
+## Quick Start
 
 ### Prerequisites
 
 - Node.js 20.6+
 - Terminal with Unicode and 256-color support
 
-### Install from Source
+### Installation
 
 ```bash
+git clone https://github.com/your-repo/vibe-agent.git
 cd vibe-agent
 npm install
 npm run build
-npm test
 ```
 
-The supported developer flow is root-only. Install, build, and test from the repository root.
-The `coding-agent/` and `tui-shell/` directories are vendored reference code and are not standalone build targets for this fork.
-
-### Global Installation
-
-```bash
-npm link
-vibe-agent
-```
-
----
-
-## Quick Start
-
-### Starting the Application
+### Running
 
 ```bash
 # Start with default settings
@@ -94,15 +86,15 @@ npm run dev:debug
 
 ### First Run Setup
 
-On first launch, the application will show a welcome screen for provider selection:
+On first launch, the application shows a welcome screen for provider selection:
 
 1. Select your preferred OAuth provider (Google Antigravity, OpenAI Codex, or others)
 2. Complete the OAuth flow
 3. Start chatting with the agent
 
-### Setting up API Keys
+### API Key Setup
 
-Instead of OAuth, you can use API keys directly:
+Instead of OAuth, use API keys directly:
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
@@ -110,390 +102,543 @@ export OPENAI_API_KEY=sk-...
 export GOOGLE_API_KEY=...
 ```
 
-Then run the application - it will skip the OAuth setup.
+---
+
+## Architecture
+
+### System Overview
+
+```mermaid
+graph TB
+    subgraph "User Layer"
+        UserInput["User Input"]
+        ShellView["ShellView"]
+        Overlays["Overlays"]
+    end
+
+    subgraph "VibeAgent Core (src/)"
+        AC["App Controller<br/>CommandController, EditorController,<br/>InputController, OverlayController"]
+        AS["AppStateStore"]
+        AE["AnimationEngine"]
+        Theme["Theme System"]
+    end
+
+    subgraph "Runtime Layer (src/runtime/)"
+        RC["RuntimeCoordinator"]
+        CAH["CoordinatedAgentHost"]
+        CAR["CompatAgentRuntime"]
+        DAH["DirectAgentHost"]
+        DBH["DebugAgentHost"]
+    end
+
+    subgraph "pi-mono (external)"
+        PAC["pi-agent-core<br/>AgentSession, Tools, State"]
+        PAI["pi-ai<br/>OpenAI, Anthropic, Google APIs"]
+        PTUI["pi-tui<br/>Component, Terminal"]
+    end
+
+    subgraph "Durable Storage (src/durable/)"
+        ACS["ArtifactCatalogService"]
+        MSS["MemoryStoreService"]
+        LCS["LogCatalogService"]
+        WIS["WorkbenchInventoryService"]
+    end
+
+    UserInput --> AC
+    AC <--> AS
+    AC --> CAH
+    CAH --> RC
+    RC --> CAR
+    CAR --> DAH
+    DAH --> DBH
+    DBH --> PAC
+    PAC <--> PAI
+    AC --> ShellView
+    ShellView --> PTUI
+    Overlays --> PTUI
+    AC --> AE
+    AE --> Theme
+    ACS --> ACS
+    MSS --> WIS
+    LCS --> WIS
+    WIS --> AC
+```
+
+### pi-mono Extensions
+
+VibeAgent extends pi-mono in four key ways:
+
+#### FORKED - Major Custom Implementations
+
+| Component | File | Description |
+|-----------|------|-------------|
+| `RuntimeCoordinator` | [`src/runtime/runtime-coordinator.ts`](src/runtime/runtime-coordinator.ts) | Multi-runtime management system allowing concurrent coding, worker, and tool runtimes |
+| `DirectAgentHost` | [`src/direct-agent-host.ts`](src/direct-agent-host.ts) | Custom agent host with command discovery, model cycling, and scoped model support |
+| `AgentHost` interface | [`src/agent-host.ts`](src/agent-host.ts) | Extended state properties (sessionName, autoCompactionEnabled, pendingMessageCount) |
+| Durable Storage | [`src/durable/`](src/durable/) | Entire durable storage catalog system (artifacts, memory, logs) |
+| `VibeAgentApp` | [`src/app.ts`](src/app.ts) | Main application orchestrating all components |
+
+#### WRAPPED - Decorator Pattern
+
+| Component | File | Description |
+|-----------|------|-------------|
+| `CoordinatedAgentHost` | [`src/runtime/coordinated-agent-host.ts`](src/runtime/coordinated-agent-host.ts) | Delegates all `AgentHost` operations to the active runtime in the coordinator |
+| `DebugAgentHost` | [`src/debug-agent-host.ts`](src/debug-agent-host.ts) | Timing and logging decorator wrapping any `AgentHost` |
+
+#### SHIMMED - Interface Adapters
+
+| Component | File | Description |
+|-----------|------|-------------|
+| `CompatAgentRuntime` | [`src/runtime/compat-agent-runtime.ts`](src/runtime/compat-agent-runtime.ts) | Adapts any `AgentHost` to `AgentRuntime` by adding the `descriptor` property |
+| `AgentHost` types | [`src/agent-host.ts`](src/agent-host.ts) | Local interface shim extending pi-mono's `AgentHost` with VibeAgent-specific state |
+
+#### BRIDGED - External Dependencies
+
+| Component | File | Description |
+|-----------|------|-------------|
+| pi-mono packages | [`package.json`](package.json) | Imports `@mariozechner/pi-agent-core`, `@mariozechner/pi-ai`, `@mariozechner/pi-tui` as external dependencies |
+| `local-coding-agent` | [`src/local-coding-agent.ts`](src/local-coding-agent.ts) | Bridges pi-agent-core exports for local use |
+
+---
+
+### Runtime Coordinator System
+
+```mermaid
+graph LR
+    subgraph "RuntimeCoordinator"
+        RC["RuntimeCoordinator"]
+        RC --> |"setActiveRuntime"| RA["Runtime A (Coding)"]
+        RC --> |"setActiveRuntime"| RB["Runtime B (Worker)"]
+        RC --> |"setActiveRuntime"| RC2["Runtime C (Tool)"]
+    end
+
+    subgraph "CoordinatedAgentHost"
+        CAH["CoordinatedAgentHost"]
+    end
+
+    subgraph "CompatAgentRuntime"
+        CAR_A["CompatAgentRuntime"]
+        CAR_B["CompatAgentRuntime"]
+        CAR_C["CompatAgentRuntime"]
+    end
+
+    subgraph "AgentHosts"
+        DAH["DirectAgentHost"]
+        DBH["DebugAgentHost"]
+    end
+
+    CAH --> RC
+    CAR_A --> DAH
+    CAR_B --> DAH
+    CAR_C --> DAH
+    DAH --> DBH
+    DBH --> |"pi-agent-core"| Session["AgentSession"]
+```
+
+The `RuntimeCoordinator` ([`src/runtime/runtime-coordinator.ts`](src/runtime/runtime-coordinator.ts)) manages multiple `AgentRuntime` instances:
+
+- **start()**: Initializes all runtimes (not just the active one)
+- **stop()**: Shuts down all runtimes in reverse order
+- **setActiveRuntime(id)**: Switches the active runtime for user interactions
+- **getActiveRuntime()**: Returns the currently active runtime
+
+Each runtime is wrapped in a `CompatAgentRuntime` ([`src/runtime/compat-agent-runtime.ts`](src/runtime/compat-agent-runtime.ts)) which adds a `RuntimeDescriptor` with:
+
+- `id`: Unique identifier
+- `kind`: "coding" | "worker" | "tool"
+- `displayName`: Human-readable name
+- `capabilities`: Array of capability strings
+- `primary`: Boolean indicating primary runtime
+
+---
+
+### Data Flow Pipeline
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Editor as EditorController
+    participant Command as CommandController
+    participant Host as CoordinatedAgentHost
+    participant RC as RuntimeCoordinator
+    participant DAH as DirectAgentHost
+    participant PAC as pi-agent-core
+
+    User->>Editor: Type prompt
+    Editor->>Command: Submit
+    Command->>Host: sendPrompt(prompt)
+    Host->>RC: getActiveRuntime()
+    RC->>DAH: sendPrompt(prompt)
+    DAH->>PAC: AgentSession.send()
+
+    PAC-->>DAH: Streaming response
+    DAH-->>Host: Stream
+    Host-->>Command: Stream
+    Command-->>Editor: Render message
+    Editor-->>Shell: Update viewport
+    Shell-->>User: Display
+```
+
+**Pipeline Stages:**
+
+1. **Input** ([`src/editor-controller.ts`](src/editor-controller.ts)): User types in the terminal editor, handles keybindings, history, and file references (`@` mention)
+2. **Command Routing** ([`src/command-controller.ts`](src/command-controller.ts)): Slash commands (`/new`, `/resume`, `/model`) are intercepted and processed
+3. **Runtime Delegation**: `CoordinatedAgentHost` delegates to `RuntimeCoordinator.getActiveRuntime()`
+4. **Agent Execution** ([`src/direct-agent-host.ts`](src/direct-agent-host.ts)): `DirectAgentHost` wraps pi-mono's `AgentSession` and adds command discovery
+5. **Message Sync** ([`src/app/app-message-sync-service.ts`](src/app/app-message-sync-service.ts)): Syncs messages between host and shell view
+6. **Rendering** ([`src/message-renderer.ts`](src/message-renderer.ts)): Transforms `AgentMessage[]` to TUI components
+7. **State Update** ([`src/app-state-store.ts`](src/app-state-store.ts)): Central reactive state triggers UI refreshes
+
+---
+
+### Durable Storage Layer
+
+```mermaid
+graph TB
+    subgraph "Durable Storage (src/durable/)"
+        subgraph "Catalogs"
+            ACS["ArtifactCatalogService"]
+            MSS["MemoryStoreService"]
+            LCS["LogCatalogService"]
+        end
+
+        subgraph "Services"
+            AE["ArtifactExtractor"]
+            WIS["WorkbenchInventoryService"]
+        end
+
+        subgraph "Models"
+            ARM["ArtifactRecord"]
+            MRM["MemoryStoreRecord"]
+            LRM["LogRecord"]
+            DRM["DurableRecordMetadata"]
+        end
+    end
+
+    AE --> ACS
+    ACS --> ARM
+    MSS --> MRM
+    LCS --> LRM
+    ARM --> DRM
+    MRM --> DRM
+    LRM --> DRM
+    ACS --> WIS
+    MSS --> WIS
+    LCS --> WIS
+```
+
+The durable storage layer ([`src/durable/`](src/durable/)) provides persistent record tracking beyond pi-mono's session storage:
+
+| Service | File | Description |
+|---------|------|-------------|
+| `ArtifactCatalogService` | [`src/durable/artifacts/artifact-catalog-service.ts`](src/durable/artifacts/artifact-catalog-service.ts) | Tracks files created/modified by the agent |
+| `ArtifactExtractor` | [`src/durable/artifacts/artifact-extractor.ts`](src/durable/artifacts/artifact-extractor.ts) | Parses `AgentMessage[]` to extract artifact records |
+| `MemoryStoreService` | [`src/durable/memory/memory-store-service.ts`](src/durable/memory/memory-store-service.ts) | Tracks memory store manifests |
+| `LogCatalogService` | [`src/durable/logs/log-catalog-service.ts`](src/durable/logs/log-catalog-service.ts) | Manages log records |
+| `WorkbenchInventoryService` | [`src/durable/workbench-inventory-service.ts`](src/durable/workbench-inventory-service.ts) | Unified facade over all catalogs |
+
+All durable records share common metadata defined in [`src/durable/record-metadata.ts`](src/durable/record-metadata.ts):
+
+```typescript
+interface DurableRecordMetadata {
+    id: string;
+    kind: string;
+    ownerRuntimeId: string;
+    sessionId?: string;
+    sourcePath?: string;
+    createdAt: string;
+    updatedAt: string;
+    status: DurableRecordStatus;
+    tags: string[];
+}
+```
+
+---
+
+### UI Architecture
+
+#### Shell Layout
+
+```mermaid
+graph TB
+    subgraph "ShellView (src/shell-view.ts)"
+        subgraph "Chrome"
+            Header["Header<br/>(session, git branch)"]
+            MenuBar["MenuBar<br/>(F1, F2 hints)"]
+            SepTop["Separator (animated)"]
+        end
+
+        subgraph "Content"
+            SBC["SideBySideContainer"]
+            SBC --> Transcript["TranscriptViewport"]
+            SBC --> Sessions["SessionsPanel (toggleable)"]
+        end
+
+        subgraph "Widgets"
+            WidgetsAbove["Widget Container (above editor)"]
+            Editor["Editor (CustomEditor)"]
+            WidgetsBelow["Widget Container (below editor)"]
+        end
+
+        subgraph "Footer"
+            Footer["Footer (status, providers, model)"]
+            Thinking["ThinkingTray"]
+        end
+    end
+
+    Header --> SepTop
+    SepTop --> SBC
+    SBC --> WidgetsAbove
+    WidgetsAbove --> Editor
+    Editor --> WidgetsBelow
+    WidgetsBelow --> Footer
+    Footer --> Thinking
+```
+
+The shell view ([`src/shell-view.ts`](src/shell-view.ts)) manages the complete TUI layout:
+
+- **Chrome**: Box-rendered borders with session info, animated separators, menu hints
+- **Content Area**: `SideBySideContainer` with transcript and optional sessions panel
+- **Editor**: Multi-line `CustomEditor` from pi-tui with border color indicating thinking level
+- **Footer**: Status line, provider/model info, thinking level, session badge
+- **Thinking Tray**: Expandable panel showing AI thinking with markdown rendering
+
+#### Overlay System
+
+Overlays ([`src/overlay-controller.ts`](src/overlay-controller.ts)) are modal components that stack on top of the shell:
+
+| Overlay | File | Purpose |
+|---------|------|---------|
+| `FilterSelectOverlay` | [`src/components/filter-select-overlay.ts`](src/components/filter-select-overlay.ts) | Searchable list with keyboard/mouse selection |
+| `TextPromptOverlay` | [`src/components/text-prompt-overlay.ts`](src/components/text-prompt-overlay.ts) | Simple text input |
+| `EditorOverlay` | [`src/components/editor-overlay.ts`](src/components/editor-overlay.ts) | Full editor in modal |
+| `ShellMenuOverlay` | [`src/components/shell-menu-overlay.ts`](src/components/shell-menu-overlay.ts) | Nested shell-style menu |
+| `HelpOverlay` | [`src/components/help-overlay.ts`](src/components/help-overlay.ts) | Keybinding reference |
+| `SessionStatsOverlay` | [`src/components/session-stats-overlay.ts`](src/components/session-stats-overlay.ts) | Token and session statistics |
+| `ArtifactViewer` | [`src/components/artifact-viewer.ts`](src/components/artifact-viewer.ts) | File browser for artifacts |
+
+**Overlay Stack Management:**
+
+[`src/overlay-controller.ts`](src/overlay-controller.ts:40-50):
+```typescript
+interface OverlayRecord {
+    id: string;
+    component: Component;
+    options: OverlayOptions;
+    hide: () => void;
+}
+```
+
+Layout resolution ([`src/overlay-layout.ts`](src/overlay-layout.ts)) calculates position based on:
+- `anchor`: "center", "top-left", "bottom-right", etc.
+- `margin`: Can be number or `{top, bottom, left, right}`
+- `width`/`maxHeight`: Absolute or percentage strings
+
+#### Theme System
+
+```mermaid
+graph LR
+    subgraph "Themes (src/themes/)"
+        TD["default.ts<br/>(hue 190-220)"]
+        TA["amber.ts<br/>(hue 30-55)"]
+        TC["cyberpunk.ts<br/>(hue 280-360)"]
+        TM["matrix.ts<br/>(green)"]
+        TS["synthwave.ts<br/>(retro)"]
+    end
+
+    subgraph "Dynamic Calculation"
+        AS["AnimationState"]
+        BC["Breath Color<br/>lerpColor()"]
+        HC["Hue Cycle<br/>(hueOffset)"]
+    end
+
+    TD --> AS
+    TA --> AS
+    TC --> AS
+    TM --> AS
+    TS --> AS
+
+    AS --> BC
+    AS --> HC
+    BC --> Dynamic["DynamicTheme"]
+    HC --> Dynamic
+```
+
+Themes ([`src/themes/`](src/themes/)) define visual aesthetics with breath color interpolation:
+
+```typescript
+interface ThemeConfig {
+    breathBaseColor: string;   // "#254560" (dark)
+    breathPeakColor: string;    // "#60d2ff" (bright)
+    hueRange: [number, number];
+    hueSaturation: number;
+    hueLightness: number;
+}
+```
+
+Dynamic colors are computed from `AnimationState` ([`src/animation-engine.ts`](src/animation-engine.ts)):
+
+- `breathPhase`: Sine wave (0→1→0) interpolating between base and peak colors
+- `hueOffset`: Slowly cycles 0-359 for animated border colors
+
+#### Animation System
+
+The animation engine ([`src/animation-engine.ts`](src/animation-engine.ts)) runs at 80ms tick intervals, updating:
+
+| Property | Update | Purpose |
+|----------|--------|---------|
+| `tickCount` | Every tick | Global counter |
+| `hueOffset` | +2 (streaming) / +0.8 | Cycles through hues |
+| `spinnerFrame` | +1 mod 8 | Braille spinner animation |
+| `breathPhase` | `sin(tickCount/50 * 2π)` | Breathing effect |
+| `glitchActive` | Every 75 ticks | Brief glitch effect |
+| `separatorOffset` | +1 every 8 ticks | Crawling separator |
+| `wipeTransition` | 0→3→0 | Session switch animation |
+| `focusFlashTicks` | Decrement | Focus change flash |
+
+**Animation Presets (20 effects):**
+
+Located in [`src/components/anim_*.ts`](src/components/):
+
+| Animation | File | Visual |
+|-----------|------|--------|
+| Boids | [`anim_boids.ts`](src/components/anim_boids.ts) | Flocking simulation |
+| Data Rain | [`anim_datarain.ts`](src/components/anim_datarain.ts) | Matrix-style glyph rain |
+| Doom Fire | [`anim_doomfire.ts`](src/components/anim_doomfire.ts) | Classic Doom fire |
+| Flow Field | [`anim_flowfield.ts`](src/components/anim_flowfield.ts) | Noise-driven particles |
+| Game of Life | [`anim_gameoflife.ts`](src/components/anim_gameoflife.ts) | Cellular automaton |
+| Glyph Cascade | [`anim_glyphcascade.ts`](src/components/anim_glyphcascade.ts) | Oscillating glyph rows |
+| Laser Scan | [`anim_laserscan.ts`](src/components/anim_laserscan.ts) | Scanning beam |
+| Lissajous | [`anim_lissajous.ts`](src/components/anim_lissajous.ts) | Parametric curves |
+| Matrix Rain | [`anim_matrixrain.ts`](src/components/anim_matrixrain.ts) | Katakana column rain |
+| Noise Field | [`anim_noisefield.ts`](src/components/anim_noisefield.ts) | FBM noise pattern |
+| Orbit Arc | [`anim_orbitarc.ts`](src/components/anim_orbitarc.ts) | Spinner with trails |
+| Plasma | [`anim_plasma.ts`](src/components/anim_plasma.ts) | Wave interference |
+| Pulse Meter | [`anim_pulsemeter.ts`](src/components/anim_pulsemeter.ts) | Progress bars |
+| Spectrum Bars | [`anim_spectrumbars.ts`](src/components/anim_spectrumbars.ts) | Audio visualization |
+| Starfield | [`anim_starfield.ts`](src/components/anim_starfield.ts) | 3D star field |
+| Synthgrid | [`anim_synthgrid.ts`](src/components/anim_synthgrid.ts) | Perspective grid |
+| Vortex | [`anim_vortex.ts`](src/components/anim_vortex.ts) | Spiral particles |
+| Water Ripple | [`anim_waterripple.ts`](src/components/anim_waterripple.ts) | 2D wave propagation |
+| Wave Sweep | [`anim_wavesweep.ts`](src/components/anim_wavesweep.ts) | Gaussian wave pulse |
+
+For detailed animation documentation, see [styleguide.md](styleguide.md).
 
 ---
 
 ## User Interface
 
-The interface is organized from top to bottom:
+### Shell Layout
 
-### Header
+From top to bottom:
 
-- **Title Bar**: Shows "Vibe Agent", current session name, and git branch
-- **Help Bar**: Quick keybinding hints (F1 for palette, Ctrl+L for model, etc.)
-- **Connection Status**: Provider connection indicator (● connected, ○ disconnected)
+```
+┌─ chromeHeader ──────────────────────────────────────────────────────────┐
+│  Vibe Agent  │  session:name  │  main*  │  ● connected  │  F1 │ F2   │
+├─ chromeSeparatorTop (animated crawling line) ───────────────────────────┤
+│                                                                       │
+│  ┌─ transcriptViewport ────────────────────────────────────────────┐  │
+│  │  User message                                                      │  │
+│  │  Assistant response                                                │  │
+│  │    Thinking (collapsible)                                         │  │
+│  │    Tool execution                                                  │  │
+│  └───────────────────────────────────────────────────────────────────┘  │
+│                                                                       │
+│  ┌─ sessionsPanel (toggleable) ───────────────────────────────────┐  │
+│  │  Session list                                                      │  │
+│  └───────────────────────────────────────────────────────────────────┘  │
+│                                                                       │
+├─ widgetContainerAbove ────────────────────────────────────────────────┤
+│  ┌─ editorContainer ───────────────────────────────────────────────┐  │
+│  │  Multi-line editor with thinking-level border color             │  │
+│  └───────────────────────────────────────────────────────────────────┘  │
+├─ widgetContainerBelow ─────────────────────────────────────────────────┤
+├─ footerContentContainer ───────────────────────────────────────────────┤
+│  Status: Ready  │  anthropic │ sonnet-4  │  thinking:high  │  session  │
+├─ chromeStatus ─────────────────────────────────────────────────────────┤
+│  Working message / typewriter status                                   │
+├─ chromeSummary ────────────────────────────────────────────────────────┤
+│  Providers  │  Model  │  Thinking Level  │  Message Count           │
+└─ thinkingTray (expandable) ────────────────────────────────────────────┘
+```
 
-### Messages Area
+### Overlay System
 
-- User messages with markdown rendering
-- Assistant responses with streaming text and thinking blocks
-- Tool execution cards showing arguments and results
-- Notifications and error messages
+Overlays appear centered on screen with a dark backdrop:
 
-### Editor
+- **Command Palette** (`F1`): Filterable command list
+- **Model Selector** (`Ctrl+L`): Switch between models
+- **Thinking Level** (`Shift+Tab`): Adjust reasoning budget
+- **Session Browser** (`/resume`): Resume previous sessions
+- **Help** (`/help`): Keybinding reference
+- **Stats** (`/stats`): Token usage and statistics
+- **Artifacts** (`/artifacts`): Browse created files
 
-- Multi-line text editor at the bottom of the screen
-- Border color indicates current thinking level
-- File references via `@` symbol
-- Path completion with Tab
+### Mouse Handling
 
-### Footer
+Mouse support is enabled via XTerm SGR protocol ([`src/mouse-enabled-terminal.ts`](src/mouse-enabled-terminal.ts)):
 
-- **Status Line**: Current working message or status
-- **Powerline**: Provider | model | thinking:level | session | status indicator
-- **Artifacts Badge**: Shows count of generated artifacts
+- **Click**: Select items, activate buttons
+- **Scroll**: Navigate transcript, overlays
+- **Drag**: Select text in editor
 
-### Overlays
-
-- Command palette for quick access to commands
-- Model selector for switching AI models
-- Session stats and artifact viewer
-- Help and settings panels
+Mouse events are dispatched through [`src/input-controller.ts`](src/input-controller.ts) to either the transcript viewport or the overlay stack.
 
 ---
 
-## Commands
+## Commands & Shortcuts
+
+### Slash Commands
 
 Type `/` in the editor to trigger commands.
 
-### Session Commands
-
 | Command | Description |
 |---------|-------------|
-| `/new` | Start a new session |
+| `/new` | Start new session |
 | `/resume` | Browse and resume previous sessions |
 | `/fork` | Create new session from current branch |
-| `/tree` | Navigate session tree and switch branches |
+| `/tree` | Navigate session tree |
 | `/name <name>` | Set session display name |
-| `/compact [prompt]` | Compact context with optional custom instructions |
-| `/export [path]` | Export session to HTML file |
-| `/stats` | Show session statistics |
-| `/artifacts` | View session artifacts |
-
-### Model Commands
-
-| Command | Description |
-|---------|-------------|
+| `/compact [prompt]` | Compact context |
+| `/export [path]` | Export to HTML |
+| `/stats` | Show statistics |
+| `/artifacts` | View artifacts |
 | `/model` | Open model selector |
 | `/thinking` | Open thinking level selector |
-| `/login` | OAuth login flow |
-| `/logout` | Logout from provider |
-
-### Utility Commands
-
-| Command | Description |
-|---------|-------------|
-| `/settings` | Open settings menu |
-| `/help` | Show help overlay |
-| `/clear` | Clear chat display |
+| `/settings` | Open settings |
+| `/help` | Show help |
+| `/clear` | Clear display |
 | `/debug-dump` | Write debug snapshot |
 
----
+### Keyboard Shortcuts
 
-## Keyboard Shortcuts
-
-### Global Shortcuts
+#### Global
 
 | Key | Action |
 |-----|--------|
 | `F1` | Open command palette |
-| `Ctrl+Q` | Quit application |
+| `Ctrl+Q` | Quit |
 | `Esc` | Close overlay / abort streaming |
 | `Shift+Ctrl+D` | Write debug snapshot |
 
-### Editor Shortcuts
+#### Editor
 
 | Key | Action |
 |-----|--------|
 | `Enter` | Submit prompt |
-| `Shift+Enter` | New line in editor |
+| `Shift+Enter` | New line |
 | `Ctrl+C` | Abort streaming / clear editor |
-| `Ctrl+D` | Quit (when editor empty) |
+| `Ctrl+D` | Quit (when empty) |
 | `Ctrl+L` | Open model selector |
 | `Shift+Tab` | Cycle thinking level |
-| `Ctrl+Shift+Up/Down` | Cycle models forward/backward |
-| `Ctrl+E` | Toggle tool output expansion |
-| `Ctrl+T` | Toggle thinking visibility |
-| `Up/Down` | Navigate editor history |
-
-### Editor Features
-
-- **File References**: Type `@` to fuzzy-search project files
-- **Path Completion**: Press Tab to complete file paths
-- **Images**: Paste images with Ctrl+V (or Ctrl+Shift+V on Windows)
-- **Bash Commands**: Type `!command` to run and send output to LLM, `!!command` to run without sending
-
----
-
-## Architecture
-
-### Component Overview
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  VibeAgentApp (main.ts)                                     │
-│  ├─ ShellView (TUI shell container)                         │
-│  │   ├─ Header (chrome + custom header)                     │
-│  │   ├─ Messages Area (chat container)                      │
-│  │   ├─ Widgets (above/below editor)                        │
-│  │   ├─ Editor (CustomEditor)                              │
-│  │   └─ Footer (chrome + custom footer)                     │
-│  ├─ AgentHost (debug-agent-host.ts)                         │
-│  │   └─ Connects to AgentSession                           │
-│  ├─ Controllers                                             │
-│  │   ├─ CommandController (slash commands, selectors)      │
-│  │   ├─ EditorController (text input, keybindings)         │
-│  │   ├─ InputController (global input handling)            │
-│  │   ├─ OverlayController (modal overlays)                 │
-│  │   └─ StartupController (initialization)               │
-│  ├─ ExtensionUIHost (extension integration)              │
-│  ├─ WelcomeController (onboarding flow)                    │
-│  └─ MessageRenderer (render messages to components)      │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Data Flow
-
-1. **User Input**: EditorController handles typing and submission
-2. **Command Routing**: CommandController processes slash commands
-3. **Agent Communication**: AgentHost sends prompts to AgentSession
-4. **Message Rendering**: MessageRenderer converts messages to TUI components
-5. **UI Updates**: ShellView displays components, StateStore manages state
-6. **Event Loop**: InputController handles global shortcuts and mouse events
-
-### Key Components
-
-#### ShellView
-
-The main container managing the TUI layout with:
-- Chrome header and footer with status information
-- Message chat container for conversation display
-- Editor container for user input
-- Widget containers for extension UI
-- Focus management and rendering
-
-#### AgentHost Interface
-
-Abstracts agent communication with methods for:
-- Starting/stopping sessions
-- Sending prompts with streaming behavior
-- Managing models, thinking levels, and OAuth
-- Session lifecycle (new, resume, fork, tree navigation)
-- Statistics and export
-
-#### Controllers
-
-Each controller manages a specific concern:
-- **CommandController**: Slash command handling, selector overlays
-- **EditorController**: Text editor management, history, keybindings
-- **InputController**: Global input routing, mouse events
-- **OverlayController**: Modal management (show/hide/focus)
-- **StartupController**: Initialization sequence, extension loading
-
-#### State Management
-
-**AppStateStore**: Central reactive state for:
-- Status and working messages
-- Thinking visibility and tool expansion
-- Overlay tracking
-- Artifacts collection
-- Focus labels
-
-State changes trigger UI refreshes via subscribers.
-
-#### Message Rendering
-
-**MessageRenderer**: Transforms agent messages into TUI components:
-- UserMessageComponent for user messages
-- AssistantMessageComponent for AI responses
-- ToolExecutionComponent for tool calls/results
-- Artifact extraction for the artifact panel
-
----
-
-## Development Guide
-
-### Project Structure
-
-```
-vibe-agent/
-├── src/
-│   ├── main.ts                    # Entry point
-│   ├── app.ts                     # Main application class
-│   ├── types.ts                   # TypeScript types
-│   ├── theme.ts                   # Color theme and styling
-│   ├── ansi.ts                    # ANSI styling utilities
-│   ├── mouse.ts                   # Mouse event handling
-│   ├── agent-host.ts              # Agent host interface
-│   ├── app-debugger.ts            # Debug snapshot system
-│   ├── app-config.ts              # Configuration management
-│   ├── app-state-store.ts         # Reactive state management
-│   ├── shell-view.ts              # TUI shell container
-│   ├── command-controller.ts      # Command handling
-│   ├── editor-controller.ts       # Text editor management
-│   ├── input-controller.ts        # Global input handling
-│   ├── overlay-controller.ts      # Overlay management
-│   ├── overlay-layout.ts          # Overlay positioning
-│   ├── extension-ui-host.ts       # Extension integration
-│   ├── startup-controller.ts      # Initialization
-│   ├── welcome-controller.ts      # Onboarding
-│   ├── message-renderer.ts        # Message rendering
-│   ├── footer-data-provider.ts    # Footer data
-│   ├── mouse-enabled-terminal.ts  # Terminal wrapper
-│   ├── index.ts                   # Public exports
-│   └── components/                # Overlay components
-│       ├── artifact-viewer.ts
-│       ├── editor-overlay.ts
-│       ├── filter-select-overlay.ts
-│       ├── help-overlay.ts
-│       ├── session-stats-overlay.ts
-│       └── text-prompt-overlay.ts
-├── test/
-│   └── app.test.ts                # Test suite
-├── coding-agent/                  # Underlying agent package
-│   └── Vendored source consumed through src/local-coding-agent.ts
-├── tui-shell/                     # Vendored upstream shell reference (not built from root)
-├── package.json
-├── package-lock.json
-└── tsconfig.json
-```
-
-### Supported Build Flow
-
-Run all development commands from the repository root:
-
-```bash
-npm install
-npm run build
-npm test
-```
-
-This fork compiles vendored `coding-agent` code only when it is imported through `src/local-coding-agent.ts`.
-Do not treat `coding-agent/` or `tui-shell/` as independently supported packages in this repository.
-
-### Adding New Features
-
-#### Adding a Slash Command
-
-Edit `src/command-controller.ts`:
-
-```typescript
-async handleSlashCommand(text: string): Promise<boolean> {
-    if (text.startsWith("/mycommand")) {
-        // Your command logic
-        this.stateStore.setStatusMessage("Command executed!");
-        return true;
-    }
-    return false;
-}
-```
-
-#### Adding a Keyboard Shortcut
-
-Edit `src/editor-controller.ts` in `configureEditor`:
-
-```typescript
-editor.onAction("myAction", () => {
-    // Your action logic
-});
-```
-
-Or add to `src/input-controller.ts` for global shortcuts:
-
-```typescript
-if (matchesKey(nextData, "ctrl+x")) {
-    // Handle shortcut
-    return { consume: true };
-}
-```
-
-#### Creating a Custom Overlay
-
-Create a new file in `src/components/`:
-
-```typescript
-import { matchesKey, type Focusable } from "@mariozechner/pi-tui";
-import type { MouseAwareOverlay } from "../types.js";
-
-export class MyOverlay implements MouseAwareOverlay, Focusable {
-    private _focused = false;
-    
-    constructor(private readonly onClose: () => void) {}
-    
-    get focused(): boolean { return this._focused; }
-    set focused(value: boolean) { this._focused = value; }
-    
-    render(width: number): string[] {
-        // Return array of rendered lines
-        return ["My overlay content"];
-    }
-    
-    handleInput(data: string): void {
-        if (matchesKey(data, "escape")) {
-            this.onClose();
-        }
-    }
-    
-    handleMouse(event: MouseEvent, rect: Rect): boolean {
-        // Handle mouse events
-        return true;
-    }
-}
-```
-
-Register in `src/command-controller.ts`:
-
-```typescript
-openMyOverlay(): void {
-    this.overlayController.showCustomOverlay(
-        "my-overlay",
-        new MyOverlay(() => this.overlayController.closeOverlay("my-overlay")),
-        { width: 72, maxHeight: "80%", anchor: "center", margin: 1 }
-    );
-}
-```
-
-#### Adding to the Extension UI Host
-
-Edit `src/extension-ui-host.ts`:
-
-```typescript
-createContext(): ExtensionUIContext {
-    return {
-        // ... existing context
-        myNewMethod: () => {
-            // Implementation
-        }
-    };
-}
-```
-
-### Testing
-
-Run the test suite:
-
-```bash
-npm test
-```
-
-Tests use a VirtualTerminal to simulate TUI interactions without requiring an actual terminal.
-
-### Debugging
-
-Enable debug snapshots:
-
-```bash
-PI_MONO_APP_DEBUG_BUNDLE=./debug npm run dev
-```
-
-This creates snapshot bundles in the debug directory with:
-- Terminal state
-- Message history
-- Host state
-- Editor content
-
-Press `Shift+Ctrl+D` to write a manual snapshot.
+| `Ctrl+Shift+Up/Down` | Cycle models |
+| `Ctrl+E` | Toggle tool output |
+| `Ctrl+T` | Toggle thinking |
+| `Up/Down` | Navigate history |
+| `@` | Fuzzy file search |
+| `Tab` | Path completion |
+| `!command` | Run and send output |
+| `!!command` | Run without sending |
 
 ---
 
@@ -506,7 +651,9 @@ Located at `~/.pi/agent/vibe-agent-config.json`:
 ```json
 {
     "setupComplete": true,
-    "selectedProvider": "google-antigravity"
+    "selectedProvider": "google-antigravity",
+    "selectedTheme": "default",
+    "showThinking": true
 }
 ```
 
@@ -519,62 +666,42 @@ Located at `~/.pi/agent/vibe-agent-config.json`:
 | `GOOGLE_API_KEY` | Google AI API key |
 | `PI_MONO_APP_DEBUG_BUNDLE` | Debug bundle output directory |
 
----
+### Theme Selection
 
-## Troubleshooting
+Themes are configured via `selectedTheme` in the config file or the `/settings` command:
 
-### Terminal Display Issues
-
-**Problem**: Garbled output or wrong colors
-
-**Solution**: Ensure your terminal supports:
-- Unicode characters
-- 256 colors
-- Bracketed paste mode
-
-**Problem**: Mouse not working
-
-**Solution**: The app enables mouse support automatically. Some terminals may need:
-- iTerm2: Enable "Report mouse clicks"
-- tmux: `set -g mouse on`
-
-### OAuth Issues
-
-**Problem**: Login flow fails
-
-**Solutions**:
-1. Check browser popup permissions
-2. Try manual code entry if callback fails
-3. Use API keys instead: `export ANTHROPIC_API_KEY=...`
-
-### Extension Loading
-
-**Problem**: Extensions not loading
-
-**Check**:
-1. Extension file path is correct
-2. TypeScript compiles without errors
-3. Extension exports a default function
-4. Check debug logs for loading errors
-
-### Performance
-
-**Problem**: Slow rendering
-
-**Solutions**:
-1. Reduce terminal size
-2. Clear artifacts with `/clear`
-3. Compact session with `/compact`
-4. Check `PI_MONO_APP_DEBUG_BUNDLE` is not set in production
+| Theme | Hue Range | Aesthetic |
+|-------|-----------|-----------|
+| `default` | 190-220 (blue) | Clean, professional |
+| `amber` | 30-55 (amber) | Retro terminal |
+| `cyberpunk` | 280-360 (magenta) | Neon glow |
+| `matrix` | Green palette | Classic matrix |
+| `synthwave` | Retro colors | 80s aesthetic |
 
 ---
 
-## License
+## Related Documentation
 
-MIT
+### [styleguide.md](styleguide.md) — LIVING DOCUMENT
 
-## See Also
+The [styleguide.md](styleguide.md) is a **LIVING DOCUMENT** covering UI and animation implementation details:
 
-- [@mariozechner/pi-coding-agent](https://www.npmjs.com/package/@mariozechner/pi-coding-agent): Underlying agent framework
-- [@mariozechner/pi-tui](https://www.npmjs.com/package/@mariozechner/pi-tui): Terminal UI components
-- [@mariozechner/pi-ai](https://www.npmjs.com/package/@mariozechner/pi-ai): LLM toolkit
+- **Animation System**: AnimationEngine tick behavior, AnimationState properties
+- **Animation Presets**: All 20 animation effects with options and use cases
+- **Styling Conventions**: Box drawing, separators, color interpolation
+- **Component Patterns**: Component interface, viewport pattern, overlay pattern
+- **Creating New Animations**: Templates and guidelines
+
+Refer to styleguide.md for detailed animation development documentation.
+
+---
+
+## Changelog
+
+| Date | Version | Changes |
+|------|---------|---------|
+| 2026-03-21 | 1.0.0 | Initial comprehensive README rewrite with architecture diagrams, pi-mono extension documentation, runtime coordinator system, durable storage layer, and UI architecture |
+
+---
+
+# Agent Notes: You must ALWAYS update the README.md [changelog] area with whatever changes you make to this repo
