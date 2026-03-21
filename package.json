@@ -10,9 +10,11 @@
 		"build": "tsc --noEmit -p tsconfig.json",
 		"dev": "node ./bin/vibe-agent.js",
 		"dev:debug": "node ./bin/vibe-agent-debug.js",
+		"dev:styletest": "node --import tsx ./tools/TUIstyletest/main.ts",
 		"start": "node ./bin/vibe-agent.js",
 		"check": "tsc --noEmit -p tsconfig.json && npm run test",
 		"test": "node --import tsx ./test/app.test.ts",
+		"test:styletest": "node --import tsx ./test/style-lab.test.ts",
 		"test:real-thinking": "node --import tsx ./test/real-thinking.integration.ts"
 	},
 	"dependencies": {
