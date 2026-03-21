@@ -8,3 +8,4 @@ coverage/
 .gemini/
 .worktrees/
 .debug/
+nul
