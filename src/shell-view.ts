@@ -428,6 +428,8 @@ export class DefaultShellView implements ShellView {
 
 			const sessionName = hostState?.sessionName ?? cwdLabel();
 			const threadName = this.footerData.getGitBranch() ?? "main";
+			const activeConversationLabel = state.activeConversationLabel;
+			const runtimeName = state.activeRuntimeName;
 			const msgs = this.getMessages();
 			const contextWindow = hostState?.model?.contextWindow ?? 200000;
 			const ctxPct = msgs.length > 0
@@ -436,6 +438,8 @@ export class DefaultShellView implements ShellView {
 			const ctxColor = ctxPct >= 70 ? agentTheme.warning : agentTheme.success;
 			const infoBar = [
 				`${agentTheme.info("Session:")} ${agentTheme.success(sessionName)}`,
+				`${agentTheme.info("Mode:")} ${state.activeRuntimeId === "orc" ? agentTheme.warning(runtimeName) : agentTheme.success(runtimeName)}`,
+				`${agentTheme.info("Chat:")} ${state.activeRuntimeId === "orc" ? agentTheme.warning(activeConversationLabel) : agentTheme.accent(activeConversationLabel)}`,
 				`${agentTheme.info("Thread:")} ${agentTheme.accent(threadName)}`,
 				`${agentTheme.info("CTX:")} ${ctxColor(`${ctxPct}%`)} ${ctxColor(ctxBar(ctxPct))}`,
 			].join(agentTheme.segmentSep());
@@ -530,6 +534,11 @@ export class DefaultShellView implements ShellView {
 		// ╚══ providers:N │ ⬡ provider │ model │ thinking ════════════════════ ● idle ══╝
 		const segments: string[] = [];
 		segments.push(agentTheme.chromeMeta(`providers:${providerCount}`));
+		segments.push(
+			state.activeRuntimeId === "orc"
+				? agentTheme.warning(`mode:${this.footerData.getSessionMode()}`)
+				: agentTheme.chromeMeta(`mode:${this.footerData.getSessionMode()}`),
+		);
 		if (provider) {
 			segments.push(agentTheme.providerSegment(`⬡ ${provider}`));
 		}

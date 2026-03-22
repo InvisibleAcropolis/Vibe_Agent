@@ -94,6 +94,16 @@ class FakeAgentHost implements AgentHost {
 
 	async setModel(): Promise<void> {}
 
+	listRuntimes(): RuntimeDescriptor[] {
+		return [{ id: "coding", kind: "coding", displayName: "Coding Runtime", capabilities: [], primary: true }];
+	}
+
+	getActiveRuntimeDescriptor(): RuntimeDescriptor {
+		return this.listRuntimes()[0]!;
+	}
+
+	async switchRuntime(): Promise<void> {}
+
 	async getCommands(): Promise<HostCommand[]> {
 		return [];
 	}
@@ -188,6 +198,16 @@ class StubRuntime implements AgentRuntime {
 	}
 
 	async setModel(): Promise<void> {}
+
+	listRuntimes(): RuntimeDescriptor[] {
+		return [{ id: "coding", kind: "coding", displayName: "Coding Runtime", capabilities: [], primary: true }];
+	}
+
+	getActiveRuntimeDescriptor(): RuntimeDescriptor {
+		return this.listRuntimes()[0]!;
+	}
+
+	async switchRuntime(): Promise<void> {}
 
 	async getCommands(): Promise<HostCommand[]> {
 		return [];
@@ -367,6 +387,7 @@ test("VibeAgentApp boots with a coding runtime and catalogs artifacts", async ()
 		terminal,
 		host,
 		configPath: path.join(tempRoot, "single-runtime-config.json"),
+		getEnvApiKey: (providerId) => (providerId === "openai" ? "test-key" : undefined),
 	});
 
 	app.start();
@@ -410,6 +431,7 @@ test("VibeAgentApp starts registered coding, worker, and tool runtimes", async (
 		terminal,
 		runtimes: [codingRuntime, workerRuntime, toolRuntime],
 		configPath: path.join(tempRoot, "multi-runtime-config.json"),
+		getEnvApiKey: (providerId) => (providerId === "openai" ? "test-key" : undefined),
 	});
 
 	app.start();
