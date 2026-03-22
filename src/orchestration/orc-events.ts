@@ -351,7 +351,7 @@ export function isComputerFacingOrcEvent(event: OrcBusEvent): boolean {
 	return event.interaction.isComputerFacing;
 }
 
-export function normalizeOrcTransportEnvelope<TRawPayload = Record<string, unknown>>(
+export function normalizeOrcTransportEnvelope<TRawPayload extends Record<string, unknown> = Record<string, unknown>>(
 	envelope: OrcCanonicalEventEnvelope<TRawPayload>,
 	options: OrcNormalizeEventOptions<TRawPayload> = {},
 ): OrcBusEvent<TRawPayload> {
@@ -404,7 +404,7 @@ export function normalizeOrcTransportEnvelope<TRawPayload = Record<string, unkno
 					content: readString(envelope, ["content", "message", "text"], envelope.what.description ?? envelope.what.name),
 					role: readStringUnion(envelope, ["role"], ["assistant", "system", "tool", "user"]),
 					audience: readStringUnion(envelope, ["audience"], ["operator", "subagent", "tool_runtime"]),
-					workerId: readString(envelope, ["workerId"], envelope.origin.workerId),
+					workerId: readString(envelope, ["workerId"]) ?? envelope.origin.workerId ?? envelope.who.workerId,
 					agentId: readString(envelope, ["agentId"], envelope.who.id),
 					tokenCount: readNumber(envelope, ["tokenCount"]),
 					streamState: readStringUnion(envelope, ["streamState"], ["partial", "final"]),
@@ -417,7 +417,7 @@ export function normalizeOrcTransportEnvelope<TRawPayload = Record<string, unkno
 				payload: {
 					callId: readString(envelope, ["callId", "toolCallId"], envelope.how.toolCallId ?? envelope.origin.eventId),
 					toolName: readString(envelope, ["toolName"], envelope.how.toolName ?? "unknown-tool"),
-					workerId: readString(envelope, ["workerId"], envelope.origin.workerId),
+					workerId: readString(envelope, ["workerId"]) ?? envelope.origin.workerId ?? envelope.who.workerId,
 					agentId: readString(envelope, ["agentId"], envelope.who.id),
 					commandPreview: readString(envelope, ["commandPreview", "command"]),
 					arguments: readRecord(envelope, ["arguments", "args"]),
@@ -433,7 +433,7 @@ export function normalizeOrcTransportEnvelope<TRawPayload = Record<string, unkno
 					callId: readString(envelope, ["callId", "toolCallId"], envelope.how.toolCallId ?? envelope.origin.eventId),
 					toolName: readString(envelope, ["toolName"], envelope.how.toolName ?? "unknown-tool"),
 					status: readStringUnion(envelope, ["status", "resultStatus"], ["succeeded", "failed", "cancelled", "timed_out"], mapStatusToToolResult(envelope.what.status)),
-					workerId: readString(envelope, ["workerId"], envelope.origin.workerId),
+					workerId: readString(envelope, ["workerId"]) ?? envelope.origin.workerId ?? envelope.who.workerId,
 					agentId: readString(envelope, ["agentId"], envelope.who.id),
 					durationMs: readNumber(envelope, ["durationMs"]),
 					outputText: readString(envelope, ["outputText", "stdout", "resultText"]),
@@ -448,9 +448,9 @@ export function normalizeOrcTransportEnvelope<TRawPayload = Record<string, unkno
 				payload: {
 					workerId: readString(envelope, ["workerId"], envelope.origin.workerId ?? envelope.who.workerId ?? envelope.who.id),
 					status: readStringUnion(envelope, ["status", "workerStatus"], ["idle", "queued", "running", "waiting_on_input", "completed", "failed", "cancelled"], mapStatusToWorkerStatus(envelope.what.status)),
-					waveId: readString(envelope, ["waveId"], envelope.origin.waveId),
+					waveId: readString(envelope, ["waveId"]) ?? envelope.origin.waveId ?? envelope.origin.threadId,
 					taskId: readString(envelope, ["taskId"]),
-					summary: readString(envelope, ["summary", "message"], envelope.what.description),
+					summary: readString(envelope, ["summary", "message"], envelope.what.description ?? eventNameAsSummary(envelope)),
 					startedAt: readString(envelope, ["startedAt"]),
 					finishedAt: readString(envelope, ["finishedAt"]),
 				},
@@ -487,9 +487,9 @@ export function normalizeOrcTransportEnvelope<TRawPayload = Record<string, unkno
 				kind,
 				payload: {
 					status: readStringUnion(envelope, ["status", "checkpointStatus"], ["started", "captured", "restored", "failed", "stale"], mapStatusToCheckpointStatus(envelope.what.status)),
-					checkpointId: readString(envelope, ["checkpointId"], envelope.how.checkpointId),
-					threadId: readString(envelope, ["threadId"], envelope.origin.threadId),
-					waveId: readString(envelope, ["waveId"], envelope.origin.waveId),
+					checkpointId: readString(envelope, ["checkpointId"], envelope.how.checkpointId ?? envelope.origin.eventId),
+					threadId: readString(envelope, ["threadId"], envelope.origin.threadId ?? envelope.origin.runCorrelationId),
+					waveId: readString(envelope, ["waveId"]) ?? envelope.origin.waveId ?? envelope.origin.threadId,
 					storagePath: readString(envelope, ["storagePath"]),
 					artifactBundleIds: readStringArray(envelope, ["artifactBundleIds"]),
 					rewindTargetIds: readStringArray(envelope, ["rewindTargetIds"]),
@@ -596,12 +596,8 @@ function applyTransportHealth(state: OrcEventReducerState, event: OrcBusEvent): 
 		state.transportHealth.lastHeartbeatAt = event.envelope.when;
 		state.transportHealth.lastMessage = summarizeOrcEvent(event);
 		state.transportHealth.rawEvent = event;
-		if (event.kind !== "stream.warning") {
-			state.transportHealth.consecutiveWarnings = 0;
-		}
-		if (event.kind !== "transport.fault") {
-			state.transportHealth.consecutiveFaults = 0;
-		}
+		state.transportHealth.consecutiveWarnings = 0;
+		state.transportHealth.consecutiveFaults = 0;
 		return;
 	}
 	if (event.kind === "stream.warning") {
@@ -692,7 +688,7 @@ function buildNormalizationNotes(envelope: OrcCanonicalEventEnvelope): string[] 
 	return notes;
 }
 
-function readRawValue(envelope: OrcCanonicalEventEnvelope, keys: string[]): unknown {
+function readRawValue<TRawPayload>(envelope: OrcCanonicalEventEnvelope<TRawPayload>, keys: string[]): unknown {
 	const payload = envelope.rawPayload?.payload;
 	if (!payload || typeof payload !== "object") {
 		return undefined;
@@ -705,33 +701,46 @@ function readRawValue(envelope: OrcCanonicalEventEnvelope, keys: string[]): unkn
 	return undefined;
 }
 
-function readString(envelope: OrcCanonicalEventEnvelope, keys: string[], fallback?: string): string | undefined {
+function readString<TRawPayload>(envelope: OrcCanonicalEventEnvelope<TRawPayload>, keys: string[]): string | undefined;
+function readString<TRawPayload>(envelope: OrcCanonicalEventEnvelope<TRawPayload>, keys: string[], fallback: string): string;
+function readString<TRawPayload>(envelope: OrcCanonicalEventEnvelope<TRawPayload>, keys: string[], fallback?: string): string | undefined {
 	const value = readRawValue(envelope, keys);
 	return typeof value === "string" ? value : fallback;
 }
 
-function readNumber(envelope: OrcCanonicalEventEnvelope, keys: string[], fallback?: number): number | undefined {
+function readNumber<TRawPayload>(envelope: OrcCanonicalEventEnvelope<TRawPayload>, keys: string[], fallback?: number): number | undefined {
 	const value = readRawValue(envelope, keys);
 	return typeof value === "number" ? value : fallback;
 }
 
-function readBoolean(envelope: OrcCanonicalEventEnvelope, keys: string[], fallback?: boolean): boolean | undefined {
+function readBoolean<TRawPayload>(envelope: OrcCanonicalEventEnvelope<TRawPayload>, keys: string[], fallback?: boolean): boolean | undefined {
 	const value = readRawValue(envelope, keys);
 	return typeof value === "boolean" ? value : fallback;
 }
 
-function readRecord(envelope: OrcCanonicalEventEnvelope, keys: string[]): Record<string, unknown> | undefined {
+function readRecord<TRawPayload>(envelope: OrcCanonicalEventEnvelope<TRawPayload>, keys: string[]): Record<string, unknown> | undefined {
 	const value = readRawValue(envelope, keys);
 	return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 }
 
-function readStringArray(envelope: OrcCanonicalEventEnvelope, keys: string[]): string[] | undefined {
+function readStringArray<TRawPayload>(envelope: OrcCanonicalEventEnvelope<TRawPayload>, keys: string[]): string[] | undefined {
 	const value = readRawValue(envelope, keys);
 	return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : undefined;
 }
 
-function readStringUnion<T extends string>(
-	envelope: OrcCanonicalEventEnvelope,
+function readStringUnion<TRawPayload, T extends string>(
+	envelope: OrcCanonicalEventEnvelope<TRawPayload>,
+	keys: string[],
+	allowed: readonly T[],
+): T | undefined;
+function readStringUnion<TRawPayload, T extends string>(
+	envelope: OrcCanonicalEventEnvelope<TRawPayload>,
+	keys: string[],
+	allowed: readonly T[],
+	fallback: T,
+): T;
+function readStringUnion<TRawPayload, T extends string>(
+	envelope: OrcCanonicalEventEnvelope<TRawPayload>,
 	keys: string[],
 	allowed: readonly T[],
 	fallback?: T,
@@ -747,9 +756,13 @@ function readSecurityEvent(envelope: OrcCanonicalEventEnvelope): OrcSecurityEven
 		statusText,
 		detail: readString(envelope, ["detail", "message"], statusText) ?? statusText,
 		command: readString(envelope, ["command"]),
-		workerId: readString(envelope, ["workerId"], envelope.origin.workerId),
+		workerId: readString(envelope, ["workerId"]) ?? envelope.origin.workerId ?? envelope.who.workerId,
 		createdAt: readString(envelope, ["createdAt"], envelope.when) ?? envelope.when,
 	};
+}
+
+function eventNameAsSummary(envelope: Pick<OrcCanonicalEventEnvelope, "what">): string {
+	return envelope.what.description ?? envelope.what.name;
 }
 
 function mapStatusToGraphStage(status: OrcEventLifecycleStatus): OrcGraphLifecycleEvent["payload"]["stage"] {
