@@ -118,6 +118,14 @@ const ADAPTERS: Record<string, AnimationAdapter> = {
 			};
 		},
 	},
+	"src/components/anim_spectrumbars.ts#createSpectrumBars": {
+		omitOptionFields: [
+			"stereoLayout",
+			"stereoStartOffsetStep",
+			"stereoFlipHueShift",
+			"stereoFlipGlyphOrder",
+		],
+	},
 	"src/components/anim_synthgrid.ts#renderSynthgridWide": {
 		omitOptionFields: ["cols", "rows", "numVLines"],
 		fixedOptions: { cols: 48, rows: 12, numVLines: 9 },
@@ -149,9 +157,15 @@ function humanizeIdentifier(identifier: string): string {
 
 function inferNumericDefault(name: string): number {
 	const lowerName = name.toLowerCase();
+	if (/huerangestartstep/.test(lowerName)) return 135;
+	if (/huerangeendstep/.test(lowerName)) return 156;
+	if (/glyphcount/.test(lowerName)) return 128;
+	if (/stereostartoffsetstep/.test(lowerName)) return 64;
+	if (/hueshiftspeed/.test(lowerName)) return 1;
 	if (/huestep/.test(lowerName)) return 128;
 	if (/saturation/.test(lowerName)) return 1;
 	if (/lightness/.test(lowerName)) return 0.5;
+	if (/smoothing/.test(lowerName)) return 0.3;
 	if (/(cols|width)/.test(lowerName)) return 24;
 	if (/(rows|height)/.test(lowerName)) return 8;
 	if (/(count|lines|points|octaves|maxcount|numvlines)/.test(lowerName)) return 8;
@@ -164,10 +178,16 @@ function inferNumericDefault(name: string): number {
 
 function inferNumberBounds(name: string, defaultValue: number): { min: number; max: number; step: number } {
 	const lowerName = name.toLowerCase();
-	if (/huestep/.test(lowerName)) {
+	if (/(huerangestartstep|huerangeendstep|stereostartoffsetstep|glyphcount|huestep)/.test(lowerName)) {
 		return { min: 0, max: 256, step: 1 };
 	}
+	if (/hueshiftspeed/.test(lowerName)) {
+		return { min: 0, max: 8, step: 0.05 };
+	}
 	if (/(saturation|lightness)/.test(lowerName)) {
+		return { min: 0, max: 1, step: 0.01 };
+	}
+	if (/smoothing/.test(lowerName)) {
 		return { min: 0, max: 1, step: 0.01 };
 	}
 	if (/direction/.test(lowerName)) {

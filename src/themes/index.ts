@@ -55,6 +55,8 @@ export function onThemeConfigChange(cb: () => void): void {
 }
 
 export function lerpColor(from: string, to: string, t: number): string {
+	const clampByte = (value: number) => Math.max(0, Math.min(255, Math.round(value)));
+	const clampedT = Number.isFinite(t) ? Math.max(0, Math.min(1, t)) : 0;
 	const parseHex = (h: string) => {
 		const n = h.replace("#", "");
 		return [
@@ -65,9 +67,9 @@ export function lerpColor(from: string, to: string, t: number): string {
 	};
 	const [r1, g1, b1] = parseHex(from);
 	const [r2, g2, b2] = parseHex(to);
-	const r = Math.round(r1 + (r2 - r1) * t);
-	const g = Math.round(g1 + (g2 - g1) * t);
-	const b = Math.round(b1 + (b2 - b1) * t);
+	const r = clampByte(r1 + (r2 - r1) * clampedT);
+	const g = clampByte(g1 + (g2 - g1) * clampedT);
+	const b = clampByte(b1 + (b2 - b1) * clampedT);
 	const toHex = (n: number) => n.toString(16).padStart(2, "0");
 	return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }

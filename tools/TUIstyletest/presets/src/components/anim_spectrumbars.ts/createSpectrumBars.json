@@ -1,10 +1,15 @@
 {
-  "cols": 12,
-  "decay": 0.92,
-  "peakHold": true,
-  "smoothing": 0.3,
-  "speed": 1.0,
-  "peakDecay": 0.98,
-  "barGap": 0,
-  "rows": 6
+  "cols": 50,
+  "rows": 20,
+  "speed": 1.04,
+  "decay": 0.45,
+  "peakHold": false,
+  "peakDecay": 0.95,
+  "smoothing": 0.25,
+  "barGap": 1,
+  "hueRangeStartStep": 135,
+  "hueRangeEndStep": 156,
+  "hueShiftEnabled": false,
+  "hueShiftSpeed": 1,
+  "glyphCount": 128
 }

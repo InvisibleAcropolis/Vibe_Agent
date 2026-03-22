@@ -431,7 +431,11 @@ export class TUIStyleTestApp {
 	}
 
 	currentValues(): StyleTestControlValues {
-		return { ...(this.values.get(this.selectedDemoId) ?? {}) };
+		const demo = this.currentDemo();
+		return {
+			...getDefaultDemoValues(demo),
+			...(this.values.get(this.selectedDemoId) ?? {}),
+		};
 	}
 
 	private currentPresetId(): string {

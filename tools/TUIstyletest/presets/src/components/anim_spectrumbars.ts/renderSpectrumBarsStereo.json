@@ -1,10 +1,19 @@
 {
-  "cols": 6,
+  "cols": 93,
+  "rows": 22,
+  "speed": 1.02,
   "decay": 0.92,
-  "peakHold": true,
-  "smoothing": 0.3,
-  "speed": 1.0,
+  "peakHold": false,
   "peakDecay": 0.98,
+  "smoothing": 0.3,
   "barGap": 0,
-  "rows": 6
+  "hueRangeStartStep": 135,
+  "hueRangeEndStep": 156,
+  "hueShiftEnabled": false,
+  "hueShiftSpeed": 1,
+  "glyphCount": 128,
+  "stereoLayout": "overlap",
+  "stereoStartOffsetStep": 64,
+  "stereoFlipHueShift": false,
+  "stereoFlipGlyphOrder": false
 }
