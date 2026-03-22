@@ -1,6 +1,11 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { ensureParentDir, getVibeTrackerPath, type VibeDurablePathOptions } from "../durable/durable-paths.js";
 import type { OrcCheckpointStore } from "./orc-checkpoints.js";
+import {
+	createInitialCheckpointMetadataSummary,
+	createInitialReducedTransportHealth,
+	createInitialTerminalStateSummary,
+} from "./orc-events.js";
 import type { OrcControlPlaneState } from "./orc-state.js";
 
 /**
@@ -181,7 +186,7 @@ export class FileSystemOrcTracker implements OrcTracker {
 		if (!existsSync(filePath)) {
 			return undefined;
 		}
-		return JSON.parse(readFileSync(filePath, "utf8")) as OrcControlPlaneState;
+		return hydrateTrackerSnapshot(JSON.parse(readFileSync(filePath, "utf8")) as Partial<OrcControlPlaneState>);
 	}
 
 	async save(state: OrcControlPlaneState): Promise<void> {
@@ -192,11 +197,57 @@ export class FileSystemOrcTracker implements OrcTracker {
 		const filePath = this.getSnapshotPath(state.threadId, checkpointId);
 		ensureParentDir(filePath);
 		const tempPath = `${filePath}.tmp`;
-		writeFileSync(tempPath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+		const snapshot = createTrackerSnapshot(state);
+		writeFileSync(tempPath, `${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
 		renameSync(tempPath, filePath);
 	}
 
 	private getSnapshotPath(threadId: string, checkpointId: string): string {
 		return getVibeTrackerPath(`${encodeURIComponent(threadId)}--${encodeURIComponent(checkpointId)}.json`, this.options);
 	}
+}
+
+export function createTrackerSnapshot(state: OrcControlPlaneState): OrcControlPlaneState {
+	const checkpointMetadata = state.checkpointMetadata ?? createInitialCheckpointMetadataSummary();
+	const transportHealth = state.transportHealth ?? createInitialReducedTransportHealth();
+	const terminalState = state.terminalState ?? createInitialTerminalStateSummary();
+	return {
+		...state,
+		messages: state.messages.map((message) => ({ ...message, metadata: message.metadata ? { ...message.metadata } : undefined })),
+		securityEvents: state.securityEvents?.map((event) => ({ ...event })),
+		workerResults: state.workerResults.map((result) => ({
+			...result,
+			artifactIds: [...result.artifactIds],
+			logIds: [...result.logIds],
+			metadata: result.metadata ? { ...result.metadata } : undefined,
+		})),
+		verificationErrors: state.verificationErrors.map((error) => ({ ...error })),
+		activeWave: state.activeWave ? { ...state.activeWave, workerIds: [...state.activeWave.workerIds] } : undefined,
+		checkpointMetadata: {
+			...checkpointMetadata,
+			artifactBundleIds: [...checkpointMetadata.artifactBundleIds],
+			rewindTargetIds: [...checkpointMetadata.rewindTargetIds],
+		},
+		transportHealth: { ...transportHealth },
+		terminalState: { ...terminalState, ambiguityNotes: [...terminalState.ambiguityNotes] },
+	};
+}
+
+function hydrateTrackerSnapshot(snapshot: Partial<OrcControlPlaneState>): OrcControlPlaneState {
+	return {
+		threadId: snapshot.threadId ?? "unknown-thread",
+		checkpointId: snapshot.checkpointId,
+		phase: snapshot.phase ?? "idle",
+		project: snapshot.project ?? { projectId: "unknown-project", projectRoot: "" },
+		securityPolicy: snapshot.securityPolicy,
+		messages: snapshot.messages ?? [],
+		securityEvents: snapshot.securityEvents ?? [],
+		activeWave: snapshot.activeWave,
+		workerResults: snapshot.workerResults ?? [],
+		verificationErrors: snapshot.verificationErrors ?? [],
+		checkpointMetadata: snapshot.checkpointMetadata ?? createInitialCheckpointMetadataSummary(),
+		transportHealth: snapshot.transportHealth ?? createInitialReducedTransportHealth(),
+		terminalState: snapshot.terminalState ?? createInitialTerminalStateSummary(),
+		lastUpdatedAt: snapshot.lastUpdatedAt ?? new Date(0).toISOString(),
+	};
 }

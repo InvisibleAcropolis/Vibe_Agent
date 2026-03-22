@@ -16,7 +16,13 @@ import { ensureVibeDurableStorage, getVibeArtifactCatalogPath, getVibeConfigPath
 import { LocalFileOrcCheckpointStore } from "../src/orchestration/orc-checkpoints.js";
 import { OrcAsyncEventBus } from "../src/orchestration/orc-event-bus.js";
 import { attachOrcDurableEventLogWriter, getOrcEventLogLocation } from "../src/orchestration/orc-event-log.js";
-import type { OrcBusEvent } from "../src/orchestration/orc-events.js";
+import {
+	createInitialCheckpointMetadataSummary,
+	createInitialReducedTransportHealth,
+	createInitialTerminalStateSummary,
+	reduceOrcControlPlaneEvent,
+	type OrcBusEvent,
+} from "../src/orchestration/orc-events.js";
 import type { OrcCanonicalEventEnvelope } from "../src/orchestration/orc-io.js";
 import type {
 	OrcPythonTransport,
@@ -846,7 +852,7 @@ test("OrcAsyncEventBus preserves publish ordering independently per subscriber",
 		bus.publish(createBusEvent(index));
 	}
 
-	await new Promise((resolve) => setTimeout(resolve, 50));
+	await new Promise((resolve) => setTimeout(resolve, 150));
 	assert.deepStrictEqual(fast, [1, 2, 3]);
 	assert.deepStrictEqual(slow, [1, 2, 3]);
 	bus.dispose();
@@ -945,4 +951,49 @@ test("attachOrcDurableEventLogWriter keeps persistence failures non-fatal to the
 	assert.match(writer.getSnapshot().lastFailure?.message ?? "", /no such file|ENOENT/i);
 	assert.strictEqual(bus.getSnapshot().publishedEvents, 1);
 	bus.dispose();
+});
+
+
+test("reduceOrcControlPlaneEvent folds durable summary state and keeps ambiguous terminal outcomes explicit", () => {
+	const baseState: OrcControlPlaneState = {
+		threadId: "thread-reducer",
+		phase: "bootstrapping",
+		project: { projectId: "proj", projectRoot: "/tmp/project" },
+		messages: [],
+		workerResults: [],
+		verificationErrors: [],
+		checkpointMetadata: createInitialCheckpointMetadataSummary(),
+		transportHealth: createInitialReducedTransportHealth(),
+		terminalState: createInitialTerminalStateSummary(),
+		lastUpdatedAt: "2026-03-22T00:00:00.000Z",
+	};
+	const mkEvent = (event: Partial<OrcBusEvent> & Pick<OrcBusEvent, "kind" | "payload">, id: string, when: string): OrcBusEvent => ({
+		kind: event.kind,
+		payload: event.payload as any,
+		envelope: {
+			origin: { eventId: id, emittedAt: when, threadId: "thread-reducer", runCorrelationId: "run-1", workerId: "worker-1", waveId: "wave-1" },
+			who: { id: "agent-1", kind: "agent", label: "Worker 1", workerId: "worker-1" },
+			what: { category: "lifecycle", name: id, status: "started", severity: "notice", description: id },
+			how: { channel: "stdout", interactionTarget: "user" },
+			when,
+		} as OrcCanonicalEventEnvelope,
+		interaction: { target: "user", lane: "agent_interacting_with_user", isUserFacing: true, isComputerFacing: false },
+		debug: { normalizedFrom: "test" },
+	});
+	let state = reduceOrcControlPlaneEvent(baseState, mkEvent({ kind: "worker.status", payload: { workerId: "worker-1", waveId: "wave-1", status: "queued", summary: "Queue worker" } }, "worker-queued", "2026-03-22T00:00:01.000Z"));
+	state = reduceOrcControlPlaneEvent(state, mkEvent({ kind: "agent.message", payload: { messageId: "msg-1", content: "Working", workerId: "worker-1", agentId: "agent-1", streamState: "final" } }, "agent-message", "2026-03-22T00:00:02.000Z"));
+	state = reduceOrcControlPlaneEvent(state, mkEvent({ kind: "tool.result", payload: { callId: "call-1", toolName: "npm test", status: "failed", workerId: "worker-1", errorText: "tests failed" } }, "tool-failed", "2026-03-22T00:00:03.000Z"));
+	state = reduceOrcControlPlaneEvent(state, mkEvent({ kind: "worker.status", payload: { workerId: "worker-1", waveId: "wave-1", status: "completed", summary: "Recovered after retry" } }, "worker-completed", "2026-03-22T00:00:04.000Z"));
+	state = reduceOrcControlPlaneEvent(state, mkEvent({ kind: "checkpoint.status", payload: { status: "captured", checkpointId: "cp-1", threadId: "thread-reducer", waveId: "wave-1", artifactBundleIds: ["artifact-1"], rewindTargetIds: ["rewind-1"], message: "checkpoint saved" } }, "checkpoint-captured", "2026-03-22T00:00:05.000Z"));
+	state = reduceOrcControlPlaneEvent(state, mkEvent({ kind: "process.lifecycle", payload: { stage: "exited", exitCode: 0 } }, "process-exited", "2026-03-22T00:00:06.000Z"));
+	state = reduceOrcControlPlaneEvent(state, mkEvent({ kind: "graph.lifecycle", payload: { graphId: "g-1", stage: "cancelled", reason: "late cancel" } }, "graph-cancelled", "2026-03-22T00:00:07.000Z"));
+
+	assert.equal(state.phase, "cancelled");
+	assert.equal(state.workerResults[0]?.status, "cancelled");
+	assert.equal(state.messages.at(-1)?.content, "Working");
+	assert.equal(state.checkpointMetadata.checkpointId, "cp-1");
+	assert.equal(state.transportHealth.status, "healthy");
+	assert.equal(state.terminalState.status, "ambiguous");
+	assert.match(state.terminalState.reason ?? "", /Conflicting terminal signals/);
+	assert.equal(state.verificationErrors.length, 1);
 });
