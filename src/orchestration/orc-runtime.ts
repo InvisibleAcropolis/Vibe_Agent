@@ -88,6 +88,15 @@ export class OrcRuntimeSkeleton implements OrcRuntime {
 			stdoutBufferedBytes: 0,
 			stderrBufferedBytes: 0,
 			diagnosticsDropped: 0,
+			warningEvents: 0,
+			faultEvents: 0,
+			parseFailures: 0,
+			consecutiveParseFailures: 0,
+			timeouts: {
+				idleWarningMs: 5_000,
+				stallTimeoutMs: 15_000,
+				readyTimeoutMs: 10_000,
+			},
 		});
 		throw new Error("Orc runtime launch is not implemented yet.");
 	}
