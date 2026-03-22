@@ -96,7 +96,7 @@ This section maps implementation activity back to the major design mandates in `
 | P2-008 | Add Orc event logging and durable event-history persistence | GPT-5.2-Codex | 2026-03-22 | Completed | `LANGEXTtracker.md`, `src/orchestration/orc-event-log.ts`, `src/orchestration/orc-storage.ts`, `test/app.test.ts` | Added best-effort durable event logging under `~/Vibe_Agent/logs/orchestration/event-log/threads/<thread>/runs/<run>/` with JSONL segment files (`segment-000001.jsonl`, etc.), a per-run `manifest.json`, and explicit replay/recovery notes. Each record stores timestamp, thread/run correlation, event id, sequence metadata, event type, and the full normalized bus event. Validation: `npm test -- --test-name-pattern="attachOrcDurableEventLogWriter|OrcAsyncEventBus"`; `npm run build`. | Persistence failures are intentionally non-fatal; the writer records manifest failure metadata when possible and otherwise allows the live bus/runtime to continue. Runtime wiring still pending in P2-009. | Wire the durable writer into runtime-owned bus lifecycle creation so launch/resume automatically attach per-run event logging and future replay tooling can enumerate manifests for restart flows. |
 | P2-009 | Wire transport + GEB updates into Orc runtime lifecycle methods | GPT-5.2-Codex | 2026-03-22 | Completed | `LANGEXTtracker.md`, `src/orchestration/orc-runtime.ts`, `src/orchestration/orc-session.ts`, `test/app.test.ts` | Refactored `OrcRuntimeSkeleton` so each launch/resume run constructs and owns the child-process transport, async event bus, tracker, checkpoint store, durable event-log hook, and stable session-facing runtime hooks. Implemented launch/resume thread initialization, tracker/checkpoint restore, transport supervision, deterministic cleanup, and controller-safe hooks validated with `npm run build` and `npm test`. | Phase 3 resume is still limited to restoring tracker/checkpoint metadata plus reattaching a fresh transport session; durable LangGraph super-step replay and in-flight worker resurrection remain future recovery work. | Next session can connect reducer/TUI subscribers to the runtime-owned bus and extend resume beyond tracker/checkpoint metadata into full graph replay once Phase 3 durability lands. |
 | P2-010 | Add event-driven control-plane state reduction | GPT-5.2-Codex | 2026-03-22 | Completed | `LANGEXTtracker.md`, `src/orchestration/orc-events.ts`, `src/orchestration/orc-runtime.ts`, `src/orchestration/orc-state.ts`, `src/orchestration/orc-tracker.ts`, `test/app.test.ts` | Added durable reducers that fold canonical events into `OrcControlPlaneState` for phase/lifecycle, active wave, worker results, user-facing messages, checkpoint metadata, transport health, and terminal state. Explicit rules now document retries, cancellations, ambiguous completion, and partial-failure handling while leaving overlays/latest-activity in transient UI reducer state only. Validation: `timeout 60s npm test`; `timeout 30s node --import tsx --eval "import ..."`. | Unresolved edge cases remain around multi-wave replay across checkpoint restores, live SDK retry semantics, and whether worker artifact/log identifiers should be emitted directly by upstream tool/result events instead of inferred later. | Phase 3 should consume durable event-log offsets + checkpoint boundaries to rehydrate transient UI state after restore without expanding tracker snapshots beyond reduced summary data. |
-| P2-011 | Render friendly operator-facing summaries from raw agent telemetry | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory defines presentation adapters for human-readable orchestration summaries. | Awaiting implementation. | Add summary/presentation helpers that preserve raw detail for drill-down. |
+| P2-011 | Render friendly operator-facing summaries from raw agent telemetry | GPT-5.2-Codex | 2026-03-22 | Completed | `LANGEXTtracker.md`, `src/orchestration/orc-events.ts`, `src/orchestration/orc-presentation.ts`, `src/orchestration/orc-tracker.ts`, `test/app.test.ts` | Added stable presentation helpers for concise operator-facing labels/detail, standardized state/severity wording across success/warning/blocked/cancelled/failed outcomes, preserved raw event envelopes for drill-down, and validated summary fallbacks plus dashboard consumption with `npm test` and `npm run build`. | None. | Next session can reuse the presentation helpers in future TUI panes/subscribers so dashboards, overlays, and logs share the same wording contract. |
 | P2-012 | Introduce a TUI telemetry subscriber layer for dashboards, overlays, and panes | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory maps the event bus into TUI state via subscriber adapters. | Awaiting implementation. | Add dedicated orchestration subscribers instead of coupling views to transport internals. |
 | P2-013 | Add subagent activity surfaces and overlay management rules | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory covers multi-overlay/subagent UI lifecycle behavior. | Awaiting implementation. | Define identity, retention, and update rules for subagent panes and overlays. |
 | P2-014 | Implement transport and orchestration fault handling | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory captures startup failure, disconnect, exit, cancellation, and remediation handling. | Awaiting implementation. | Standardize fatal vs retryable states across transport, tracker, and TUI. |
@@ -104,6 +104,37 @@ This section maps implementation activity back to the major design mandates in `
 | P2-016 | Wire security and approval events into the GEB contract | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory maps security-policy outcomes into the shared telemetry pipeline. | Awaiting implementation. | Add canonical approval-required and blocked-command event handling. |
 | P2-017 | Prepare the tracker/checkpoint bridge for Phase 3 durability work | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory documents the telemetry-to-checkpoint bridge needed for Phase 3 recovery work. | Awaiting implementation. | Extend checkpoint metadata only where needed for correlation and resume readiness. |
 | P2-018 | Publish Phase 2 engineering documentation and operator handoff notes | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory defines the final documentation and sign-off requirements for the phase. | Awaiting implementation. | Update README/orchestration guides and close the phase with validation evidence and handoff notes. |
+
+## Operator Summary Conventions (P2-011)
+
+Outside engineers should expect the Orc UI/log surface to show concise default labels first and retain canonical event payloads for drill-down/debug context. The summary contract introduced for `P2-011` follows these rules:
+
+- **Default labels stay short and stable** so dashboards and logs can align on the same wording even if upstream payload detail changes.
+- **Detail text preserves the most useful raw context** (message body, tool output/error text, checkpoint message, transport detail, etc.) without replacing the canonical raw event envelope stored for drill-down.
+- **Severity/state wording is standardized** around a small operator vocabulary: success, warning, blocked, cancelled, and failed.
+- **Fallbacks are explicit and graceful** when metadata is missing; e.g. missing worker ids, tool names, or phases degrade to generic labels such as `Worker started`, `Tool action started`, or `Transport update` instead of exposing undefined values.
+- **Recovery is visible but not noisy**; degraded transport states should read `Transport degraded`, while a healthy ready signal should read `Transport recovered` or `Transport healthy` depending on whether the UI is showing an event summary or a reduced tracker snapshot.
+
+### UI / Log Summary Examples
+
+| raw event family | default summary label | example detail / operator expectation |
+| --- | --- | --- |
+| User-facing agent message | `Agent responded to the user` | Detail should contain the concise response text while the raw event remains available for drill-down. |
+| Internal/non-user agent message | `Agent emitted an internal update` | Used when the agent is updating worker/runtime context rather than speaking directly to the user. |
+| Tool start | `Tool action started` | Detail typically includes the tool name and command preview when available; missing names degrade to a generic `Tool`. |
+| Tool success | `Tool action succeeded` | Detail prefers concrete tool output text or a short success sentence. |
+| Tool failure / timeout | `Tool action failed` | Detail prefers error text; failure tone remains warning/failed rather than verbose stack-trace wording in default labels. |
+| Tool cancellation | `Tool action cancelled` | Detail notes cancellation without reclassifying it as a success. |
+| Worker queued / running | `Worker queued` / `Worker started` | Missing worker ids degrade to a generic `Worker` label instead of showing raw nullish values. |
+| Worker completed | `Worker completed` | Detail should be the worker summary when supplied, otherwise a generic completion sentence. |
+| Worker failed / cancelled | `Worker failed` / `Worker cancelled` | Default labels stay stable while detail preserves the worker-provided explanation. |
+| Transport warning | `Transport warning` | Used for recoverable stream/parser noise that does not yet fault the transport. |
+| Transport degraded | `Transport degraded` | Indicates reduced health while work may still continue. |
+| Transport recovery | `Transport recovered` / `Transport healthy` | Event-level ready signals use `Transport recovered`; reduced dashboard state uses `Transport healthy`. |
+| Transport terminal fault | `Transport failed` | Used for faulted/offline states that require attention or restart. |
+| Security gate | `Approval required` / `Command blocked` | Detail preserves the policy explanation or blocked command preview. |
+| Checkpoint state | `Checkpoint captured`, `Checkpoint restored`, `Checkpoint failed` | The checkpoint id/message stays in detail while default wording remains concise. |
+
 
 ## Current Session Work Log
 
@@ -213,6 +244,16 @@ This section maps implementation activity back to the major design mandates in `
 - Added regression coverage in `test/app.test.ts` for the new durable reducer path and increased the async event-bus ordering wait window to keep the pre-existing concurrency test stable in CI-like environments.
 - Validation performed: `timeout 60s npm test`; `timeout 30s node --import tsx --eval "import './src/orchestration/orc-events.ts'; import './src/orchestration/orc-tracker.ts'; import './src/orchestration/orc-runtime.ts'; console.log('imports-ok');"`.
 
+### 2026-03-22 — GPT-5.2-Codex (P2-011 operator-facing presentation helpers)
+- Updated the `P2-011` ledger row from `Planned` to `Completed` after adding `src/orchestration/orc-presentation.ts` as the stable summary/presentation helper module for concise operator-facing event and tracker labels.
+- Standardized summary wording and severity tone across success, warning, blocked, cancelled, and failed states so dashboards/logs no longer need to infer phrasing directly from raw event semantics.
+- Added graceful fallback behavior for missing worker ids, tool names, checkpoint text, transport metadata, and thread/wave context so UI labels remain readable even when upstream telemetry is partial.
+- Updated `src/orchestration/orc-events.ts` to route summary text through the new presentation helper while continuing to preserve canonical/raw event detail in reducer state for drill-down.
+- Updated `src/orchestration/orc-tracker.ts` so dashboard field values/highlights are derived from presentation helpers instead of embedding task-blocking, sign-off, and transport wording inline.
+- Expanded `LANGEXTtracker.md` with explicit operator summary conventions and concrete UI/log examples for outside engineers consuming Orc telemetry.
+- Added regression coverage in `test/app.test.ts` for concise event summaries, degraded/recovered transport wording, graceful metadata fallback behavior, and tracker/dashboard presentation reuse.
+- Validation performed: `npm test`; `npm run build`.
+
 ## Sign-off Block
 
 | timestamp (UTC) | agent | scope completed | sign-off notes |
@@ -229,16 +270,18 @@ This section maps implementation activity back to the major design mandates in `
 | 2026-03-22T23:59:59Z | GPT-5.2-Codex | Completed P2-008 durable event-log persistence, segmentation, and replay documentation. | Session closed after adding the durable JSONL event-log writer + storage-path helpers, validating segmented persistence plus non-fatal failure behavior in tests, and leaving runtime-owned attachment for P2-009. |
 | 2026-03-22T23:59:59Z | GPT-5.2-Codex | Completed P2-009 runtime-owned launch/resume lifecycle wiring. | Session closed after refactoring runtime/session ownership, implementing supervised launch/resume plus deterministic cleanup, validating build and tests, and documenting that full graph replay/in-flight recovery remains a Phase 3 limitation. |
 | 2026-03-22T22:59:54Z | GPT-5.2-Codex | Completed P2-010 durable event-driven control-plane reduction and tracker snapshot folding. | Session closed after wiring normalized transport events into durable state reduction, documenting Phase 3 checkpoint boundaries plus unresolved replay edge cases, and validating the reducer path with tests plus import smoke checks. |
+| 2026-03-22T23:59:59Z | GPT-5.2-Codex | Completed P2-011 operator-facing presentation helpers, tracker/dashboard summary refactor, and documentation updates. | Session closed after centralizing concise event/tracker wording, validating graceful fallback behavior in tests/build, and documenting UI/log summary conventions for outside engineers. |
 
 ## Next-Session TODO Handoff
 
 ### Priority TODOs for Next Session
-1. Define how runtime recovery and future replay tooling will discover event-log `manifest.json` files, enumerate segment files, and republish durable records back into reducers/checkpoint restore flows so restored threads can rebuild transient UI state after a checkpoint boundary.
-2. Replace the deterministic bootstrap/demo telemetry emitters with live LangGraph and DeepAgents SDK callback bindings while preserving the current event names/categories (`graph_node_transition`, `subagent_creation`, `user_facing_message`, `tool_call`, `tool_result`, `retry`, `interrupt`, `failure`, `completion`, plus lifecycle/checkpoint bootstrap events).
-3. Extend resume beyond tracker/checkpoint metadata restoration into real LangGraph super-step replay and in-flight worker/session recovery as part of Phase 3 durability work.
-4. Decide whether upstream tool/result and worker-status events should emit explicit artifact/log identifiers so reducer snapshots can avoid later inference for worker-result durability.
-5. Replace the remaining placeholder design-compliance mappings for Phase 1 and future Phase 3/4 work as those task inventories become concrete.
-6. Continue to read `LANGEXTtracker.md` at session start and append updates rather than rewriting prior history.
+1. Reuse `src/orchestration/orc-presentation.ts` from future TUI subscribers/overlays so all operator surfaces keep the same concise wording and severity tone contract.
+2. Define how runtime recovery and future replay tooling will discover event-log `manifest.json` files, enumerate segment files, and republish durable records back into reducers/checkpoint restore flows so restored threads can rebuild transient UI state after a checkpoint boundary.
+3. Replace the deterministic bootstrap/demo telemetry emitters with live LangGraph and DeepAgents SDK callback bindings while preserving the current event names/categories (`graph_node_transition`, `subagent_creation`, `user_facing_message`, `tool_call`, `tool_result`, `retry`, `interrupt`, `failure`, `completion`, plus lifecycle/checkpoint bootstrap events).
+4. Extend resume beyond tracker/checkpoint metadata restoration into real LangGraph super-step replay and in-flight worker/session recovery as part of Phase 3 durability work.
+5. Decide whether upstream tool/result and worker-status events should emit explicit artifact/log identifiers so reducer snapshots can avoid later inference for worker-result durability.
+6. Replace the remaining placeholder design-compliance mappings for Phase 1 and future Phase 3/4 work as those task inventories become concrete.
+7. Continue to read `LANGEXTtracker.md` at session start and append updates rather than rewriting prior history.
 
 ## Risks / Blockers
 

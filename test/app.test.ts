@@ -32,7 +32,8 @@ import type {
 } from "../src/orchestration/orc-python-transport.js";
 import { createDefaultOrcSecurityPolicy, ORC_SECURITY_STATUS_TEXT } from "../src/orchestration/orc-security.js";
 import { OrcRuntimeSkeleton } from "../src/orchestration/orc-runtime.js";
-import { FileSystemOrcTracker } from "../src/orchestration/orc-tracker.js";
+import { presentOrcEventSummary, presentOrcTrackerSummary } from "../src/orchestration/orc-presentation.js";
+import { FileSystemOrcTracker, createOrcTrackerDashboardViewModel } from "../src/orchestration/orc-tracker.js";
 import type { OrcControlPlaneState } from "../src/orchestration/orc-state.js";
 import { getRuntimeSessionDir } from "../src/runtime/runtime-session-namespace.js";
 import type { AgentRuntime, RuntimeDescriptor } from "../src/runtime/agent-runtime.js";
@@ -598,6 +599,9 @@ test("Local Orc checkpoint store persists manifests and tracker snapshots by sta
 		messages: [],
 		workerResults: [],
 		verificationErrors: [],
+		checkpointMetadata: createInitialCheckpointMetadataSummary(),
+		transportHealth: createInitialReducedTransportHealth(),
+		terminalState: createInitialTerminalStateSummary(),
 		lastUpdatedAt: "2026-03-22T00:00:00.000Z",
 	} satisfies import("../src/orchestration/orc-state.js").OrcControlPlaneState;
 
@@ -740,6 +744,9 @@ test("Orc runtime resumes tracker/checkpoint state and exposes stable session ho
 		messages: [],
 		workerResults: [],
 		verificationErrors: [],
+		checkpointMetadata: createInitialCheckpointMetadataSummary(),
+		transportHealth: createInitialReducedTransportHealth(),
+		terminalState: createInitialTerminalStateSummary(),
 		lastUpdatedAt: new Date().toISOString(),
 	};
 	await tracker.save(state);
@@ -971,10 +978,10 @@ test("reduceOrcControlPlaneEvent folds durable summary state and keeps ambiguous
 		kind: event.kind,
 		payload: event.payload as any,
 		envelope: {
-			origin: { eventId: id, emittedAt: when, threadId: "thread-reducer", runCorrelationId: "run-1", workerId: "worker-1", waveId: "wave-1" },
+			origin: { eventId: id, emittedAt: when, threadId: "thread-reducer", runCorrelationId: "run-1", streamSequence: 1, source: "future_replay", workerId: "worker-1", waveId: "wave-1" },
 			who: { id: "agent-1", kind: "agent", label: "Worker 1", workerId: "worker-1" },
 			what: { category: "lifecycle", name: id, status: "started", severity: "notice", description: id },
-			how: { channel: "stdout", interactionTarget: "user" },
+			how: { channel: "stdout_jsonl", interactionTarget: "user", environment: "worker" },
 			when,
 		} as OrcCanonicalEventEnvelope,
 		interaction: { target: "user", lane: "agent_interacting_with_user", isUserFacing: true, isComputerFacing: false },
@@ -996,4 +1003,109 @@ test("reduceOrcControlPlaneEvent folds durable summary state and keeps ambiguous
 	assert.equal(state.terminalState.status, "ambiguous");
 	assert.match(state.terminalState.reason ?? "", /Conflicting terminal signals/);
 	assert.equal(state.verificationErrors.length, 1);
+});
+
+
+test("presentation helpers generate concise summaries and degrade gracefully when metadata is missing", () => {
+	const workerEvent: OrcBusEvent = {
+		kind: "worker.status",
+		payload: { workerId: "worker-9", status: "completed", summary: "Patched the runtime" },
+		envelope: {
+			origin: { eventId: "worker-complete", emittedAt: "2026-03-22T01:00:00.000Z", threadId: "thread-1", runCorrelationId: "run-1", streamSequence: 1 , source: "future_replay" },
+			who: { id: "agent-1", kind: "agent", label: "Worker Agent" },
+			what: { category: "lifecycle", name: "worker_completed", status: "succeeded", severity: "notice" },
+			how: { channel: "stdout_jsonl", interactionTarget: "computer", environment: "worker" },
+			when: "2026-03-22T01:00:00.000Z",
+		},
+		interaction: { target: "computer", lane: "agent_interacting_with_computer", isUserFacing: false, isComputerFacing: true },
+		debug: { normalizedFrom: "test" },
+	};
+	const toolEvent: OrcBusEvent = {
+		kind: "tool.call",
+		payload: { callId: "call-1", toolName: "npm test" },
+		envelope: {
+			origin: { eventId: "tool-call", emittedAt: "2026-03-22T01:00:01.000Z", threadId: "thread-1", runCorrelationId: "run-1", streamSequence: 2 , source: "future_replay" },
+			who: { id: "agent-1", kind: "agent", label: "Worker Agent" },
+			what: { category: "tool_call", name: "tool_call", status: "started", severity: "info" },
+			how: { channel: "stdout_jsonl", interactionTarget: "computer", environment: "worker", toolName: "npm test" },
+			when: "2026-03-22T01:00:01.000Z",
+		},
+		interaction: { target: "computer", lane: "agent_interacting_with_computer", isUserFacing: false, isComputerFacing: true },
+		debug: { normalizedFrom: "test" },
+	};
+	const degradedTransportEvent: OrcBusEvent = {
+		kind: "transport.fault",
+		payload: { faultCode: "transport_idle_timeout", message: "stdout stalled", status: "degraded" },
+		envelope: {
+			origin: { eventId: "transport-degraded", emittedAt: "2026-03-22T01:00:02.000Z", threadId: "thread-1", runCorrelationId: "run-1", streamSequence: 3 , source: "future_replay" },
+			who: { id: "transport-1", kind: "transport", label: "Python Runner" },
+			what: { category: "transport", name: "transport_fault", status: "failed", severity: "warning" },
+			how: { channel: "event_bus", interactionTarget: "computer", environment: "transport" },
+			when: "2026-03-22T01:00:02.000Z",
+		},
+		interaction: { target: "computer", lane: "system_support", isUserFacing: false, isComputerFacing: false },
+		debug: { normalizedFrom: "test" },
+	};
+	const recoveredTransportEvent: OrcBusEvent = {
+		kind: "process.lifecycle",
+		payload: { stage: "ready" },
+		envelope: {
+			origin: { eventId: "transport-ready", emittedAt: "2026-03-22T01:00:03.000Z", threadId: "thread-1", runCorrelationId: "run-1", streamSequence: 4 , source: "future_replay" },
+			who: { id: "transport-1", kind: "transport", label: "Python Runner" },
+			what: { category: "transport", name: "process_ready", status: "succeeded", severity: "info" },
+			how: { channel: "event_bus", interactionTarget: "computer", environment: "transport" },
+			when: "2026-03-22T01:00:03.000Z",
+		},
+		interaction: { target: "computer", lane: "system_support", isUserFacing: false, isComputerFacing: false },
+		debug: { normalizedFrom: "test" },
+	};
+	const userMessageEvent: OrcBusEvent = {
+		kind: "agent.message",
+		payload: { messageId: "msg-1", content: "I updated the user.", agentId: "agent-1" },
+		envelope: {
+			origin: { eventId: "message", emittedAt: "2026-03-22T01:00:04.000Z", threadId: "thread-1", runCorrelationId: "run-1", streamSequence: 5 , source: "future_replay" },
+			who: { id: "agent-1", kind: "agent", label: "Worker Agent" },
+			what: { category: "agent_message", name: "user_message", status: "succeeded", severity: "notice" },
+			how: { channel: "stdout_jsonl", interactionTarget: "user", environment: "worker" },
+			when: "2026-03-22T01:00:04.000Z",
+		},
+		interaction: { target: "user", lane: "agent_interacting_with_user", isUserFacing: true, isComputerFacing: false },
+		debug: { normalizedFrom: "test" },
+	};
+
+	assert.equal(presentOrcEventSummary(userMessageEvent).label, "Agent responded to the user");
+	assert.equal(presentOrcEventSummary(toolEvent).label, "Tool action started");
+	assert.equal(presentOrcEventSummary(workerEvent).label, "Worker completed");
+	assert.equal(presentOrcEventSummary(degradedTransportEvent).label, "Transport degraded");
+	assert.equal(presentOrcEventSummary(recoveredTransportEvent).label, "Transport recovered");
+	assert.match(presentOrcEventSummary(toolEvent).detail, /Agent started npm test\./);
+
+	const state: OrcControlPlaneState = {
+		threadId: "thread-1",
+		checkpointId: "cp-7",
+		phase: "checkpointed",
+		project: { projectId: "proj-1", projectRoot: "/tmp/project", projectName: "Project One" },
+		messages: [],
+		securityEvents: [{ kind: "approval-required", statusText: "Approval required", detail: "Need approval for deploy", createdAt: "2026-03-22T01:00:05.000Z" }],
+		activeWave: { waveId: "wave-4", phase: "executing", startedAt: "2026-03-22T01:00:00.000Z", workerCount: 1, workerIds: [], goal: "Verify patch" },
+		workerResults: [
+			{ workerId: "worker-1", waveId: "wave-4", status: "completed", artifactIds: [], logIds: [] },
+			{ workerId: "worker-2", waveId: "wave-4", status: "failed", artifactIds: [], logIds: [] },
+		],
+		verificationErrors: [],
+		checkpointMetadata: { ...createInitialCheckpointMetadataSummary(), checkpointId: "cp-7", status: "captured", message: "checkpoint saved" },
+		transportHealth: { ...createInitialReducedTransportHealth(), status: "healthy", lastMessage: "Runner is ready again." },
+		terminalState: createInitialTerminalStateSummary(),
+		lastUpdatedAt: "2026-03-22T01:00:06.000Z",
+	};
+
+	const trackerSummary = presentOrcTrackerSummary(state);
+	assert.equal(trackerSummary.completedTasks.label, "1");
+	assert.equal(trackerSummary.blockedTasks.label, "2");
+	assert.equal(trackerSummary.signOff.label, "Blocked");
+	assert.ok(trackerSummary.highlights.includes("Transport healthy"));
+
+	const dashboard = createOrcTrackerDashboardViewModel(state);
+	assert.equal(dashboard.fields.trackerSignOffStatus.value, "Blocked");
+	assert.equal(dashboard.fields.blockedTasks.value, "2");
 });

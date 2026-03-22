@@ -4,6 +4,7 @@ import type {
 	OrcEventSeverity,
 	OrcInteractionTarget,
 } from "./orc-io.js";
+import { presentOrcEventSummary } from "./orc-presentation.js";
 import type { OrcSecurityEvent } from "./orc-security.js";
 import type {
 	OrcActiveExecutionWave,
@@ -1543,28 +1544,7 @@ function deriveReducedError(event: OrcBusEvent): OrcReducedErrorEntry | undefine
 }
 
 function summarizeOrcEvent(event: OrcBusEvent): string {
-	switch (event.kind) {
-		case "agent.message":
-			return event.payload.content;
-		case "tool.call":
-			return `${event.envelope.who.label} called ${event.payload.toolName}`;
-		case "tool.result":
-			return `${event.payload.toolName} ${event.payload.status}`;
-		case "worker.status":
-			return `${event.payload.workerId} is ${event.payload.status}`;
-		case "stream.warning":
-			return event.payload.message;
-		case "transport.fault":
-			return event.payload.message;
-		case "checkpoint.status":
-			return event.payload.message ?? `Checkpoint ${event.payload.status}`;
-		case "security.approval":
-			return event.payload.event.detail;
-		case "graph.lifecycle":
-			return `${event.payload.graphId} ${event.payload.stage}`;
-		case "process.lifecycle":
-			return `Process ${event.payload.stage}`;
-	}
+	return presentOrcEventSummary(event).detail;
 }
 
 function sumWaveMetric(
