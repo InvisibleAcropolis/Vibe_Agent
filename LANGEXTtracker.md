@@ -54,12 +54,12 @@ This section maps implementation activity back to the major design mandates in `
 
 | Design Mandate ID | Major Design Mandate | Expected Implementation Coverage | Related Phase(s) | Ledger Task IDs |
 | --- | --- | --- | --- | --- |
-| DM-01 | Thin orchestrator control plane separated from code-writing workers | LangGraph orchestration must coordinate but not directly perform feature-file modification logic intended for worker agents. | Phase 1, 2 | P1-TBD, P2-TBD |
+| DM-01 | Thin orchestrator control plane separated from code-writing workers | LangGraph orchestration must coordinate but not directly perform feature-file modification logic intended for worker agents. | Phase 1, 2 | P1-TBD, P2-001, P2-003, P2-005, P2-009 |
 | DM-02 | Typed in-memory state replaces file-driven control flow | State schema, reducers, and checkpointed graph state must govern routing instead of markdown parsing. | Phase 1, 3 | P1-TBD, P3-TBD |
 | DM-03 | Deterministic routing and validation gates | Conditional graph edges and explicit validation gates must control plan/execute/verify transitions. | Phase 1, 3 | P1-TBD, P3-TBD |
-| DM-04 | Wave-based isolated execution workers | Independent tasks execute in isolated sessions with dependency-aware batching and traceable outputs. | Phase 2 | P2-TBD |
+| DM-04 | Wave-based isolated execution workers | Independent tasks execute in isolated sessions with dependency-aware batching and traceable outputs. | Phase 2 | P2-001, P2-003, P2-004, P2-009, P2-013 |
 | DM-05 | Durable persistence and resumability | Super-step checkpointing, thread continuity, and restart-safe orchestration state must exist. | Phase 3 | P3-TBD |
-| DM-06 | Secure tool interception and confinement | Worker tools require directory confinement, destructive command controls, and escalation boundaries where applicable. | Phase 2, 4 | P2-TBD, P4-TBD |
+| DM-06 | Secure tool interception and confinement | Worker tools require directory confinement, destructive command controls, and escalation boundaries where applicable. | Phase 2, 4 | P2-016, P4-TBD |
 | DM-07 | Friendly frontend abstraction with hidden worker noise | User-facing experience must present unified progress/telemetry rather than raw parallel worker output. | Phase 4 | P4-TBD |
 | DM-08 | Durable artifacts for human/agent continuity | Project-readable artifacts, handoffs, and implementation records must remain append-friendly and auditable. | Phase 0-4 | P0-001, cross-phase |
 
@@ -79,6 +79,32 @@ This section maps implementation activity back to the major design mandates in `
 | P1-002 | Implement deterministic planner/checker routing for orchestration phases | Unassigned | — | Not Started | — | Must satisfy DM-03 with explicit pass/fail routing criteria. | Pending implementation planning. | Document route conditions, failure loops, and validation hooks. |
 | P1-003 | Wire orchestration entry points into the CLI extension surface | Unassigned | — | Not Started | — | Must support DM-01 and Phase 1 exit criteria without leaking worker complexity. | Pending implementation planning. | Identify integration points, command intercept behavior, and operator-visible telemetry requirements. |
 
+
+## Phase 2 Task Ledger
+
+> Append new rows; do not delete historical rows. Every Phase 2 task must explicitly read and then update `LANGEXTtracker.md` before the session closes.
+
+| task ID | title | owner/agent | date | status | files touched | validation notes | blocker notes | follow-up TODO |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| P2-001 | Freeze the Phase 2 control/data-plane contract | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory documents the transport/event contract and requires tracker read/update on every task. | Awaiting implementation. | Extend `src/orchestration/orc-io.ts` / `orc-state.ts` with concrete Phase 2 event-envelope types. |
+| P2-002 | Define the canonical Global Event Bus schema and reducers | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory captures typed event unions, normalization rules, and reducer targets for live telemetry. | Awaiting implementation. | Add `src/orchestration/orc-events.ts` and reducer-facing summaries for agent/user vs agent/computer activity. |
+| P2-003 | Build the Python LangGraph runner bootstrap and execution envelope | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory defines the Python runner bootstrap, stderr/stdout split, and launch contract. | Awaiting implementation. | Create the Python runner entry point and document its environment contract. |
+| P2-004 | Implement JSONL telemetry emission for LangGraph and DeepAgents activity | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory requires strict single-line JSON emission with run correlation, sequencing, and raw payload passthrough. | Awaiting implementation. | Instrument graph, subagent, tool, retry, and completion events as JSONL telemetry. |
+| P2-005 | Add a TypeScript child-process transport adapter for Orc | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory defines a reusable TS transport abstraction for supervising the Python process. | Awaiting implementation. | Add `src/orchestration/orc-python-transport.ts` and wire lifecycle controls into `orc-runtime.ts`. |
+| P2-006 | Implement incremental JSONL parsing and malformed-stream recovery | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory covers chunk assembly, parse warnings, stall handling, and graceful degradation. | Awaiting implementation. | Build defensive line parsing and transport-fault classification rules. |
+| P2-007 | Implement the asynchronous Global Event Bus core | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory specifies a typed, decoupled pub/sub core for orchestration telemetry. | Awaiting implementation. | Add `src/orchestration/orc-event-bus.ts` with lifecycle and fan-out rules. |
+| P2-008 | Add Orc event logging and durable event-history persistence | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory defines timestamped event-log persistence decoupled from rendering. | Awaiting implementation. | Extend orchestration storage with append-only event-log support and replay notes. |
+| P2-009 | Wire transport + GEB updates into Orc runtime lifecycle methods | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory replaces Phase 1 runtime placeholders with supervised launch/resume flows. | Awaiting implementation. | Upgrade `launch()` / `resumeThread()` to own transport, tracker, checkpoint, and bus lifecycle. |
+| P2-010 | Add event-driven control-plane state reduction | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory maps canonical events into tracker/dashboard state instead of manual placeholders. | Awaiting implementation. | Define reducers for wave, worker, message, checkpoint, and terminal-state updates. |
+| P2-011 | Render friendly operator-facing summaries from raw agent telemetry | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory defines presentation adapters for human-readable orchestration summaries. | Awaiting implementation. | Add summary/presentation helpers that preserve raw detail for drill-down. |
+| P2-012 | Introduce a TUI telemetry subscriber layer for dashboards, overlays, and panes | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory maps the event bus into TUI state via subscriber adapters. | Awaiting implementation. | Add dedicated orchestration subscribers instead of coupling views to transport internals. |
+| P2-013 | Add subagent activity surfaces and overlay management rules | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory covers multi-overlay/subagent UI lifecycle behavior. | Awaiting implementation. | Define identity, retention, and update rules for subagent panes and overlays. |
+| P2-014 | Implement transport and orchestration fault handling | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory captures startup failure, disconnect, exit, cancellation, and remediation handling. | Awaiting implementation. | Standardize fatal vs retryable states across transport, tracker, and TUI. |
+| P2-015 | Implement debug/diagnostic instrumentation for outside engineers | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory documents debug mode, raw-event mirrors, and troubleshooting expectations. | Awaiting implementation. | Publish engineer-facing diagnostics guidance alongside runtime instrumentation. |
+| P2-016 | Wire security and approval events into the GEB contract | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory maps security-policy outcomes into the shared telemetry pipeline. | Awaiting implementation. | Add canonical approval-required and blocked-command event handling. |
+| P2-017 | Prepare the tracker/checkpoint bridge for Phase 3 durability work | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory documents the telemetry-to-checkpoint bridge needed for Phase 3 recovery work. | Awaiting implementation. | Extend checkpoint metadata only where needed for correlation and resume readiness. |
+| P2-018 | Publish Phase 2 engineering documentation and operator handoff notes | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory defines the final documentation and sign-off requirements for the phase. | Awaiting implementation. | Update README/orchestration guides and close the phase with validation evidence and handoff notes. |
+
 ## Current Session Work Log
 
 ### 2026-03-22 — GPT-5.2-Codex
@@ -89,26 +115,36 @@ This section maps implementation activity back to the major design mandates in `
 - Seeded the ledger with the tracker creation task and placeholder Phase 1 orchestration tasks so future sessions can append progress without restructuring the file.
 - Validation performed: manual structural review of headings, table fields, and enforcement criteria.
 
+
+
+### 2026-03-22 — GPT-5.2-Codex (Phase 2 planning pass)
+- Read `LANGEXTtracker.md`, the Phase 1 scaffold guide, and the master LangGraph integration design document before planning the next phase.
+- Added `docs/orchestration/phase-2-execution-plan.md` as the comprehensive Phase 2 task inventory for the worker execution plane, Python↔TypeScript JSONL transport, async Global Event Bus, TUI telemetry subscribers, and robustness/error-handling work.
+- Expanded the tracker with a dedicated Phase 2 task ledger (`P2-001` through `P2-018`) so future sessions can mark implementation progress without restructuring the process artifact.
+- Updated the design compliance matrix to replace the placeholder Phase 2 task references for DM-01, DM-04, and DM-06 with concrete planned task IDs.
+- Validation performed: static document review of task sequencing, dependency map, and tracker-touch requirements for every Phase 2 task.
+
 ## Sign-off Block
 
 | timestamp (UTC) | agent | scope completed | sign-off notes |
 | --- | --- | --- | --- |
 | 2026-03-22T12:00:00Z | GPT-5.2-Codex | Created mandatory feature-line tracker document and initialized Phase 1 ledger/process controls. | Session closed with carryover planning captured below; future sessions must replace placeholder task mappings with concrete implementation IDs as work advances. |
+| 2026-03-22T13:30:00Z | GPT-5.2-Codex | Planned the full Phase 2 backlog and added the Phase 2 execution-plan guide. | Session closed after updating the tracker, documenting 18 concrete Phase 2 tasks, and mapping initial Phase 2 design mandates to real task IDs. |
 
 ## Next-Session TODO Handoff
 
 ### Priority TODOs for Next Session
-1. Replace placeholder design-compliance ledger references (`P1-TBD`, `P2-TBD`, etc.) with concrete task IDs as implementation planning becomes specific.
-2. Confirm the exact repository touch points for LangGraph orchestration integration and append them to the appropriate Phase 1 ledger rows.
-3. Expand the Phase 1 ledger with any newly discovered orchestration tasks before implementation begins.
-4. Record validation commands and outputs directly in ledger/session entries as implementation work starts.
-5. Review this tracker at session start and append rather than rewrite historical entries.
+1. Begin implementation with `P2-001` and `P2-002`, extending the Orc TypeScript contracts for transport envelopes, event schemas, and reducer targets before building transport code.
+2. Confirm the exact repository path for the new Python LangGraph runner and add it to `P2-003` once the implementation branch starts touching files.
+3. Replace the remaining placeholder design-compliance mappings for Phase 1 and future Phase 3/4 work as those task inventories become concrete.
+4. Record concrete validation commands, reviewer notes, or deferred-validation rationale directly in the Phase 2 ledger rows as implementation work starts.
+5. Continue to read `LANGEXTtracker.md` at session start and append updates rather than rewriting prior history.
 
 ## Risks / Blockers
 
 | date | type | description | owner | mitigation / next action | status |
 | --- | --- | --- | --- | --- | --- |
-| 2026-03-22 | Process risk | Design compliance table currently contains placeholder task references for future implementation work. | GPT-5.2-Codex / next session | Replace placeholders with concrete task IDs during the next planning or implementation pass. | Open |
+| 2026-03-22 | Process risk | Design compliance table currently contains placeholder task references for future implementation work. | GPT-5.2-Codex / next session | Phase 2 placeholders have been replaced; Phase 1 and Phase 3/4 placeholder IDs still need concrete mappings as planning advances. | Open |
 | 2026-03-22 | Coordination risk | If future agents update tracker content by rewriting prior rows instead of appending, auditability may be lost. | All future agents | Enforce append-only updates and add dated subsections/rows for each session. | Open |
 
 ## Definition of Done
