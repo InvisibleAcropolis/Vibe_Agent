@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -15,6 +15,7 @@ import { WorkbenchInventoryService } from "../src/durable/workbench-inventory-se
 import { ensureVibeDurableStorage, getVibeArtifactCatalogPath, getVibeConfigPath, getVibeLogCatalogPath, getVibeMemoryCatalogPath, getVibeTrackerCatalogPath } from "../src/durable/durable-paths.js";
 import { LocalFileOrcCheckpointStore } from "../src/orchestration/orc-checkpoints.js";
 import { OrcAsyncEventBus } from "../src/orchestration/orc-event-bus.js";
+import { attachOrcDurableEventLogWriter, getOrcEventLogLocation } from "../src/orchestration/orc-event-log.js";
 import type { OrcBusEvent } from "../src/orchestration/orc-events.js";
 import { createDefaultOrcSecurityPolicy, ORC_SECURITY_STATUS_TEXT } from "../src/orchestration/orc-security.js";
 import { OrcRuntimeSkeleton } from "../src/orchestration/orc-runtime.js";
@@ -737,4 +738,64 @@ test("OrcAsyncEventBus enforces run ownership reset and disposal semantics", asy
 	bus.publish(createBusEvent(3, "run-b"));
 	bus.dispose();
 	assert.throws(() => bus.publish(createBusEvent(4, "run-b")), /already been disposed/);
+});
+
+
+test("attachOrcDurableEventLogWriter persists normalized events using segmented JSONL logs", async () => {
+	const durableRoot = mkdtempSync(path.join(tempRoot, "orc-event-log-"));
+	const bus = new OrcAsyncEventBus({ component: "test" });
+	const threadId = "thread-1";
+	const runCorrelationId = "run-log-1";
+	const { writer } = attachOrcDurableEventLogWriter(bus, {
+		durableRoot,
+		threadId,
+		runCorrelationId,
+		maxEventsPerSegment: 2,
+	});
+
+	for (const index of [1, 2, 3]) {
+		bus.publish(createBusEvent(index, runCorrelationId));
+	}
+
+	await new Promise((resolve) => setTimeout(resolve, 50));
+	const location = getOrcEventLogLocation({ threadId, runCorrelationId }, { durableRoot });
+	const manifest = JSON.parse(readFileSync(path.join(location.runDirPath, "manifest.json"), "utf8"));
+	assert.strictEqual(manifest.format, "jsonl");
+	assert.strictEqual(manifest.failurePolicy, "best_effort_non_fatal");
+	assert.strictEqual(manifest.segments.length, 2);
+	assert.strictEqual(manifest.segments[0].eventCount, 2);
+	assert.strictEqual(manifest.segments[1].eventCount, 1);
+	const firstSegmentLines = readFileSync(path.join(location.segmentDirPath, "segment-000001.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+	const secondSegmentLines = readFileSync(path.join(location.segmentDirPath, "segment-000002.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+	assert.deepStrictEqual(firstSegmentLines.map((line) => line.eventId), ["event-1", "event-2"]);
+	assert.deepStrictEqual(secondSegmentLines.map((line) => line.eventId), ["event-3"]);
+	assert.deepStrictEqual(secondSegmentLines[0].correlation, { threadId: "thread-1", runCorrelationId });
+	assert.strictEqual(secondSegmentLines[0].sequence.segmentIndex, 2);
+	assert.strictEqual(secondSegmentLines[0].sequence.globalEventIndex, 3);
+	assert.strictEqual(secondSegmentLines[0].eventType, "agent.message");
+	assert.strictEqual(writer.getSnapshot().failedWrites, 0);
+	bus.dispose();
+});
+
+test("attachOrcDurableEventLogWriter keeps persistence failures non-fatal to the bus", async () => {
+	const durableRoot = mkdtempSync(path.join(tempRoot, "orc-event-log-failure-"));
+	const bus = new OrcAsyncEventBus({ component: "test" });
+	const threadId = "thread-1";
+	const runCorrelationId = "run-log-2";
+	const { writer } = attachOrcDurableEventLogWriter(bus, {
+		durableRoot,
+		threadId,
+		runCorrelationId,
+		maxEventsPerSegment: 1,
+	});
+	const location = getOrcEventLogLocation({ threadId, runCorrelationId }, { durableRoot });
+	rmSync(path.join(location.runDirPath, "manifest.json"), { force: true });
+	rmSync(location.segmentDirPath, { recursive: true, force: true });
+	bus.publish(createBusEvent(1, runCorrelationId));
+	await new Promise((resolve) => setTimeout(resolve, 30));
+	assert.strictEqual(writer.getSnapshot().writtenEvents, 0);
+	assert.strictEqual(writer.getSnapshot().failedWrites, 1);
+	assert.match(writer.getSnapshot().lastFailure?.message ?? "", /no such file|ENOENT/i);
+	assert.strictEqual(bus.getSnapshot().publishedEvents, 1);
+	bus.dispose();
 });
