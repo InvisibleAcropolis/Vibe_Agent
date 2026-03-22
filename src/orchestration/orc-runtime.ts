@@ -10,6 +10,11 @@ import type {
 	ResumeOrcThreadRequest,
 	ResumeOrcThreadResponse,
 } from "./orc-io.js";
+import {
+	OrcPythonChildProcessTransport,
+	type OrcPythonTransport,
+	type OrcPythonTransportHealth,
+} from "./orc-python-transport.js";
 import { createDefaultOrcSecurityPolicy, mergeOrcSecurityPolicy, type OrcSecurityPolicy } from "./orc-security.js";
 import { OrcSessionHandle, type OrcSession } from "./orc-session.js";
 
@@ -28,6 +33,7 @@ export interface OrcRuntimeAdapters {
 	 * from Python implementation details beyond this process boundary and the JSONL/stderr protocols.
 	 */
 	buildPythonRunnerSpawnContract?: (input: OrcRunnerLaunchInput) => OrcPythonRunnerSpawnContract;
+	createPythonTransport?: () => OrcPythonTransport;
 }
 
 /**
@@ -52,6 +58,8 @@ export interface OrcRuntime {
 export class OrcRuntimeSkeleton implements OrcRuntime {
 	private readonly sessionFactory: OrcSessionFactory;
 	private readonly securityPolicy: OrcSecurityPolicy;
+	private readonly activeTransports = new Map<string, OrcPythonTransport>();
+	private readonly transportHealth = new Map<string, OrcPythonTransportHealth>();
 
 	constructor(
 		readonly adapters: OrcRuntimeAdapters = {},
@@ -69,7 +77,18 @@ export class OrcRuntimeSkeleton implements OrcRuntime {
 
 	async launch(_request: LaunchOrcRequest): Promise<LaunchOrcResponse> {
 		const securityPolicy = mergeOrcSecurityPolicy(this.securityPolicy, _request.securityPolicyOverrides);
-		this.sessionFactory.createSession(_request, securityPolicy);
+		const session = this.sessionFactory.createSession(_request, securityPolicy);
+		this.transportHealth.set(session.threadId, {
+			stage: "idle",
+			status: "idle",
+			threadId: session.threadId,
+			args: [],
+			stdoutLines: 0,
+			stderrLines: 0,
+			stdoutBufferedBytes: 0,
+			stderrBufferedBytes: 0,
+			diagnosticsDropped: 0,
+		});
 		throw new Error("Orc runtime launch is not implemented yet.");
 	}
 
@@ -83,5 +102,37 @@ export class OrcRuntimeSkeleton implements OrcRuntime {
 
 	async resumeThread(_request: ResumeOrcThreadRequest): Promise<ResumeOrcThreadResponse> {
 		throw new Error("Orc runtime resume is not implemented yet.");
+	}
+
+	createPythonTransport(): OrcPythonTransport {
+		const transport =
+			this.adapters.createPythonTransport?.() ??
+			new OrcPythonChildProcessTransport({
+				buildSpawnContract: this.adapters.buildPythonRunnerSpawnContract,
+			});
+		transport.onLifecycle((event) => {
+			if (event.threadId) {
+				this.transportHealth.set(event.threadId, transport.getHealth());
+				if (event.stage === "exit" || event.stage === "terminated" || event.stage === "spawn_failed") {
+					this.activeTransports.delete(event.threadId);
+				}
+			}
+		});
+		transport.onEnvelope((envelope) => {
+			const threadId = envelope.origin.threadId;
+			if (threadId) {
+				this.transportHealth.set(threadId, transport.getHealth());
+			}
+		});
+		transport.onDiagnostic((event) => {
+			if (event.threadId) {
+				this.transportHealth.set(event.threadId, transport.getHealth());
+			}
+		});
+		return transport;
+	}
+
+	getTransportHealth(threadId: string): OrcPythonTransportHealth | undefined {
+		return this.transportHealth.get(threadId);
 	}
 }
