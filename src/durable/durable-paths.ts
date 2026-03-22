@@ -147,3 +147,20 @@ export function getVibeMemoryPath(filename: string, options?: VibeDurablePathOpt
 export function ensureParentDir(filePath: string): void {
 	mkdirPrivate(dirname(filePath));
 }
+
+
+export function getVibeArtifactCatalogPath(options?: VibeDurablePathOptions): string {
+	return join(getVibeArtifactsDir(options), "catalog.json");
+}
+
+export function getVibeLogCatalogPath(options?: VibeDurablePathOptions): string {
+	return join(getVibeLogsDir(options), "catalog.json");
+}
+
+export function getVibeMemoryCatalogPath(options?: VibeDurablePathOptions): string {
+	return join(getVibeMemoryDir(options), "catalog.json");
+}
+
+export function getVibeTrackerCatalogPath(options?: VibeDurablePathOptions): string {
+	return join(getVibeTrackerDir(options), "catalog.json");
+}

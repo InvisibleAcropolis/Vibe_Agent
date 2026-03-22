@@ -186,12 +186,12 @@ export class VibeAgentApp {
 				},
 			);
 		this.host = new CoordinatedAgentHost(this.runtimeCoordinator);
-		this.artifactCatalog = options.artifactCatalog ?? new ArtifactCatalogService();
-		this.memoryStoreService = options.memoryStoreService ?? new MemoryStoreService();
-		this.logCatalogService = options.logCatalogService ?? new LogCatalogService();
+		this.artifactCatalog = options.artifactCatalog ?? new ArtifactCatalogService({ durableRoot: this.durableRootPath });
+		this.memoryStoreService = options.memoryStoreService ?? new MemoryStoreService({ durableRoot: this.durableRootPath });
+		this.logCatalogService = options.logCatalogService ?? new LogCatalogService({ durableRoot: this.durableRootPath });
 		this.inventoryService =
 			options.inventoryService
-			?? new WorkbenchInventoryService(this.artifactCatalog, this.memoryStoreService, this.logCatalogService);
+			?? new WorkbenchInventoryService(this.artifactCatalog, this.memoryStoreService, this.logCatalogService, { durableRoot: this.durableRootPath });
 
 		this.terminal = new MouseEnabledTerminal(options.terminal ?? new ProcessTerminal());
 		this.shellView = new DefaultShellView(
