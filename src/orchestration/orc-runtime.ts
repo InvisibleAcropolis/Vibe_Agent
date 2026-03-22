@@ -8,6 +8,8 @@ import type {
 	ResumeOrcThreadRequest,
 	ResumeOrcThreadResponse,
 } from "./orc-io.js";
+import { createDefaultOrcSecurityPolicy, mergeOrcSecurityPolicy, type OrcSecurityPolicy } from "./orc-security.js";
+import { OrcSessionHandle, type OrcSession } from "./orc-session.js";
 
 /**
  * Construction-time dependencies for the future orchestration runtime.
@@ -17,6 +19,14 @@ import type {
 export interface OrcRuntimeAdapters {
 	createLangGraph?: () => Promise<unknown> | unknown;
 	initializeDeepAgents?: () => Promise<unknown> | unknown;
+}
+
+/**
+ * Placeholder session factory boundary for Phase 1.
+ * Enforcement points should attach the merged security policy here before sub-agent execution exists.
+ */
+export interface OrcSessionFactory {
+	createSession(request: LaunchOrcRequest, securityPolicy: OrcSecurityPolicy): OrcSession;
 }
 
 export interface OrcRuntime {
@@ -31,9 +41,26 @@ export interface OrcRuntime {
  * implement orchestration behavior yet.
  */
 export class OrcRuntimeSkeleton implements OrcRuntime {
-	constructor(readonly adapters: OrcRuntimeAdapters = {}) {}
+	private readonly sessionFactory: OrcSessionFactory;
+	private readonly securityPolicy: OrcSecurityPolicy;
+
+	constructor(
+		readonly adapters: OrcRuntimeAdapters = {},
+		options: {
+			sessionFactory?: OrcSessionFactory;
+			securityPolicy?: OrcSecurityPolicy;
+		} = {},
+	) {
+		this.securityPolicy = options.securityPolicy ?? createDefaultOrcSecurityPolicy();
+		this.sessionFactory = options.sessionFactory ?? {
+			createSession: (request, securityPolicy) =>
+				new OrcSessionHandle(request.resumeThreadId ?? "pending-thread", undefined, request.resumeCheckpointId, securityPolicy),
+		};
+	}
 
 	async launch(_request: LaunchOrcRequest): Promise<LaunchOrcResponse> {
+		const securityPolicy = mergeOrcSecurityPolicy(this.securityPolicy, _request.securityPolicyOverrides);
+		this.sessionFactory.createSession(_request, securityPolicy);
 		throw new Error("Orc runtime launch is not implemented yet.");
 	}
 

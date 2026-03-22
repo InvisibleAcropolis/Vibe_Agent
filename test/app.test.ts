@@ -14,12 +14,15 @@ import { MemoryStoreService } from "../src/durable/memory/memory-store-service.j
 import { WorkbenchInventoryService } from "../src/durable/workbench-inventory-service.js";
 import { ensureVibeDurableStorage, getVibeArtifactCatalogPath, getVibeConfigPath, getVibeLogCatalogPath, getVibeMemoryCatalogPath, getVibeTrackerCatalogPath } from "../src/durable/durable-paths.js";
 import { LocalFileOrcCheckpointStore } from "../src/orchestration/orc-checkpoints.js";
+import { createDefaultOrcSecurityPolicy, ORC_SECURITY_STATUS_TEXT } from "../src/orchestration/orc-security.js";
+import { OrcRuntimeSkeleton } from "../src/orchestration/orc-runtime.js";
 import { FileSystemOrcTracker } from "../src/orchestration/orc-tracker.js";
 import { getRuntimeSessionDir } from "../src/runtime/runtime-session-namespace.js";
 import type { AgentRuntime, RuntimeDescriptor } from "../src/runtime/agent-runtime.js";
 import { CompatAgentRuntime } from "../src/runtime/compat-agent-runtime.js";
 import { RuntimeCoordinator } from "../src/runtime/runtime-coordinator.js";
 import { VirtualTerminal } from "./helpers/virtual-terminal.js";
+import { AppConfig as AppConfigStore } from "../src/app-config.js";
 
 const tempRoot = mkdtempSync(path.join(os.tmpdir(), "vibe-agent-test-"));
 process.on("exit", () => {
@@ -533,4 +536,96 @@ test("Local Orc checkpoint store persists manifests and tracker snapshots by sta
 	assert.deepStrictEqual(manifest.artifactBundleIds, ["bundle-1"]);
 	assert.strictEqual((await checkpoints.loadCheckpoint({ threadId: state.threadId }))?.stateSnapshot.storageKey, "thread:alpha/checkpoint:001");
 	assert.strictEqual((await tracker.load(state.threadId, state.checkpointId))?.threadId, state.threadId);
+});
+
+test("AppConfig persists orchestration security settings for main and worker Orc sessions", () => {
+	const configPath = path.join(tempRoot, "orc-security-config.json");
+	AppConfigStore.save(
+		{
+			setupComplete: true,
+			orchestration: {
+				sessionKind: "main-app",
+				allowedWorkingDirectories: ["/workspace/Vibe_Agent"],
+				maximumConcurrency: 3,
+				humanEscalationThresholds: {
+					requiresApprovalAfter: 2,
+					reasons: ["destructive-command", "network-access"],
+				},
+				workerSandbox: {
+					workspaceRoot: "/workspace/Vibe_Agent",
+					durableRoot: "/tmp/vibe-durable",
+					writeAllowedPaths: ["/workspace/Vibe_Agent", "/tmp/vibe-durable"],
+					blockedCommandPatterns: ["rm -rf /", "sudo rm"],
+				},
+			},
+		},
+		configPath,
+	);
+
+	const loaded = AppConfigStore.load(configPath);
+	assert.deepStrictEqual(loaded.orchestration, {
+		sessionKind: "main-app",
+		allowedWorkingDirectories: ["/workspace/Vibe_Agent"],
+		maximumConcurrency: 3,
+		humanEscalationThresholds: {
+			requiresApprovalAfter: 2,
+			reasons: ["destructive-command", "network-access"],
+		},
+		workerSandbox: {
+			workspaceRoot: "/workspace/Vibe_Agent",
+			durableRoot: "/tmp/vibe-durable",
+			writeAllowedPaths: ["/workspace/Vibe_Agent", "/tmp/vibe-durable"],
+			blockedCommandPatterns: ["rm -rf /", "sudo rm"],
+		},
+	});
+});
+
+test("Orc runtime threads merged security policy and UI status text through the session factory", async () => {
+	let sessionSecurity = createDefaultOrcSecurityPolicy({
+		orchestration: {
+			sessionKind: "main-app",
+			workerSandbox: {
+				workspaceRoot: "/workspace/Vibe_Agent",
+				durableRoot: "/tmp/vibe-durable",
+				writeAllowedPaths: ["/workspace/Vibe_Agent"],
+				blockedCommandPatterns: ["rm -rf /"],
+			},
+		},
+	});
+	const runtime = new OrcRuntimeSkeleton(
+		{},
+		{
+			securityPolicy: sessionSecurity,
+			sessionFactory: {
+				createSession: (_request, securityPolicy) => {
+					sessionSecurity = securityPolicy;
+					return {
+						threadId: "thread-1",
+						checkpointId: "checkpoint-1",
+						securityPolicy,
+						getState: () => undefined,
+					};
+				},
+			},
+		},
+	);
+
+	await assert.rejects(
+		runtime.launch({
+			project: { projectId: "proj-1", projectRoot: "/workspace/Vibe_Agent" },
+			prompt: "launch",
+			securityPolicyOverrides: {
+				sessionKind: "ephemeral-worker",
+				maximumConcurrency: 4,
+				allowedWorkingDirectories: ["/workspace/Vibe_Agent", "/tmp/vibe-durable"],
+			},
+		}),
+		/not implemented yet/,
+	);
+
+	assert.strictEqual(sessionSecurity.sessionKind, "ephemeral-worker");
+	assert.strictEqual(sessionSecurity.maximumConcurrency, 4);
+	assert.deepStrictEqual(sessionSecurity.allowedWorkingDirectories, ["/workspace/Vibe_Agent", "/tmp/vibe-durable"]);
+	assert.strictEqual(ORC_SECURITY_STATUS_TEXT["approval-required"], "Approval required");
+	assert.strictEqual(ORC_SECURITY_STATUS_TEXT["blocked-command"], "Blocked command");
 });

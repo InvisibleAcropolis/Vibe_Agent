@@ -1,11 +1,17 @@
 import { basename } from "node:path";
 import type { OrcControlPlaneState, OrcProjectContext } from "./orc-state.js";
+import type { OrcSecurityEvent, OrcSecurityPolicyOverrides } from "./orc-security.js";
 
 export interface LaunchOrcRequest {
 	project: OrcProjectContext;
 	prompt: string;
 	resumeThreadId?: string;
 	resumeCheckpointId?: string;
+	/**
+	 * Phase 1 override hook for the runtime/session factory.
+	 * Later implementations should merge and enforce these values before any worker tools start.
+	 */
+	securityPolicyOverrides?: OrcSecurityPolicyOverrides;
 }
 
 export interface LaunchOrcResponse {
@@ -100,6 +106,12 @@ export interface ResumeOrcThreadResponse {
 	checkpointId?: string;
 	state?: OrcControlPlaneState;
 }
+
+/**
+ * Stable I/O payload for approval-required and blocked-command events.
+ * The UI should render `statusText` directly so these strings exist before worker enforcement ships.
+ */
+export interface OrcSecurityStatusPayload extends OrcSecurityEvent {}
 
 export function slugifyOrcSegment(value: string | undefined, fallback: string): string {
 	const normalized = (value ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
