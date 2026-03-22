@@ -87,7 +87,7 @@ This section maps implementation activity back to the major design mandates in `
 | task ID | title | owner/agent | date | status | files touched | validation notes | blocker notes | follow-up TODO |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | P2-001 | Freeze the Phase 2 control/data-plane contract | GPT-5.2-Codex | 2026-03-22 | Completed | `LANGEXTtracker.md`, `src/orchestration/orc-io.ts`, `src/orchestration/orc-state.ts` | Static review completed after adding Phase 2 run/event/sequence/origin/category/severity/lifecycle transport types, the canonical `who`/`what`/`how`/`when` envelope, and ownership-boundary comments. Verified with `npm run build`. | None. | Next session can consume the frozen envelope contract from `src/orchestration/orc-io.ts` while implementing `P2-002` reducer/event-bus normalization. |
-| P2-002 | Define the canonical Global Event Bus schema and reducers | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory captures typed event unions, normalization rules, and reducer targets for live telemetry. | Awaiting implementation. | Add `src/orchestration/orc-events.ts` and reducer-facing summaries for agent/user vs agent/computer activity. |
+| P2-002 | Define the canonical Global Event Bus schema and reducers | GPT-5.2-Codex | 2026-03-22 | Completed | `LANGEXTtracker.md`, `src/orchestration/orc-events.ts` | Added strict canonical event unions, normalization helpers that preserve `rawPayload`, interaction-lane classifiers, and reducer-facing snapshots for latest activity, overlays, wave counts, transport health, and recent errors. Validation: static review plus `timeout 60s npm run build` (timed out after 60s without TypeScript diagnostics in this environment). | Event-shape decisions still open for whether repeated worker-status events should accumulate transition history or only the latest per worker/wave snapshot. | Wire the new reducer state into `src/orchestration/orc-tracker.ts`/runtime subscribers and decide whether wave counters should be transition-aware once live transport events exist. |
 | P2-003 | Build the Python LangGraph runner bootstrap and execution envelope | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory defines the Python runner bootstrap, stderr/stdout split, and launch contract. | Awaiting implementation. | Create the Python runner entry point and document its environment contract. |
 | P2-004 | Implement JSONL telemetry emission for LangGraph and DeepAgents activity | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory requires strict single-line JSON emission with run correlation, sequencing, and raw payload passthrough. | Awaiting implementation. | Instrument graph, subagent, tool, retry, and completion events as JSONL telemetry. |
 | P2-005 | Add a TypeScript child-process transport adapter for Orc | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory defines a reusable TS transport abstraction for supervising the Python process. | Awaiting implementation. | Add `src/orchestration/orc-python-transport.ts` and wire lifecycle controls into `orc-runtime.ts`. |
@@ -131,6 +131,14 @@ This section maps implementation activity back to the major design mandates in `
 - Documented the minimum metadata needed to separate agent→user interactions from agent→computer/tool activity and clarified the ownership boundary in `src/orchestration/orc-state.ts` between transport facts, reduced control-plane state, tracker snapshots, and future TUI view models.
 - Validation performed: `npm run build` plus static review of comments and type boundaries for downstream implementers.
 
+### 2026-03-22 — GPT-5.2-Codex (P2-002 canonical event bus schema)
+- Updated the `P2-002` ledger row from `Planned` to `Completed` after adding the canonical Phase 2 event module and reducer-facing output shapes.
+- Added `src/orchestration/orc-events.ts` with strict unions for process lifecycle, graph lifecycle, agent messages, tool calls/results, worker status, stream warnings, transport faults, checkpoint status, and security/approval events.
+- Implemented normalization helpers that map raw transport envelopes into canonical bus events while preserving the original `rawPayload` for debugger, replay, and outside-engineer diagnostics.
+- Added interaction-lane classification helpers (`agent_interacting_with_user` vs `agent_interacting_with_computer`) plus reducer state for latest activity per agent, active overlays, wave counts, transport health, and recent errors.
+- Recorded the current open question that repeated worker-status events may need transition-aware counting/history once real transport traffic exists instead of the current snapshot-friendly aggregate counters.
+- Validation performed: static review plus `timeout 60s npm run build` (timed out after 60 seconds without surfacing TypeScript diagnostics in this environment).
+
 ## Sign-off Block
 
 | timestamp (UTC) | agent | scope completed | sign-off notes |
@@ -138,14 +146,15 @@ This section maps implementation activity back to the major design mandates in `
 | 2026-03-22T12:00:00Z | GPT-5.2-Codex | Created mandatory feature-line tracker document and initialized Phase 1 ledger/process controls. | Session closed with carryover planning captured below; future sessions must replace placeholder task mappings with concrete implementation IDs as work advances. |
 | 2026-03-22T13:30:00Z | GPT-5.2-Codex | Planned the full Phase 2 backlog and added the Phase 2 execution-plan guide. | Session closed after updating the tracker, documenting 18 concrete Phase 2 tasks, and mapping initial Phase 2 design mandates to real task IDs. |
 | 2026-03-22T14:15:00Z | GPT-5.2-Codex | Completed P2-001 contract freeze for the Phase 2 transport and state boundary vocabulary. | Session closed after freezing the canonical event envelope, updating the tracker ledger/work log, and validating the TypeScript contract with `npm run build`. |
+| 2026-03-22T15:05:00Z | GPT-5.2-Codex | Completed P2-002 canonical event bus schema, normalization helpers, and reducer output shapes. | Session closed after updating the tracker row, adding `src/orchestration/orc-events.ts`, documenting unresolved event-shape decisions, and recording that `npm run build` timed out after 60 seconds without diagnostics. |
 
 ## Next-Session TODO Handoff
 
 ### Priority TODOs for Next Session
-1. Begin implementation with `P2-001` and `P2-002`, extending the Orc TypeScript contracts for transport envelopes, event schemas, and reducer targets before building transport code.
+1. Wire `src/orchestration/orc-events.ts` into `src/orchestration/orc-tracker.ts`, runtime subscribers, and future TUI modules so the new reducer output shapes become the single live telemetry contract.
 2. Confirm the exact repository path for the new Python LangGraph runner and add it to `P2-003` once the implementation branch starts touching files.
-3. Replace the remaining placeholder design-compliance mappings for Phase 1 and future Phase 3/4 work as those task inventories become concrete.
-4. Use the frozen `OrcCanonicalEventEnvelope` contract from `src/orchestration/orc-io.ts` to implement `P2-002` normalization and reducers without redefining transport metadata.
+3. Decide whether worker/wave counters should track only the latest worker snapshot or full status-transition history before live transport traffic lands.
+4. Replace the remaining placeholder design-compliance mappings for Phase 1 and future Phase 3/4 work as those task inventories become concrete.
 5. Record concrete validation commands, reviewer notes, or deferred-validation rationale directly in the Phase 2 ledger rows as implementation work starts.
 6. Continue to read `LANGEXTtracker.md` at session start and append updates rather than rewriting prior history.
 
