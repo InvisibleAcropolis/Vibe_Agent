@@ -1,8 +1,8 @@
 {
+  "cols": 16,
+  "rows": 3,
   "refreshEveryN": 4,
-  "cols": 4,
   "columnSpeed": [],
   "seeded": false,
-  "glyphSet": "binary",
-  "rows": 3
+  "glyphSet": "binary"
 }

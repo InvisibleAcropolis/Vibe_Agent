@@ -1,8 +1,8 @@
 {
-  "refreshEveryN": 4,
-  "cols": 4,
-  "columnSpeed": [],
+  "cols": 100.27,
+  "rows": 16.52,
+  "refreshEveryN": 2.3,
+  "columnSpeed": "[] 8",
   "seeded": false,
-  "glyphSet": "katakana",
-  "rows": 3
+  "glyphSet": "katakana"
 }

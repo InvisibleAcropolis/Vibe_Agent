@@ -237,7 +237,30 @@ async function main(): Promise<void> {
 		const secondFrame = (await flush(terminal)).join("\n");
 		assert.notStrictEqual(firstFrame, secondFrame);
 
+		app.selectDemo("src/components/anim_datarain.ts#renderDataRainKatakana");
+		(app as unknown as { editTextControl(controlId: string): void }).editTextControl("columnSpeed");
+		viewport = (await flush(terminal)).join("\n");
+		assert.match(viewport, /Column Speed/i);
+		terminal.sendInput("\u001b");
+		viewport = (await flush(terminal)).join("\n");
+		assert.doesNotMatch(viewport, /Column Speed/i);
+
 		app.selectDemo("src/components/anim_plasma.ts#renderPlasma");
+		const controlsPanel = (app as unknown as {
+			controlsPanel: {
+				selectedIndex: number;
+				controlsForRender(): Array<{ id: string }>;
+				handleInput(data: string): void;
+			};
+		}).controlsPanel;
+		const widthControlIndex = controlsPanel.controlsForRender().findIndex((entry) => entry.id === "width");
+		controlsPanel.selectedIndex = widthControlIndex;
+		controlsPanel.handleInput("\r");
+		viewport = (await flush(terminal)).join("\n");
+		assert.match(viewport, /Width/);
+		assert.strictEqual(app.currentValues().width, 27);
+		terminal.sendInput("\u001b");
+		await flush(terminal);
 		app.updateControlValue("width", 31);
 		const persistedPreset = JSON.parse(readFileSync(plasmaPresetPath, "utf-8")) as Record<string, unknown>;
 		assert.strictEqual(persistedPreset.width, 31);

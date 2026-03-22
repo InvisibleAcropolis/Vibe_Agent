@@ -3,7 +3,7 @@ import { createAppDebugger } from "../../src/app-debugger.js";
 import { DefaultAppStateStore } from "../../src/app-state-store.js";
 import { AnimationEngine, setGlobalAnimationEngine } from "../../src/animation-engine.js";
 import { paintBoxLineTwoParts, paintLine } from "../../src/ansi.js";
-import { KeybindingsManager } from "../../src/local-coding-agent.js";
+import { initTheme, KeybindingsManager } from "../../src/local-coding-agent.js";
 import { MouseEnabledTerminal } from "../../src/mouse-enabled-terminal.js";
 import type { MouseEvent, Rect } from "../../src/mouse.js";
 import { parseMouseEvent, pointInRect } from "../../src/mouse.js";
@@ -136,6 +136,7 @@ class ControlsPanel implements MouseAwareComponent {
 		private readonly getPresetActions: () => ActionRow[],
 		private readonly isFocused: () => boolean,
 		private readonly onAdjust: (controlId: string, delta: number) => void,
+		private readonly onEditNumber: (controlId: string) => void,
 		private readonly onToggle: (controlId: string) => void,
 		private readonly onCycleEnum: (controlId: string, direction: number) => void,
 		private readonly onEditText: (controlId: string) => void,
@@ -188,7 +189,8 @@ class ControlsPanel implements MouseAwareComponent {
 		switch (current.type) {
 			case "number":
 				if (matchesKey(data, "left")) this.onAdjust(current.id, -1);
-				if (matchesKey(data, "right") || matchesKey(data, "enter")) this.onAdjust(current.id, 1);
+				if (matchesKey(data, "right")) this.onAdjust(current.id, 1);
+				if (matchesKey(data, "enter")) this.onEditNumber(current.id);
 				break;
 			case "boolean":
 				if (matchesKey(data, "left") || matchesKey(data, "right") || matchesKey(data, "enter")) this.onToggle(current.id);
@@ -355,6 +357,7 @@ export class TUIStyleTestApp {
 	constructor(options: StyleTestAppOptions = {}) {
 		this.terminal = new MouseEnabledTerminal(options.terminal ?? new ProcessTerminal());
 		this.tui = new TUI(this.terminal, true);
+		initTheme("dark", false);
 		setGlobalAnimationEngine(this.animationEngine);
 		this.values.set(this.demos[0]!.id, getDefaultDemoValues(this.demos[0]!));
 		this.browserPanel = new BrowserPanel(
@@ -370,6 +373,7 @@ export class TUIStyleTestApp {
 			() => this.currentPresetActions(),
 			() => this.focusedPane === "controls",
 			(controlId, delta) => this.adjustNumberControl(controlId, delta),
+			(controlId) => this.editNumberControl(controlId),
 			(controlId) => this.toggleBooleanControl(controlId),
 			(controlId, direction) => this.cycleEnumControl(controlId, direction),
 			(controlId) => this.editTextControl(controlId),
@@ -676,6 +680,28 @@ export class TUIStyleTestApp {
 		const control = this.currentControl(controlId);
 		if (!control || control.type !== "boolean") return;
 		this.updateControlValue(controlId, !Boolean(this.currentValues()[controlId]));
+	}
+
+	private editNumberControl(controlId: string): void {
+		const control = this.currentControl(controlId);
+		if (!control || control.type !== "number") return;
+		this.stateStore.setFocusLabel(`edit:${controlId}`);
+		this.overlayController.openTextPrompt(
+			control.label,
+			control.description ?? "Enter an exact numeric value.",
+			String(this.currentValues()[controlId] ?? control.defaultValue),
+			(value) => {
+				const numeric = Number(value.trim());
+				if (!Number.isFinite(numeric)) {
+					this.setFocusPane("controls");
+					return;
+				}
+				const next = clamp(numeric, control.min, control.max);
+				this.updateControlValue(controlId, Number(next.toFixed(4)));
+				this.setFocusPane("controls");
+			},
+			() => this.setFocusPane("controls"),
+		);
 	}
 
 	private cycleEnumControl(controlId: string, direction: number): void {
