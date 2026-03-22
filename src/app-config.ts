@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { getAgentDir } from "./local-coding-agent.js";
+import { dirname } from "node:path";
+import { getVibeConfigPath } from "./durable/durable-paths.js";
 
 export type AppConfig = {
 	setupComplete: boolean;
@@ -25,7 +25,7 @@ function normalizeConfig(config: Partial<AppConfig>): AppConfig {
 }
 
 function defaultConfigPath(): string {
-	return join(getAgentDir(), "vibe-agent-config.json");
+	return getVibeConfigPath();
 }
 
 export const AppConfig = {

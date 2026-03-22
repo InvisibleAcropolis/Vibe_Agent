@@ -15,3 +15,4 @@ export type { WorkbenchInventory } from "./durable/workbench-inventory-service.j
 export { WorkbenchInventoryService } from "./durable/workbench-inventory-service.js";
 export { agentTheme } from "./theme.js";
 export type { Artifact, ArtifactType } from "./types.js";
+export { ensureVibeDurableStorage, getVibeConfigPath, getVibeDurableRoot, getVibeDurableTree } from "./durable/durable-paths.js";

@@ -1,7 +1,6 @@
 import { ProcessTerminal, type Component } from "@mariozechner/pi-tui";
 import { getEnvApiKey, stream, streamSimple, supportsXhigh, type ProviderStreamOptions } from "@mariozechner/pi-ai";
 import type { StreamFn } from "@mariozechner/pi-agent-core";
-import { join } from "node:path";
 import { AppLifecycleController } from "./app/app-lifecycle-controller.js";
 import { AppMessageSyncService } from "./app/app-message-sync-service.js";
 import { AppSetupService, type SavedDefaultValidation, type StartupGateAssessment } from "./app/app-setup-service.js";
@@ -13,6 +12,7 @@ import { AnimationEngine, setGlobalAnimationEngine } from "./animation-engine.js
 import { DefaultCommandController } from "./command-controller.js";
 import { createDefaultAgentHost } from "./debug-agent-host.js";
 import { ArtifactCatalogService } from "./durable/artifacts/artifact-catalog-service.js";
+import { ensureVibeDurableStorage, getVibeConfigPath, getVibeDurableRoot } from "./durable/durable-paths.js";
 import { LogCatalogService } from "./durable/logs/log-catalog-service.js";
 import { MemoryStoreService } from "./durable/memory/memory-store-service.js";
 import { WorkbenchInventoryService } from "./durable/workbench-inventory-service.js";
@@ -27,7 +27,6 @@ import { DefaultShellView, type ShellView } from "./shell-view.js";
 import { DefaultStartupController } from "./startup-controller.js";
 import {
 	AuthStorage,
-	getAgentDir,
 	initTheme,
 	KeybindingsManager as InternalKeybindingsManager,
 	ModelRegistry,
@@ -88,6 +87,7 @@ export class VibeAgentApp {
 	private readonly authStorage: AuthStorage;
 	private readonly modelRegistry: ModelRegistry;
 	private readonly configPath: string;
+	private readonly durableRootPath: string;
 	private readonly animEngine: AnimationEngine;
 	private readonly setupService: AppSetupService;
 	private readonly messageSync: AppMessageSyncService;
@@ -106,10 +106,14 @@ export class VibeAgentApp {
 				appRoot: process.cwd(),
 			});
 		this.stateStore = new DefaultAppStateStore();
-		this.configPath = options.configPath ?? join(getAgentDir(), "vibe-agent-config.json");
+		this.durableRootPath = options.durableRootPath ?? getVibeDurableRoot();
+		ensureVibeDurableStorage({ durableRoot: this.durableRootPath });
+		this.configPath = options.configPath ?? getVibeConfigPath("vibe-agent-config.json", { durableRoot: this.durableRootPath });
 		this.appConfig = AppConfig.load(this.configPath);
 		this.stateStore.setShowThinking(this.appConfig.showThinking ?? true);
 		this.previousRenderState = this.stateStoreSnapshot();
+		// Migration note: auth.json is still owned by pi-mono AuthStorage under getAgentDir().
+		// New Vibe durable storage under ~/Vibe_Agent is bootstrapped separately above.
 		this.authStorage = options.authStorage ?? AuthStorage.create();
 		this.modelRegistry = new ModelRegistry(this.authStorage);
 		this.setupService = new AppSetupService(this.authStorage, this.modelRegistry, options.getEnvApiKey ?? getEnvApiKey);
@@ -142,7 +146,9 @@ export class VibeAgentApp {
 				authStorage: this.authStorage,
 				modelRegistry: this.modelRegistry,
 				streamFn: createOpenAIReasoningSummaryStreamFn(),
-				sessionManager: SessionManager.create(process.cwd(), getRuntimeSessionDir("orc")),
+				// Migration note: Orc-owned session state now lives in ~/Vibe_Agent/sessions,
+				// while inherited coding-session state remains in pi-mono storage via getAgentDir().
+				sessionManager: SessionManager.create(process.cwd(), getRuntimeSessionDir("orc", process.cwd(), this.durableRootPath)),
 			},
 			onSessionReady: async (session) => {
 				await this.applyConfiguredModelToSession(session);

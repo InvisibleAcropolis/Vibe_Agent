@@ -28,6 +28,7 @@ export interface VibeAgentAppOptions {
 	host?: import("./agent-host.js").AgentHost;
 	debugger?: PiMonoAppDebugger;
 	configPath?: string;  // Optional override for config file path (used in tests)
+	durableRootPath?: string;
 	authStorage?: import("./local-coding-agent.js").AuthStorage;
 	getEnvApiKey?: (providerId: string) => string | undefined;
 	runtimes?: AgentRuntime[];
