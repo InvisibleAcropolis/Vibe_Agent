@@ -1,9 +1,13 @@
 {
-  "width": 36,
-  "height": 20,
+  "width": 106,
+  "height": 15,
   "coolingStrength": 0.45,
   "coolingPattern": "random",
-  "colorMapping": "default",
+  "bottomHueStep": 50,
+  "topHueStep": 0,
+  "saturation": 1,
+  "lightness": 0.5,
+  "renderMode": "glyph",
   "windStrength": 0.03,
   "windDirection": 0,
   "seedInterval": 2

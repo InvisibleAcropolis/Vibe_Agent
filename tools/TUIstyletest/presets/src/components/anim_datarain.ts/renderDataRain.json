@@ -1,6 +1,6 @@
 {
-  "cols": 20,
-  "rows": 3,
+  "cols": 24,
+  "rows": 4,
   "refreshEveryN": 4,
   "glyphSet": "default",
   "columnSpeed": [],

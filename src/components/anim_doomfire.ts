@@ -1,4 +1,4 @@
-import { style } from "../ansi.js";
+import { hslToHex, style } from "../ansi.js";
 import type { AnimationState } from "../animation-engine.js";
 import { requireNumberOption, requireStringOption } from "./anim-option-helpers.js";
 import { lerpColor } from "../themes/index.js";
@@ -9,42 +9,77 @@ export interface DoomFireOptions {
 	height?: number;
 	coolingStrength?: number;
 	coolingPattern?: "random" | "wave" | "radial" | "edge";
-	colorMapping?: "default" | "electric" | "lava" | "plasma";
+	bottomHueStep?: number;
+	topHueStep?: number;
+	saturation?: number;
+	lightness?: number;
+	renderMode?: "glyph" | "block";
 	windStrength?: number;
 	windDirection?: -1 | 0 | 1;
 	seedInterval?: number;
 }
 
 const PAL_DEFAULT = ' .,:;+=ox#%@';
-const PAL_ELECTRIC = ' .━┄┅┃◤◢❖✦';
-const PAL_LAVA = ' .oO@#%&8%B@';
-const PAL_PLASMA = ' ░▒▓█◐◑◒◓';
 const MODULE_ID = "anim_doomfire";
+
+interface GradientBias {
+	bottomHueOffset: number;
+	topHueOffset: number;
+	saturationOffset: number;
+	lightnessOffset: number;
+}
+
+function clampHueStep(value: number): number {
+	return Math.max(0, Math.min(256, value));
+}
+
+function clampUnit(value: number): number {
+	return Math.max(0, Math.min(1, value));
+}
+
+function getGradientBias(coolingPattern: DoomFireOptions["coolingPattern"]): GradientBias {
+	switch (coolingPattern) {
+		case "wave":
+			return { bottomHueOffset: 10, topHueOffset: 24, saturationOffset: 0.04, lightnessOffset: 0.03 };
+		case "radial":
+			return { bottomHueOffset: -6, topHueOffset: 30, saturationOffset: 0.08, lightnessOffset: 0.02 };
+		case "edge":
+			return { bottomHueOffset: 18, topHueOffset: -10, saturationOffset: -0.06, lightnessOffset: -0.04 };
+		default:
+			return { bottomHueOffset: 0, topHueOffset: 0, saturationOffset: 0, lightnessOffset: 0 };
+	}
+}
+
+function hueStepToHex(step: number, saturation: number, lightness: number): string {
+	const hue = (clampHueStep(step) / 256) * 360;
+	return hslToHex(hue, clampUnit(saturation), clampUnit(lightness));
+}
 
 export function createDoomFire(opts?: DoomFireOptions): (animState: AnimationState, theme: ThemeConfig) => string {
 	const W = requireNumberOption(opts?.width, MODULE_ID, "width");
 	const H = requireNumberOption(opts?.height, MODULE_ID, "height");
 	const coolingStrength = requireNumberOption(opts?.coolingStrength, MODULE_ID, "coolingStrength");
 	const coolingPattern = requireStringOption(opts?.coolingPattern, MODULE_ID, "coolingPattern");
-	const colorMapping = requireStringOption(opts?.colorMapping, MODULE_ID, "colorMapping");
+	const bottomHueStep = requireNumberOption(opts?.bottomHueStep, MODULE_ID, "bottomHueStep");
+	const topHueStep = requireNumberOption(opts?.topHueStep, MODULE_ID, "topHueStep");
+	const saturation = requireNumberOption(opts?.saturation, MODULE_ID, "saturation");
+	const lightness = requireNumberOption(opts?.lightness, MODULE_ID, "lightness");
+	const renderMode = requireStringOption(opts?.renderMode, MODULE_ID, "renderMode");
 	const windStrength = requireNumberOption(opts?.windStrength, MODULE_ID, "windStrength");
 	const windDirection = requireNumberOption(opts?.windDirection, MODULE_ID, "windDirection");
 	const seedInterval = requireNumberOption(opts?.seedInterval, MODULE_ID, "seedInterval");
-
-	let pal: string;
-	switch (colorMapping) {
-		case "electric": pal = PAL_ELECTRIC; break;
-		case "lava": pal = PAL_LAVA; break;
-		case "plasma": pal = PAL_PLASMA; break;
-		default: pal = PAL_DEFAULT;
-	}
 
 	const buf = new Uint8Array(W * H);
 	for (let x = 0; x < W; x++) buf[(H - 1) * W + x] = 255;
 
 	let tickCounter = 0;
+	const gradientBias = getGradientBias(coolingPattern);
+	const biasedSaturation = clampUnit(saturation + gradientBias.saturationOffset);
+	const biasedLightness = clampUnit(lightness + gradientBias.lightnessOffset);
+	const bottomHex = hueStepToHex(bottomHueStep + gradientBias.bottomHueOffset, biasedSaturation, biasedLightness);
+	const topHex = hueStepToHex(topHueStep + gradientBias.topHueOffset, biasedSaturation, biasedLightness);
 
-	return (_animState: AnimationState, theme: ThemeConfig): string => {
+	return (_animState: AnimationState, _theme: ThemeConfig): string => {
 		tickCounter++;
 
 		for (let y = 1; y < H; y++) {
@@ -90,17 +125,18 @@ export function createDoomFire(opts?: DoomFireOptions): (animState: AnimationSta
 
 		const rows: string[] = [];
 		for (let y = 0; y < H; y++) {
+			const rowT = H <= 1 ? 0 : 1 - (y / (H - 1));
+			const rowGradientColor = lerpColor(bottomHex, topHex, rowT);
 			let row = '';
 			for (let x = 0; x < W; x++) {
 				const heat = buf[y * W + x]!;
-				const t = heat / 255;
-				const charIdx = Math.min(pal.length - 1, Math.floor(t * pal.length));
-				const char = pal[charIdx]!;
-				if (heat < 8) {
-					row += style({ fg: '#1a3348' })(char);
-				} else {
-					row += style({ fg: lerpColor(theme.breathBaseColor, theme.breathPeakColor, t) })(char);
-				}
+				const heatT = heat / 255;
+				const charIdx = Math.min(PAL_DEFAULT.length - 1, Math.floor(heatT * PAL_DEFAULT.length));
+				const char = PAL_DEFAULT[charIdx]!;
+				const finalCellColor = lerpColor("#000000", rowGradientColor, heatT);
+				row += renderMode === "block"
+					? style({ bg: finalCellColor })(" ")
+					: style({ fg: finalCellColor })(char);
 			}
 			rows.push(row);
 		}
