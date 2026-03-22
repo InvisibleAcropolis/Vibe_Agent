@@ -12,7 +12,7 @@ import { ArtifactCatalogService } from "../src/durable/artifacts/artifact-catalo
 import { LogCatalogService } from "../src/durable/logs/log-catalog-service.js";
 import { MemoryStoreService } from "../src/durable/memory/memory-store-service.js";
 import { WorkbenchInventoryService } from "../src/durable/workbench-inventory-service.js";
-import { ensureVibeDurableStorage, getVibeConfigPath } from "../src/durable/durable-paths.js";
+import { ensureVibeDurableStorage, getVibeArtifactCatalogPath, getVibeConfigPath, getVibeLogCatalogPath, getVibeMemoryCatalogPath, getVibeTrackerCatalogPath } from "../src/durable/durable-paths.js";
 import { getRuntimeSessionDir } from "../src/runtime/runtime-session-namespace.js";
 import type { AgentRuntime, RuntimeDescriptor } from "../src/runtime/agent-runtime.js";
 import { CompatAgentRuntime } from "../src/runtime/compat-agent-runtime.js";
@@ -321,14 +321,15 @@ test("RuntimeCoordinator starts active and background runtimes", async () => {
 	assert.strictEqual(toolRuntime.stopped, true);
 });
 
-test("Durable services catalog artifacts, memory stores, and logs", () => {
-	const artifactCatalog = new ArtifactCatalogService();
-	const memoryStores = new MemoryStoreService();
-	const logs = new LogCatalogService();
-	const inventory = new WorkbenchInventoryService(artifactCatalog, memoryStores, logs);
+test("Durable services catalog artifacts, memory stores, logs, and orchestration documents", () => {
+	const durableRoot = path.join(tempRoot, "durable-services-root");
+	const artifactCatalog = new ArtifactCatalogService({ durableRoot });
+	const memoryStores = new MemoryStoreService({ durableRoot });
+	const logs = new LogCatalogService({ durableRoot });
+	const inventory = new WorkbenchInventoryService(artifactCatalog, memoryStores, logs, { durableRoot });
 
 	artifactCatalog.replaceFromMessages(
-		{ runtimeId: "coding", sessionId: "session-1" },
+		{ runtimeId: "coding", sessionId: "session-1", threadId: "thread-7", phase: "planning", waveNumber: 2 },
 		[
 			{
 				role: "assistant",
@@ -337,7 +338,7 @@ test("Durable services catalog artifacts, memory stores, and logs", () => {
 						type: "toolCall",
 						id: "call-1",
 						name: "write",
-						arguments: { file_path: "src/test.ts", content: "export const value = 1;" },
+						arguments: { file_path: "plans/wave-2.md", content: "# Wave 2 Plan\n- capture artifact" },
 					},
 				],
 			} as any,
@@ -345,6 +346,10 @@ test("Durable services catalog artifacts, memory stores, and logs", () => {
 	);
 	memoryStores.registerManifest({
 		ownerRuntimeId: "worker",
+		sessionId: "session-1",
+		threadId: "thread-7",
+		phase: "planning",
+		waveNumber: 2,
 		sourcePath: "memory/manifest.json",
 		manifest: {
 			name: "Primary Memory",
@@ -355,6 +360,10 @@ test("Durable services catalog artifacts, memory stores, and logs", () => {
 	});
 	logs.registerLog({
 		ownerRuntimeId: "coding",
+		sessionId: "session-1",
+		threadId: "thread-7",
+		phase: "planning",
+		waveNumber: 2,
 		sourcePath: ".debug/run-1",
 		logType: "debug-snapshot",
 		label: "Debug Snapshot",
@@ -363,10 +372,26 @@ test("Durable services catalog artifacts, memory stores, and logs", () => {
 
 	const snapshot = inventory.getInventory();
 	assert.strictEqual(snapshot.artifacts.length, 1);
-	assert.strictEqual(snapshot.artifacts[0]?.filePath, "src/test.ts");
+	assert.strictEqual(snapshot.artifacts[0]?.filePath, "plans/wave-2.md");
+	assert.strictEqual(snapshot.artifacts[0]?.phase, "planning");
 	assert.strictEqual(snapshot.memoryStores[0]?.storeType, "vector");
 	assert.ok(snapshot.memoryStores[0]?.tags.includes("index"));
 	assert.strictEqual(snapshot.logs[0]?.logType, "debug-snapshot");
+	assert.ok(snapshot.orchestrationDocuments.some((document) => document.documentType === "plan" && document.label === "wave-2.md"));
+	assert.ok(snapshot.orchestrationDocuments.some((document) => document.relatedRecordIds.includes(snapshot.logs[0]!.id)));
+	assert.strictEqual(statSync(getVibeArtifactCatalogPath({ durableRoot })).isFile(), true);
+	assert.strictEqual(statSync(getVibeMemoryCatalogPath({ durableRoot })).isFile(), true);
+	assert.strictEqual(statSync(getVibeLogCatalogPath({ durableRoot })).isFile(), true);
+	assert.strictEqual(statSync(getVibeTrackerCatalogPath({ durableRoot })).isFile(), true);
+
+	const reloadedArtifacts = new ArtifactCatalogService({ durableRoot });
+	const reloadedMemory = new MemoryStoreService({ durableRoot });
+	const reloadedLogs = new LogCatalogService({ durableRoot });
+	const reloadedInventory = new WorkbenchInventoryService(reloadedArtifacts, reloadedMemory, reloadedLogs, { durableRoot });
+	assert.strictEqual(reloadedArtifacts.list().length, 1);
+	assert.strictEqual(reloadedMemory.list()[0]?.threadId, "thread-7");
+	assert.strictEqual(reloadedLogs.list()[0]?.waveNumber, 2);
+	assert.ok(reloadedInventory.getInventory().orchestrationDocuments.length >= 3);
 });
 
 test("Vibe durable storage bootstraps the full private directory tree", () => {
