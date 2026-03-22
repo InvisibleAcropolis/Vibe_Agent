@@ -1,11 +1,15 @@
 {
-  "cols": 19.67,
-  "rows": 28.21,
-  "damping": 0,
-  "disturbInterval": 2,
-  "raindropChance": 2,
-  "raindropStrength": 10,
+  "cols": 24,
+  "rows": 8,
+  "damping": 0.98,
+  "disturbInterval": 40,
+  "raindropChance": 0.3,
+  "raindropStrength": 180,
   "reflectionEnabled": true,
-  "refractionStrength": 7.97,
-  "multipleDrops": false
+  "refractionStrength": 0.5,
+  "multipleDrops": false,
+  "baseHueStep": 148,
+  "raindropHueStep": 132,
+  "raindropSize": 3,
+  "raindropSizeRange": 1.5
 }

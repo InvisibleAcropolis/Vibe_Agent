@@ -1,0 +1,15 @@
+{
+  "cols": 107,
+  "rows": 15,
+  "damping": 0.991,
+  "disturbInterval": 40,
+  "raindropChance": 0.9,
+  "raindropStrength": 140,
+  "reflectionEnabled": true,
+  "refractionStrength": 0.5,
+  "multipleDrops": true,
+  "baseHueStep": 48,
+  "raindropHueStep": 162,
+  "raindropSize": 2.4,
+  "raindropSizeRange": 3.5
+}

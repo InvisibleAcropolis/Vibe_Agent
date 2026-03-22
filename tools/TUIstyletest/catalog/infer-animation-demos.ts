@@ -9,6 +9,20 @@ import type {
 	StyleTestRuntimeContext,
 } from "../../../src/style-test-contract.js";
 import { createPlaceholderRuntime } from "../../../src/style-test-fixtures.js";
+import {
+	WATER_RIPPLE_DEFAULTS,
+	WATER_RIPPLE_NUMBER_OPTION_SPECS,
+	isWaterRippleOptionsPresetValid,
+	normalizeWaterRippleOptions,
+	type WaterRippleOptions,
+} from "../../../src/components/anim_waterripple.js";
+import {
+	VORTEX_DEFAULTS,
+	VORTEX_NUMBER_OPTION_SPECS,
+	isVortexOptionsPresetValid,
+	normalizeVortexOptions,
+	type VortexOptions,
+} from "../../../src/components/anim_vortex.js";
 import type { LoadedStyleModule } from "./module-loader.js";
 import { DemoPresetStore } from "./demo-preset-store.js";
 
@@ -40,6 +54,9 @@ interface AnimationAdapter {
 	omitOptionFields?: string[];
 	fixedOptions?: Record<string, unknown>;
 	extraControls?: StyleTestControl[];
+	customizeField?(field: InferredField): InferredField;
+	loadStoredValues?(presetStore: DemoPresetStore, presetId: string): Record<string, unknown> | undefined;
+	saveStoredValues?(presetStore: DemoPresetStore, values: Record<string, unknown>, presetId: string): string;
 	createRuntime?(
 		exportValue: unknown,
 		context: StyleTestRuntimeContext,
@@ -136,6 +153,113 @@ const ADAPTERS: Record<string, AnimationAdapter> = {
 	},
 	"src/components/anim_wavesweep.ts#renderWaveSweepDual": {
 		omitOptionFields: ["phaseOffset"],
+	},
+	"src/components/anim_waterripple.ts#createWaterRipple": {
+		customizeField(field) {
+			if (field.control.type === "number" && field.id in WATER_RIPPLE_NUMBER_OPTION_SPECS) {
+				const spec = WATER_RIPPLE_NUMBER_OPTION_SPECS[field.id as keyof typeof WATER_RIPPLE_NUMBER_OPTION_SPECS];
+				return {
+					...field,
+					defaultValue: spec.defaultValue,
+					control: {
+						...field.control,
+						defaultValue: spec.defaultValue,
+						min: spec.min,
+						max: spec.max,
+						step: spec.step,
+					},
+				};
+			}
+			if (field.control.type === "boolean" && field.id in WATER_RIPPLE_DEFAULTS) {
+				const defaultValue = WATER_RIPPLE_DEFAULTS[field.id as keyof typeof WATER_RIPPLE_DEFAULTS];
+				if (typeof defaultValue === "boolean") {
+					return {
+						...field,
+						defaultValue,
+						control: {
+							...field.control,
+							defaultValue,
+						},
+					};
+				}
+			}
+			return field;
+		},
+		loadStoredValues(presetStore, presetId) {
+			const stored = presetStore.load(presetId);
+			if (isWaterRippleOptionsPresetValid(stored)) {
+				return stored;
+			}
+			const repaired: Record<string, unknown> = { ...WATER_RIPPLE_DEFAULTS };
+			presetStore.save(repaired, presetId);
+			return repaired;
+		},
+		saveStoredValues(presetStore, values, presetId) {
+			const normalized: Record<string, unknown> = {
+				...normalizeWaterRippleOptions(values as WaterRippleOptions),
+			};
+			return presetStore.save(normalized, presetId);
+		},
+	},
+	"src/components/anim_vortex.ts#createVortex": {
+		customizeField(field) {
+			if (field.control.type === "number" && field.id in VORTEX_NUMBER_OPTION_SPECS) {
+				const spec = VORTEX_NUMBER_OPTION_SPECS[field.id as keyof typeof VORTEX_NUMBER_OPTION_SPECS];
+				return {
+					...field,
+					defaultValue: spec.defaultValue,
+					control: {
+						...field.control,
+						defaultValue: spec.defaultValue,
+						min: spec.min,
+						max: spec.max,
+						step: spec.step,
+					},
+				};
+			}
+			if (field.control.type === "boolean" && field.id in VORTEX_DEFAULTS) {
+				const defaultValue = VORTEX_DEFAULTS[field.id as keyof typeof VORTEX_DEFAULTS];
+				if (typeof defaultValue === "boolean") {
+					return {
+						...field,
+						defaultValue,
+						control: {
+							...field.control,
+							defaultValue,
+						},
+					};
+				}
+			}
+			if (field.control.type === "enum" && field.id in VORTEX_DEFAULTS) {
+				const defaultValue = VORTEX_DEFAULTS[field.id as keyof typeof VORTEX_DEFAULTS];
+				if (typeof defaultValue === "string" && field.control.options.includes(defaultValue)) {
+					return {
+						...field,
+						defaultValue,
+						control: {
+							...field.control,
+							defaultValue,
+						},
+					};
+				}
+			}
+			return field;
+		},
+		loadStoredValues(presetStore, presetId) {
+			const stored = presetStore.load(presetId);
+			if (isVortexOptionsPresetValid(stored)) {
+				return stored;
+			}
+			const repaired: Record<string, unknown> = { ...VORTEX_DEFAULTS };
+			presetStore.save(repaired, presetId);
+			return repaired;
+		},
+		saveStoredValues(presetStore, values, presetId) {
+			const normalized: Record<string, unknown> = {
+				...normalizeVortexOptions(values as VortexOptions),
+			};
+			return presetStore.save(normalized, presetId);
+		},
 	},
 };
 
@@ -501,6 +625,23 @@ function collectAnimationExports(
 	return exports.sort((a, b) => a.exportName.localeCompare(b.exportName));
 }
 
+function loadStoredValues(
+	adapter: AnimationAdapter | undefined,
+	presetStore: DemoPresetStore,
+	presetId: string,
+): Record<string, unknown> | undefined {
+	return adapter?.loadStoredValues ? adapter.loadStoredValues(presetStore, presetId) : presetStore.load(presetId);
+}
+
+function saveStoredValues(
+	adapter: AnimationAdapter | undefined,
+	presetStore: DemoPresetStore,
+	values: Record<string, unknown>,
+	presetId: string,
+): string {
+	return adapter?.saveStoredValues ? adapter.saveStoredValues(presetStore, values, presetId) : presetStore.save(values, presetId);
+}
+
 function buildStoredValues(fields: InferredField[], extraControls: StyleTestControl[], values: StyleTestControlValues): Record<string, unknown> {
 	const stored: Record<string, unknown> = {};
 	for (const field of fields) {
@@ -606,10 +747,12 @@ export function inferAnimationStyleMetadata(loaded: LoadedStyleModule, rootDir: 
 	for (const inferred of exports) {
 		const demoKey = `${loaded.sourceFile}#${inferred.exportName}`;
 		const adapter = ADAPTERS[demoKey];
-		const fields = inferred.fields.filter((field) => !(adapter?.omitOptionFields ?? []).includes(field.id));
+		const fields = inferred.fields
+			.filter((field) => !(adapter?.omitOptionFields ?? []).includes(field.id))
+			.map((field) => (adapter?.customizeField ? adapter.customizeField(field) : field));
 		const extraControls = adapter?.extraControls ?? [];
 		const presetStore = new DemoPresetStore(rootDir, loaded.sourceFile, inferred.exportName);
-		const initialValues = buildUiValues(fields, extraControls, presetStore.load("default"));
+		const initialValues = buildUiValues(fields, extraControls, loadStoredValues(adapter, presetStore, "default"));
 		metadataByExport[inferred.exportName] = {
 			title: humanizeIdentifier(inferred.exportName),
 			category: "Animations",
@@ -618,10 +761,10 @@ export function inferAnimationStyleMetadata(loaded: LoadedStyleModule, rootDir: 
 			controls: buildControls(fields, extraControls, initialValues),
 			initialValues,
 			listPresetVariants: () => presetStore.listVariants(),
-			loadValues: (presetId = "default") => buildUiValues(fields, extraControls, presetStore.load(presetId)),
+			loadValues: (presetId = "default") => buildUiValues(fields, extraControls, loadStoredValues(adapter, presetStore, presetId)),
 			saveValues: (values, presetId = "default") => {
 				const storedValues = buildStoredValues(fields, extraControls, values);
-				return presetStore.save({ ...storedValues, ...(adapter?.fixedOptions ?? {}) }, presetId);
+				return saveStoredValues(adapter, presetStore, { ...storedValues, ...(adapter?.fixedOptions ?? {}) }, presetId);
 			},
 			createRuntime: (_moduleNamespace, _exportName, exportValue, context, values) => {
 				const storedValues = buildStoredValues(fields, extraControls, values);

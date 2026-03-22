@@ -1,10 +1,17 @@
 {
-  "cols": 55,
-  "rows": 22,
-  "count": 32,
-  "pullStrength": 0.26,
-  "trailLength": 10,
-  "spawnPattern": "ring",
+  "cols": 24,
+  "rows": 10,
+  "count": 35,
+  "pullStrength": 0.04,
+  "trailLength": 3,
+  "spawnPattern": "random",
   "colorTrail": true,
-  "magneticField": false
+  "magneticField": false,
+  "size": 1,
+  "glyphSet": "default",
+  "glyphRandomize": false,
+  "startHueStep": 148,
+  "endHueStep": 132,
+  "pulse": false,
+  "hueRotateSpeed": 1
 }
