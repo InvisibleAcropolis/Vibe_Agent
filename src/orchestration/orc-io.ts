@@ -34,6 +34,117 @@ export type OrcArtifactKind = "artifact" | "log";
 export type OrcDocumentKind = "plan" | "roadmap" | "research" | "session" | "tracker" | "artifact-manifest";
 export type OrcDocumentFormat = "markdown" | "json";
 
+export type OrcRunCorrelationId = string;
+export type OrcEventId = string;
+export type OrcStreamSequenceNumber = number;
+
+/**
+ * High-level category assigned before events are reduced into control-plane state or view models.
+ */
+export type OrcEventCategory =
+	| "transport"
+	| "lifecycle"
+	| "agent_message"
+	| "tool_call"
+	| "tool_result"
+	| "checkpoint"
+	| "tracker"
+	| "diagnostic"
+	| "security";
+
+/**
+ * Severity is carried end-to-end so transport warnings and worker failures can be surfaced
+ * without requiring each consumer to invent its own mapping.
+ */
+export type OrcEventSeverity = "debug" | "info" | "notice" | "warning" | "error" | "critical";
+
+/**
+ * Lifecycle status models the execution state of the event itself, not the reduced control-plane phase.
+ */
+export type OrcEventLifecycleStatus =
+	| "declared"
+	| "queued"
+	| "started"
+	| "streaming"
+	| "waiting_on_input"
+	| "succeeded"
+	| "failed"
+	| "cancelled"
+	| "timed_out";
+
+export type OrcEventActorKind = "agent" | "user" | "tool" | "computer" | "system" | "transport";
+export type OrcInteractionTarget = "user" | "computer";
+export type OrcExecutionEnvironment = "tui" | "cli" | "worker" | "tool_runtime" | "transport" | "external";
+
+/**
+ * Minimum actor metadata required to distinguish agent→user interactions from agent→computer/tool activity.
+ */
+export interface OrcEventActorMetadata {
+	kind: OrcEventActorKind;
+	id: string;
+	label: string;
+	workerId?: string;
+	runCorrelationId?: OrcRunCorrelationId;
+}
+
+/**
+ * WHAT happened in the canonical envelope.
+ */
+export interface OrcEventActionDescriptor {
+	category: OrcEventCategory;
+	name: string;
+	description?: string;
+	severity: OrcEventSeverity;
+	status: OrcEventLifecycleStatus;
+}
+
+/**
+ * HOW the activity was delivered or performed.
+ */
+export interface OrcEventDeliveryDescriptor {
+	channel: "stdout_jsonl" | "stderr" | "tracker_snapshot" | "state_reducer" | "event_bus" | "direct";
+	interactionTarget: OrcInteractionTarget;
+	environment: OrcExecutionEnvironment;
+	transport?: "python_child_process" | "in_process" | "future_remote_runner";
+	toolName?: string;
+	toolCallId?: string;
+	checkpointId?: string;
+}
+
+/**
+ * Origin metadata preserves provenance needed for debugging and durable handoff across transport,
+ * reducers, and future replay tooling.
+ */
+export interface OrcEventOriginMetadata {
+	runCorrelationId: OrcRunCorrelationId;
+	eventId: OrcEventId;
+	streamSequence: OrcStreamSequenceNumber;
+	emittedAt: string;
+	source: "python_runner" | "orc_runtime" | "orc_tracker" | "tui" | "future_replay";
+	threadId?: string;
+	phase?: string;
+	waveId?: string;
+	workerId?: string;
+	parentEventId?: OrcEventId;
+}
+
+/**
+ * Canonical transport envelope shared by Python telemetry, the TypeScript transport, and the future
+ * Global Event Bus. The required fields answer WHO did WHAT HOW at WHEN, while `rawPayload` preserves
+ * namespaced source material for debugging and downstream normalization.
+ */
+export interface OrcCanonicalEventEnvelope<TRawPayload = Record<string, unknown>> {
+	origin: OrcEventOriginMetadata;
+	who: OrcEventActorMetadata;
+	what: OrcEventActionDescriptor;
+	how: OrcEventDeliveryDescriptor;
+	when: string;
+	rawPayload?: {
+		namespace: string;
+		payload: TRawPayload;
+	};
+}
+
 /**
  * Stable Orc durable-artifact identity used across markdown documents and paired manifests.
  */
