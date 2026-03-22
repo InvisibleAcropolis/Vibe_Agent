@@ -3,6 +3,7 @@ import { join } from "node:path";
 import {
 	getVibeArtifactsDir,
 	getVibeLangExtTrackerSnapshotPath,
+	getVibeLogsDir,
 	getVibePlansDir,
 	getVibeResearchDir,
 	getVibeRoadmapsDir,
@@ -25,6 +26,14 @@ export interface OrcArtifactLocation {
 	dirPath: string;
 	manifestDirPath: string;
 	reservedNames?: string[];
+}
+
+export interface OrcEventLogStorageLocation {
+	rootDirPath: string;
+	threadDirPath: string;
+	runDirPath: string;
+	segmentDirPath: string;
+	manifestPath: string;
 }
 
 export interface ResolveOrcDocumentInput {
@@ -59,6 +68,22 @@ export class NoopOrcStorage implements OrcStorage {
 	async listLogs(_threadId: string, _checkpointId?: string): Promise<OrcArtifactLogEntry[]> {
 		return [];
 	}
+}
+
+
+export function getOrcEventLogStorageLocation(threadId: string, runCorrelationId: string, options?: VibeDurablePathOptions): OrcEventLogStorageLocation {
+	const safeThreadId = threadId.trim().replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "unknown-thread";
+	const safeRunId = runCorrelationId.trim().replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "unknown-run";
+	const rootDirPath = join(getVibeLogsDir(options), "orchestration", "event-log");
+	const threadDirPath = join(rootDirPath, "threads", safeThreadId);
+	const runDirPath = join(threadDirPath, "runs", safeRunId);
+	return {
+		rootDirPath,
+		threadDirPath,
+		runDirPath,
+		segmentDirPath: join(runDirPath, "segments"),
+		manifestPath: join(runDirPath, "manifest.json"),
+	};
 }
 
 export function getOrcArtifactLocations(options?: VibeDurablePathOptions): OrcArtifactLocation[] {
