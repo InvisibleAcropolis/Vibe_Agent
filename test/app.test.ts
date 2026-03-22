@@ -1148,11 +1148,81 @@ test("createOrcTuiTelemetrySubscriber batches bursty event-bus updates into TUI-
 	assert.equal(notifications.length, 2);
 	assert.equal(state.dashboard.fields.activeThread.value, "thread-tui");
 	assert.equal(state.subagentActivity[0]?.agentId, "agent-1");
+	assert.equal(state.subagentSurfaces.entries[0]?.identity.surfaceKey, "subagent:run-tui:wave-1:agent-1:worker-1");
+	assert.equal(state.subagentSurfaces.focusedSurfaceKey, "subagent:run-tui:wave-1:agent-1:worker-1");
 	assert.equal(state.transportHealth.status, "degraded");
 	assert.deepStrictEqual(state.eventLogTail.map((entry) => entry.eventId), ["tui-3", "tui-2", "tui-1"]);
 	assert.equal(state.recentErrors[0]?.eventId, "tui-3");
 
 	unsubscribe();
+	subscriber.dispose();
+	bus.dispose();
+});
+
+
+
+test("createOrcTuiTelemetrySubscriber retains backgrounded subagent surfaces, collapses terminal ones, and closes deterministically", async () => {
+	const bus = new OrcAsyncEventBus({ component: "test-tui-surfaces" });
+	const subscriber = createOrcTuiTelemetrySubscriber({
+		threadId: "thread-surfaces",
+		batchWindowMs: 0,
+		project: { projectId: "proj-surfaces", projectRoot: "/tmp/project-surfaces" },
+	});
+	subscriber.attach(bus, { threadId: "thread-surfaces" });
+
+	const mkWorkerEvent = (sequence: number, workerId: string, agentId: string, waveId: string, status: "queued" | "running" | "completed" | "failed"): OrcBusEvent => ({
+		kind: "worker.status",
+		payload: { workerId, waveId, status, summary: `${workerId}-${status}` },
+		envelope: {
+			origin: { eventId: `surface-${sequence}`, emittedAt: `2026-03-22T04:00:0${sequence}.000Z`, threadId: "thread-surfaces", runCorrelationId: "run-surfaces", streamSequence: sequence, source: "future_replay", workerId, waveId },
+			who: { id: agentId, kind: "agent", label: `Agent ${agentId}`, workerId },
+			what: { category: "lifecycle", name: `worker-${status}`, status: status === "failed" ? "failed" : status === "completed" ? "succeeded" : "started", severity: status === "failed" ? "error" : "notice", description: `${workerId} ${status}` },
+			how: { channel: "stdout_jsonl", interactionTarget: "computer", environment: "worker" },
+			when: `2026-03-22T04:00:0${sequence}.000Z`,
+		},
+		interaction: { target: "computer", lane: "agent_interacting_with_computer", isUserFacing: false, isComputerFacing: true },
+		debug: { normalizedFrom: "test" },
+	});
+
+	bus.publish(mkWorkerEvent(1, "worker-1", "agent-1", "wave-1", "queued"));
+	bus.publish(mkWorkerEvent(2, "worker-2", "agent-2", "wave-1", "running"));
+	await new Promise((resolve) => setTimeout(resolve, 5));
+
+	let state = subscriber.getState();
+	assert.deepStrictEqual(state.subagentSurfaces.stackedSurfaceKeys, [
+		"subagent:run-surfaces:wave-1:agent-1:worker-1",
+		"subagent:run-surfaces:wave-1:agent-2:worker-2",
+	]);
+	assert.equal(state.subagentSurfaces.focusedSurfaceKey, "subagent:run-surfaces:wave-1:agent-2:worker-2");
+
+	subscriber.focusSubagentSurface("subagent:run-surfaces:wave-1:agent-1:worker-1");
+	state = subscriber.getState();
+	assert.equal(state.subagentSurfaces.focusedSurfaceKey, "subagent:run-surfaces:wave-1:agent-1:worker-1");
+	assert.deepStrictEqual(state.subagentSurfaces.stackedSurfaceKeys, [
+		"subagent:run-surfaces:wave-1:agent-2:worker-2",
+		"subagent:run-surfaces:wave-1:agent-1:worker-1",
+	]);
+
+	bus.publish(mkWorkerEvent(3, "worker-2", "agent-2", "wave-1", "completed"));
+	await new Promise((resolve) => setTimeout(resolve, 5));
+	state = subscriber.getState();
+	const completed = state.subagentSurfaces.entries.find((entry) => entry.identity.workerId === "worker-2");
+	assert.equal(completed?.retention, "collapsed-summary");
+	assert.ok(state.subagentSurfaces.summaryRowKeys.includes("subagent:run-surfaces:wave-1:agent-2:worker-2"));
+
+	bus.publish(mkWorkerEvent(4, "worker-1", "agent-1", "wave-1", "failed"));
+	await new Promise((resolve) => setTimeout(resolve, 5));
+	state = subscriber.getState();
+	const failed = state.subagentSurfaces.entries.find((entry) => entry.identity.workerId === "worker-1");
+	assert.equal(failed?.retention, "background");
+	assert.equal(failed?.status, "failed");
+
+	subscriber.closeSubagentSurface("subagent:run-surfaces:wave-1:agent-1:worker-1");
+	state = subscriber.getState();
+	assert.equal(state.subagentSurfaces.focusedSurfaceKey, undefined);
+	assert.deepStrictEqual(state.subagentSurfaces.stackedSurfaceKeys, []);
+	assert.equal(state.subagentSurfaces.entries.find((entry) => entry.identity.workerId === "worker-1")?.retention, "closed");
+
 	subscriber.dispose();
 	bus.dispose();
 });
