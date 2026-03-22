@@ -68,7 +68,7 @@ export class HelpOverlay implements MouseAwareOverlay, Focusable {
 		lines.push(row("/model", "Pick the default model for the active provider"));
 		lines.push(row("/logout", "Disconnect a provider and clear invalid saved defaults"));
 		lines.push(note("Recommended defaults: Google Antigravity OAuth, then OpenAI Codex OAuth."));
-		lines.push(note("Credentials persist in auth.json; app defaults persist in vibe-agent-config.json."));
+		lines.push(note("Pi-mono credentials stay in auth.json under ~/.pi/agent; Vibe defaults now persist in ~/Vibe_Agent/config/vibe-agent-config.json."));
 		lines.push(blank());
 
 		lines.push(heading("Global Keybindings"));

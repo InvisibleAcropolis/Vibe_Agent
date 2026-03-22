@@ -16,6 +16,9 @@ export interface ArtifactRecord extends DurableRecordMetadata {
 export interface ArtifactExtractionContext {
 	runtimeId: string;
 	sessionId?: string;
+	threadId?: string;
+	phase?: string;
+	waveNumber?: number;
 }
 
 type ToolCallSummary = {
@@ -28,45 +31,61 @@ export function extractArtifactRecords(messages: AgentMessage[], context: Artifa
 	const toolCalls = new Map<string, ToolCallSummary>();
 	const timestamp = new Date().toISOString();
 	let artifactCounter = 0;
+	let markdownCounter = 0;
 
 	for (const message of messages) {
 		if (message.role === "assistant") {
 			const assistant = message as AssistantMessage;
 			for (const content of assistant.content) {
-				if (content.type !== "toolCall") {
+				if (content.type === "toolCall") {
+					const filePath =
+						typeof content.arguments?.file_path === "string"
+							? content.arguments.file_path
+							: undefined;
+					toolCalls.set(content.id, {
+						name: content.name,
+						filePath,
+					});
+
+					if (content.name === "write" && filePath) {
+						artifacts.push(
+							createArtifactRecord(++artifactCounter, context, timestamp, {
+								type: filePath.endsWith(".md") ? "text" : "file",
+								title: path.basename(filePath) || "file",
+								content: String(content.arguments?.content ?? ""),
+								filePath,
+								language: guessLanguage(filePath),
+								sourceToolName: content.name,
+								tags: filePath.endsWith(".md") ? ["markdown", "plan"] : undefined,
+								kind: filePath.endsWith(".md") ? "artifact:markdown-plan" : undefined,
+							}),
+						);
+					}
+
+					if (content.name === "edit" && filePath) {
+						artifacts.push(
+							createArtifactRecord(++artifactCounter, context, timestamp, {
+								type: "diff",
+								title: `Edit: ${path.basename(filePath) || "file"}`,
+								content: formatEditDiff(content.arguments ?? {}),
+								filePath,
+								sourceToolName: content.name,
+							}),
+						);
+					}
 					continue;
 				}
 
-				const filePath =
-					typeof content.arguments?.file_path === "string"
-						? content.arguments.file_path
-						: undefined;
-				toolCalls.set(content.id, {
-					name: content.name,
-					filePath,
-				});
-
-				if (content.name === "write" && filePath) {
+				if (content.type === "text" && typeof content.text === "string" && isMarkdownPlanningArtifact(content.text, context)) {
+					markdownCounter += 1;
 					artifacts.push(
 						createArtifactRecord(++artifactCounter, context, timestamp, {
-							type: "file",
-							title: path.basename(filePath) || "file",
-							content: String(content.arguments?.content ?? ""),
-							filePath,
-							language: guessLanguage(filePath),
-							sourceToolName: content.name,
-						}),
-					);
-				}
-
-				if (content.name === "edit" && filePath) {
-					artifacts.push(
-						createArtifactRecord(++artifactCounter, context, timestamp, {
-							type: "diff",
-							title: `Edit: ${path.basename(filePath) || "file"}`,
-							content: formatEditDiff(content.arguments ?? {}),
-							filePath,
-							sourceToolName: content.name,
+							type: "text",
+							title: inferMarkdownTitle(content.text, markdownCounter),
+							content: content.text,
+							language: "markdown",
+							tags: ["markdown", "plan", "orchestration"],
+							kind: "artifact:markdown-plan",
 						}),
 					);
 				}
@@ -92,12 +111,14 @@ export function extractArtifactRecords(messages: AgentMessage[], context: Artifa
 
 			artifacts.push(
 				createArtifactRecord(++artifactCounter, context, timestamp, {
-					type: "file",
+					type: toolCall.filePath?.endsWith(".md") ? "text" : "file",
 					title: toolCall.filePath ? `Read: ${path.basename(toolCall.filePath) || "file"}` : "Read Result",
 					content: textContent,
 					filePath: toolCall.filePath,
 					language: toolCall.filePath ? guessLanguage(toolCall.filePath) : undefined,
 					sourceToolName: toolCall.name,
+					tags: toolCall.filePath?.endsWith(".md") ? ["markdown"] : undefined,
+					kind: toolCall.filePath?.endsWith(".md") ? "artifact:markdown" : undefined,
 				}),
 			);
 		}
@@ -121,18 +142,32 @@ function createArtifactRecord(
 	index: number,
 	context: ArtifactExtractionContext,
 	timestamp: string,
-	partial: Pick<ArtifactRecord, "type" | "title" | "content" | "filePath" | "language" | "sourceToolName">,
+	partial: Pick<ArtifactRecord, "type" | "title" | "content" | "filePath" | "language" | "sourceToolName"> & {
+		tags?: string[];
+		kind?: string;
+	},
 ): ArtifactRecord {
 	return {
-		id: `${context.runtimeId}:${context.sessionId ?? "session"}:artifact:${index}`,
-		kind: `artifact:${partial.type}`,
+		id: `${context.runtimeId}:${context.sessionId ?? "session"}:${context.threadId ?? "thread"}:artifact:${index}`,
+		kind: partial.kind ?? `artifact:${partial.type}`,
 		ownerRuntimeId: context.runtimeId,
 		sessionId: context.sessionId,
+		threadId: context.threadId,
+		phase: context.phase,
+		waveNumber: context.waveNumber,
 		sourcePath: partial.filePath,
 		createdAt: timestamp,
 		updatedAt: timestamp,
 		status: "ready",
-		tags: [partial.type],
+		tags: [...new Set([partial.type, ...(partial.tags ?? [])])],
+		orchestration: {
+			runtimeId: context.runtimeId,
+			sessionId: context.sessionId,
+			threadId: context.threadId,
+			phase: context.phase,
+			waveNumber: context.waveNumber,
+			sourcePath: partial.filePath,
+		},
 		type: partial.type,
 		title: partial.title,
 		content: partial.content,
@@ -181,4 +216,23 @@ function extractTextFromContent(content: unknown): string | undefined {
 		.filter((item) => typeof item === "object" && item !== null && item.type === "text" && typeof item.text === "string")
 		.map((item) => item.text);
 	return texts.length > 0 ? texts.join("\n") : undefined;
+}
+
+function isMarkdownPlanningArtifact(text: string, context: ArtifactExtractionContext): boolean {
+	if (context.phase?.toLowerCase().includes("plan")) {
+		return true;
+	}
+	const trimmed = text.trim();
+	if (!trimmed) {
+		return false;
+	}
+	return /(^#)|(^[-*]\s)|(^\d+\.\s)|\bplan\b/i.test(trimmed);
+}
+
+function inferMarkdownTitle(text: string, counter: number): string {
+	const heading = text.split("\n").map((line) => line.trim()).find((line) => line.startsWith("#"));
+	if (heading) {
+		return heading.replace(/^#+\s*/, "").trim() || `Plan ${counter}`;
+	}
+	return `Plan ${counter}`;
 }

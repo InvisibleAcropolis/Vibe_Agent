@@ -18,11 +18,11 @@ export interface MenuBarItemLayout extends MenuBarItem {
  * Render a full-width menu bar chrome line.
  *
  * Visual output (80 cols):
- *  [F1] Settings  ◆  [F2] Sessions ══════════════════════════════════════════════
+ *  [F1] Settings  ◆  [F2] Sessions  ◆  [F3] Orc ═══════════════════════════════
  *
  * - Leading space + `[` `]` brackets: styled with `bc` (animated border color)
- * - Key text (F1, F2): styled with `dimStyler`
- * - Label text (Settings, Sessions): styled with `mutedStyler`
+ * - Key text (F1, F2, F3): styled with `dimStyler`
+ * - Label text (Settings, Sessions, Orc): styled with `mutedStyler`
  * - `◆` separator between items: styled with `dimStyler`
  * - Trailing `═` fill to right edge: styled with `bc`, using paintBoxLineTwoParts
  */
@@ -92,7 +92,8 @@ export const styleTestDemos = defineStyleTestDemos({
 			controls: [
 				{ id: "width", label: "Width", type: "number", defaultValue: 64, min: 24, max: 96, step: 1 },
 				{ id: "labelA", label: "Item A", type: "text", defaultValue: "Library" },
-				{ id: "labelB", label: "Item B", type: "text", defaultValue: "Overlays" },
+				{ id: "labelB", label: "Item B", type: "text", defaultValue: "Sessions" },
+				{ id: "labelC", label: "Item C", type: "text", defaultValue: "Orc" },
 			],
 			createRuntime: (_moduleNamespace, _exportName, _exportValue, _context, values) =>
 				createTextRuntime([
@@ -100,7 +101,7 @@ export const styleTestDemos = defineStyleTestDemos({
 						[
 							{ key: "F1", label: String(values.labelA) },
 							{ key: "F2", label: String(values.labelB) },
-							{ key: "F3", label: "Themes" },
+							{ key: "F3", label: String(values.labelC) },
 						],
 						Number(values.width),
 						agentTheme.accent,

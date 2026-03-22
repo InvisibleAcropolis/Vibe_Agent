@@ -327,7 +327,8 @@ graph TB
     LCS --> WIS
 ```
 
-The durable storage layer ([`src/durable/`](src/durable/)) provides persistent record tracking beyond pi-mono's session storage:
+The durable storage layer ([`src/durable/`](src/durable/)) now anchors Vibe-owned long-lived state under `~/Vibe_Agent` while keeping inherited pi-mono auth/session files in `~/.pi/agent` until an explicit migration is shipped. This makes the storage split reversible and easy to audit.
+
 
 | Service | File | Description |
 |---------|------|-------------|
@@ -646,7 +647,28 @@ Type `/` in the editor to trigger commands.
 
 ### App Config File
 
-Located at `~/.pi/agent/vibe-agent-config.json`:
+Vibe-owned defaults now live at `~/Vibe_Agent/config/vibe-agent-config.json`. Startup also bootstraps the following private directories when possible: `artifacts/`, `logs/`, `memory/`, `auth/`, `config/`, `checkpoints/`, `tracker/`, `plans/`, and `sessions/`.
+
+```text
+~/Vibe_Agent/
+├── artifacts/
+├── auth/
+├── checkpoints/
+├── config/
+│   └── vibe-agent-config.json
+├── logs/
+├── memory/
+├── plans/
+├── sessions/
+└── tracker/
+```
+
+Data that remains in pi-mono storage for now:
+
+- `~/.pi/agent/auth.json` managed by pi-mono `AuthStorage`
+- coding-runtime session files that still rely on pi-mono session management
+
+Example config:
 
 ```json
 {
@@ -682,6 +704,10 @@ Themes are configured via `selectedTheme` in the config file or the `/settings` 
 
 ## Related Documentation
 
+### [docs/orchestration/phase-1-scaffold.md](docs/orchestration/phase-1-scaffold.md)
+
+Use [docs/orchestration/phase-1-scaffold.md](docs/orchestration/phase-1-scaffold.md) as the stable orientation guide for the Orc Phase 1 scaffold, including the F3 launch path, `src/orchestration/` module layout, durable storage tree under `~/Vibe_Agent`, and the current placeholder boundaries for checkpoints, tracker state, subagents, and LangGraph execution.
+
 ### [styleguide.md](styleguide.md) — LIVING DOCUMENT
 
 The [styleguide.md](styleguide.md) is a **LIVING DOCUMENT** covering UI and animation implementation details:
@@ -700,6 +726,8 @@ Refer to styleguide.md for detailed animation development documentation.
 
 | Date | Version | Changes |
 |------|---------|---------|
+| 2026-03-22 | 1.0.2 | Added Phase 1 orchestration scaffold documentation for outside engineers and linked the README to the new Orc architecture guide |
+| 2026-03-22 | 1.0.1 | Added the `~/Vibe_Agent` durable root, startup directory bootstrapping, Orc session relocation, and migration notes documenting which data still remains in pi-mono storage |
 | 2026-03-21 | 1.0.0 | Initial comprehensive README rewrite with architecture diagrams, pi-mono extension documentation, runtime coordinator system, durable storage layer, and UI architecture |
 
 ---

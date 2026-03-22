@@ -6,6 +6,7 @@ import type {
 	SessionInfo,
 	SessionStats,
 } from "./local-coding-agent.js";
+import type { RuntimeDescriptor } from "./runtime/agent-runtime.js";
 
 export interface HostCommand {
 	name: string;
@@ -49,6 +50,9 @@ export interface AgentHost {
 	cycleModel(direction: "forward" | "backward"): Promise<void>;
 	getAvailableModels(): Promise<Model<any>[]>;
 	setModel(provider: string, modelId: string): Promise<void>;
+	listRuntimes(): RuntimeDescriptor[];
+	getActiveRuntimeDescriptor(): RuntimeDescriptor;
+	switchRuntime(runtimeId: string): Promise<void>;
 	getCommands(): Promise<HostCommand[]>;
 	newSession(): Promise<void>;
 	compact(customInstructions?: string): Promise<void>;

@@ -1,6 +1,6 @@
 import type { AgentHost } from "../agent-host.js";
 
-export type RuntimeKind = "coding" | "worker" | "tool";
+export type RuntimeKind = "coding" | "orchestration" | "worker" | "tool";
 
 export type RuntimeCapability =
 	| "interactive-prompt"
@@ -9,7 +9,10 @@ export type RuntimeCapability =
 	| "artifact-source"
 	| "memory-store"
 	| "log-source"
-	| "background-processing";
+	| "background-processing"
+	| "planning"
+	| "checkpoint-visibility"
+	| "orchestration-status";
 
 export interface RuntimeDescriptor {
 	id: string;

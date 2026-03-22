@@ -304,6 +304,7 @@ export class DefaultShellView implements ShellView {
 		const menuItems: MenuBarItem[] = [
 			{ key: "F1", label: "Settings" },
 			{ key: "F2", label: "Sessions" },
+			{ key: "F3", label: "Orc" },
 		];
 		const layout = measureMenuBarItems(menuItems).find((item) => item.key === key);
 		const splashHeight = this.chromeSplashBand.render(cols).length;
@@ -427,6 +428,8 @@ export class DefaultShellView implements ShellView {
 
 			const sessionName = hostState?.sessionName ?? cwdLabel();
 			const threadName = this.footerData.getGitBranch() ?? "main";
+			const activeConversationLabel = state.activeConversationLabel;
+			const runtimeName = state.activeRuntimeName;
 			const msgs = this.getMessages();
 			const contextWindow = hostState?.model?.contextWindow ?? 200000;
 			const ctxPct = msgs.length > 0
@@ -435,6 +438,8 @@ export class DefaultShellView implements ShellView {
 			const ctxColor = ctxPct >= 70 ? agentTheme.warning : agentTheme.success;
 			const infoBar = [
 				`${agentTheme.info("Session:")} ${agentTheme.success(sessionName)}`,
+				`${agentTheme.info("Mode:")} ${state.activeRuntimeId === "orc" ? agentTheme.warning(runtimeName) : agentTheme.success(runtimeName)}`,
+				`${agentTheme.info("Chat:")} ${state.activeRuntimeId === "orc" ? agentTheme.warning(activeConversationLabel) : agentTheme.accent(activeConversationLabel)}`,
 				`${agentTheme.info("Thread:")} ${agentTheme.accent(threadName)}`,
 				`${agentTheme.info("CTX:")} ${ctxColor(`${ctxPct}%`)} ${ctxColor(ctxBar(ctxPct))}`,
 			].join(agentTheme.segmentSep());
@@ -465,10 +470,12 @@ export class DefaultShellView implements ShellView {
 			this.chromeHeaderInfo.setText(headerLines.join("\n"));
 		}
 
-		// Menu bar: [F1] Settings  ◆  [F2] Sessions ══════════════════════════════
+		// Menu bar: [F1] Settings  ◆  [F2] Sessions  ◆  [F3] Orc ═══════════════════
+		// F3 now anchors the dedicated Orc dashboard/menu entry for summarized orchestration telemetry.
 		const MENU_ITEMS: MenuBarItem[] = [
 			{ key: "F1", label: "Settings" },
 			{ key: "F2", label: "Sessions" },
+			{ key: "F3", label: "Orc" },
 		];
 		this.chromeMenuBar.setText(renderMenuBar(
 			MENU_ITEMS, cols, bc,
@@ -528,6 +535,11 @@ export class DefaultShellView implements ShellView {
 		// ╚══ providers:N │ ⬡ provider │ model │ thinking ════════════════════ ● idle ══╝
 		const segments: string[] = [];
 		segments.push(agentTheme.chromeMeta(`providers:${providerCount}`));
+		segments.push(
+			state.activeRuntimeId === "orc"
+				? agentTheme.warning(`mode:${this.footerData.getSessionMode()}`)
+				: agentTheme.chromeMeta(`mode:${this.footerData.getSessionMode()}`),
+		);
 		if (provider) {
 			segments.push(agentTheme.providerSegment(`⬡ ${provider}`));
 		}

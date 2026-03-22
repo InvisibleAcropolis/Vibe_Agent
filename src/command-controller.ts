@@ -5,15 +5,17 @@ import type { EditorController } from "./editor-controller.js";
 import type { OverlayController } from "./overlay-controller.js";
 import { ArtifactViewer } from "./components/artifact-viewer.js";
 import { HelpOverlay } from "./components/help-overlay.js";
+import { OrchestrationStatusPanel } from "./components/orchestration-status-panel.js";
 import type { ShellMenuItem } from "./components/shell-menu-overlay.js";
 import { SessionStatsOverlay } from "./components/session-stats-overlay.js";
 import { WorkbenchInventoryService } from "./durable/workbench-inventory-service.js";
 import type { FooterDataProvider } from "./footer-data-provider.js";
+import { createOrcTrackerDashboardViewModel } from "./orchestration/orc-tracker.js";
 import type { ShellView } from "./shell-view.js";
 import { getThemeNames, setActiveTheme, getActiveTheme, type ThemeName } from "./themes/index.js";
 import { AppConfig } from "./app-config.js";
-import { basename, join } from "node:path";
-import { getAgentDir } from "./local-coding-agent.js";
+import { basename } from "node:path";
+import { getVibeConfigPath } from "./durable/durable-paths.js";
 
 interface SetupActions {
 	openSetupHub(): Promise<void>;
@@ -40,6 +42,10 @@ const BUILTIN_COMMAND_META: Record<string, { category: string; order: number; de
 	thinking: { category: "Session", order: 16, description: "Pick the reasoning budget for the active model." },
 	compact: { category: "Session", order: 17, description: "Compact the current context window." },
 	clear: { category: "Session", order: 18, description: "Clear the chat display." },
+	"summon-orc": { category: "Session", order: 19, description: "Switch into the dedicated Orc orchestration chat." },
+	"orc-resume": { category: "Session", order: 20, description: "Placeholder action for resuming an Orc orchestration thread." },
+	"orc-checkpoints": { category: "Session", order: 21, description: "Placeholder action for inspecting Orc checkpoints." },
+	"orc-rewind": { category: "Session", order: 22, description: "Placeholder action for rewinding Orc state to a checkpoint." },
 	help: { category: "Help", order: 30, description: "Show keybindings and setup guidance." },
 	"debug-dump": { category: "Help", order: 31, description: "Write a debug snapshot bundle at the app root." },
 };
@@ -83,6 +89,13 @@ export interface CommandController {
 	openTreeSelector(): Promise<void>;
 	openSettingsOverlay(): void;
 	openSessionsOverlay(): void;
+	openOrchestrationOverlay(): void;
+	openOrcDashboard(): void;
+	summonOrc(): Promise<void>;
+	resumeOrcThread(): void;
+	inspectOrcCheckpoints(): void;
+	rewindOrcCheckpoint(): void;
+	returnToCodingChat(): Promise<void>;
 	openStatsOverlay(): void;
 	openArtifactViewer(): void;
 	openHelpOverlay(): void;
@@ -101,6 +114,7 @@ export class DefaultCommandController implements CommandController {
 		private readonly shellView: ShellView,
 		private readonly inventory: WorkbenchInventoryService,
 		private readonly setupActions: SetupActions,
+		private readonly onRuntimeActivated: () => void,
 	) {}
 
 	async handleSlashCommand(text: string): Promise<boolean> {
@@ -143,6 +157,26 @@ export class DefaultCommandController implements CommandController {
 		if (text === "/artifacts") {
 			this.editorController.setText("");
 			this.openArtifactViewer();
+			return true;
+		}
+		if (text === "/summon-orc") {
+			this.editorController.setText("");
+			await this.summonOrc();
+			return true;
+		}
+		if (text === "/orc-resume") {
+			this.editorController.setText("");
+			this.resumeOrcThread();
+			return true;
+		}
+		if (text === "/orc-checkpoints") {
+			this.editorController.setText("");
+			this.inspectOrcCheckpoints();
+			return true;
+		}
+		if (text === "/orc-rewind") {
+			this.editorController.setText("");
+			this.rewindOrcCheckpoint();
 			return true;
 		}
 		if (text === "/help") {
@@ -381,6 +415,61 @@ export class DefaultCommandController implements CommandController {
 		});
 	}
 
+	openOrchestrationOverlay(): void {
+		const anchor = this.shellView.getMenuAnchor("F3");
+		this.overlayController.openMenuOverlay("menu-orc", {
+			title: "[F3] Orc",
+			subtitle: "Phase 1 orchestration surfaces and status hooks.",
+			anchor,
+			width: 34,
+			childWidth: 46,
+			items: [
+				{ kind: "action", id: "summon-orc", label: "Summon Orc", description: "Initialize the orchestration assistant shell.", onSelect: () => void this.summonOrc().catch((error) => this.handleError("summonOrc", error)) },
+				{ kind: "action", id: "dashboard", label: "Dashboard", description: "Open the friendly Orc telemetry dashboard.", onSelect: () => this.openOrcDashboard() },
+				{ kind: "action", id: "coding-chat", label: "Coding Chat", description: "Return to the standard coding session transcript.", onSelect: () => void this.returnToCodingChat().catch((error) => this.handleError("returnToCodingChat", error)) },
+				{ kind: "action", id: "orc-resume", label: "Resume Thread", description: "Placeholder controller action for resuming an Orc thread.", onSelect: () => this.resumeOrcThread() },
+				{ kind: "action", id: "orc-checkpoints", label: "Inspect Checkpoints", description: "Placeholder controller action for viewing Orc checkpoints.", onSelect: () => this.inspectOrcCheckpoints() },
+				{ kind: "action", id: "orc-rewind", label: "Rewind Checkpoint", description: "Placeholder controller action for rewinding to a checkpoint.", onSelect: () => this.rewindOrcCheckpoint() },
+				{ kind: "action", id: "tracker", label: "Tracker", description: "Browse tracker docs, summaries, and reserved LANGEXT exports.", onSelect: () => this.openOrchestrationDocumentViewer(["tracker", "artifact-summary", "manifest"]) },
+				{ kind: "action", id: "artifacts", label: "Artifacts", description: "Browse plans, roadmaps, research notes, and session documents.", onSelect: () => this.openOrchestrationDocumentViewer(["plan", "roadmap", "research", "session", "manifest"]) },
+				{ kind: "action", id: "logs", label: "Logs", description: "Review orchestration execution logs via generated summaries.", onSelect: () => this.openOrchestrationDocumentViewer(["artifact-summary"]) },
+				{ kind: "action", id: "settings", label: "Settings", description: "Adjust orchestration defaults and preferences.", onSelect: () => this.showPlaceholderStatus("Orc Settings is not implemented yet.") },
+			],
+		});
+	}
+
+	openOrcDashboard(): void {
+		this.overlayController.showCustomOverlay(
+			"orc-dashboard",
+			new OrchestrationStatusPanel(createOrcTrackerDashboardViewModel(), () => this.overlayController.closeOverlay("orc-dashboard")),
+			{ width: 78, maxHeight: "80%", anchor: "center", margin: 1 },
+		);
+	}
+
+	async summonOrc(): Promise<void> {
+		await this.host.switchRuntime("orc");
+		this.onRuntimeActivated();
+		this.stateStore.setStatusMessage("Orc orchestration chat active. Phase 1 backend is running in its dedicated session namespace.");
+	}
+
+	resumeOrcThread(): void {
+		this.showPlaceholderStatus("Resume Orc thread is a Phase 1 placeholder until checkpoint-backed thread activation is wired.");
+	}
+
+	inspectOrcCheckpoints(): void {
+		this.showPlaceholderStatus("Inspect checkpoints is a Phase 1 placeholder until checkpoint manifests are surfaced in the UI.");
+	}
+
+	rewindOrcCheckpoint(): void {
+		this.showPlaceholderStatus("Rewind to checkpoint is a Phase 1 placeholder until checkpoint restoration is wired.");
+	}
+
+	async returnToCodingChat(): Promise<void> {
+		await this.host.switchRuntime("coding");
+		this.onRuntimeActivated();
+		this.stateStore.setStatusMessage("Standard coding chat active.");
+	}
+
 	openStatsOverlay(): void {
 		try {
 			const stats = this.host.getSessionStats();
@@ -400,6 +489,14 @@ export class DefaultCommandController implements CommandController {
 		this.overlayController.showCustomOverlay(
 			"artifact-viewer",
 			new ArtifactViewer(this.inventory.listArtifactViews(), () => this.overlayController.closeOverlay("artifact-viewer")),
+			{ width: "85%", maxHeight: "80%", anchor: "center", margin: 1 },
+		);
+	}
+
+	openOrchestrationDocumentViewer(documentTypes?: import("./durable/workbench-inventory-service.js").OrchestrationDocumentType[]): void {
+		this.overlayController.showCustomOverlay(
+			"orc-document-viewer",
+			new ArtifactViewer(this.inventory.listOrchestrationDocumentViews(documentTypes), () => this.overlayController.closeOverlay("orc-document-viewer")),
 			{ width: "85%", maxHeight: "80%", anchor: "center", margin: 1 },
 		);
 	}
@@ -541,13 +638,17 @@ export class DefaultCommandController implements CommandController {
 		setActiveTheme(arg as ThemeName);
 		// Persist to config
 		try {
-			const configPath = join(getAgentDir(), "vibe-agent-config.json");
+			const configPath = getVibeConfigPath();
 			const config = AppConfig.load(configPath);
 			AppConfig.save({ ...config, selectedTheme: arg }, configPath);
 		} catch {
 			// ignore persistence errors
 		}
 		this.stateStore.setStatusMessage(`Theme set to "${arg}".`);
+	}
+
+	private showPlaceholderStatus(message: string): void {
+		this.stateStore.setStatusMessage(message);
 	}
 
 	private writeSnapshotAndStatus(reason: string): void {
