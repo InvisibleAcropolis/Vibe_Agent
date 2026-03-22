@@ -1,3 +1,5 @@
+import type { OrcSecurityEvent, OrcSecurityPolicy } from "./orc-security.js";
+
 export type OrcLifecyclePhase =
 	| "idle"
 	| "bootstrapping"
@@ -94,7 +96,17 @@ export interface OrcControlPlaneState {
 	checkpointId?: string;
 	phase: OrcLifecyclePhase;
 	project: OrcProjectContext;
+	/**
+	 * Phase 1 stores the active policy set on the control-plane state so later worker/session
+	 * factories cannot silently omit the guardrails during sub-agent execution.
+	 */
+	securityPolicy?: OrcSecurityPolicy;
 	messages: OrcOrchestratorMessage[];
+	/**
+	 * UI-facing intervention events such as approval stops and blocked commands.
+	 * Future tool interception should append to this list before continuing or aborting execution.
+	 */
+	securityEvents?: OrcSecurityEvent[];
 	activeWave?: OrcActiveExecutionWave;
 	workerResults: OrcParallelWorkerResult[];
 	verificationErrors: OrcVerificationError[];

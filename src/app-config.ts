@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { getVibeConfigPath } from "./durable/durable-paths.js";
+import type { OrcHumanEscalationReason, OrcSessionSecurityKind } from "./orchestration/orc-security.js";
 
 export type AppConfig = {
 	setupComplete: boolean;
@@ -8,6 +9,21 @@ export type AppConfig = {
 	selectedModelId?: string;
 	selectedTheme?: string;
 	showThinking?: boolean;
+	orchestration?: {
+		sessionKind?: OrcSessionSecurityKind;
+		allowedWorkingDirectories?: string[];
+		maximumConcurrency?: number;
+		humanEscalationThresholds?: {
+			requiresApprovalAfter?: number;
+			reasons?: OrcHumanEscalationReason[];
+		};
+		workerSandbox?: {
+			workspaceRoot?: string;
+			durableRoot?: string;
+			writeAllowedPaths?: string[];
+			blockedCommandPatterns?: string[];
+		};
+	};
 };
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -21,6 +37,54 @@ function normalizeConfig(config: Partial<AppConfig>): AppConfig {
 		selectedModelId: typeof config.selectedModelId === "string" ? config.selectedModelId : undefined,
 		selectedTheme: typeof config.selectedTheme === "string" ? config.selectedTheme : undefined,
 		showThinking: typeof config.showThinking === "boolean" ? config.showThinking : true,
+		orchestration: normalizeOrchestrationConfig(config.orchestration),
+	};
+}
+
+function normalizeStringList(value: unknown): string[] | undefined {
+	if (!Array.isArray(value)) {
+		return undefined;
+	}
+	const items = value.filter((entry): entry is string => typeof entry === "string" && entry.length > 0);
+	return items.length > 0 ? items : [];
+}
+
+function normalizeOrchestrationConfig(config: AppConfig["orchestration"] | undefined): AppConfig["orchestration"] {
+	if (!config) {
+		return undefined;
+	}
+	return {
+		sessionKind:
+			config.sessionKind === "main-app" || config.sessionKind === "ephemeral-worker" ? config.sessionKind : undefined,
+		allowedWorkingDirectories: normalizeStringList(config.allowedWorkingDirectories),
+		maximumConcurrency:
+			typeof config.maximumConcurrency === "number" && Number.isFinite(config.maximumConcurrency) ? config.maximumConcurrency : undefined,
+		humanEscalationThresholds: config.humanEscalationThresholds
+			? {
+					requiresApprovalAfter:
+						typeof config.humanEscalationThresholds.requiresApprovalAfter === "number"
+						&& Number.isFinite(config.humanEscalationThresholds.requiresApprovalAfter)
+							? config.humanEscalationThresholds.requiresApprovalAfter
+							: undefined,
+					reasons: Array.isArray(config.humanEscalationThresholds.reasons)
+						? config.humanEscalationThresholds.reasons.filter(
+								(reason): reason is OrcHumanEscalationReason =>
+									reason === "filesystem-write"
+									|| reason === "destructive-command"
+									|| reason === "network-access"
+									|| reason === "privileged-tool",
+							)
+						: undefined,
+				}
+			: undefined,
+		workerSandbox: config.workerSandbox
+			? {
+					workspaceRoot: typeof config.workerSandbox.workspaceRoot === "string" ? config.workerSandbox.workspaceRoot : undefined,
+					durableRoot: typeof config.workerSandbox.durableRoot === "string" ? config.workerSandbox.durableRoot : undefined,
+					writeAllowedPaths: normalizeStringList(config.workerSandbox.writeAllowedPaths),
+					blockedCommandPatterns: normalizeStringList(config.workerSandbox.blockedCommandPatterns),
+				}
+			: undefined,
 	};
 }
 
