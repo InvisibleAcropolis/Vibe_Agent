@@ -35,6 +35,7 @@ export class FooterDataProvider {
 	private gitWatcher: FSWatcher | null = null;
 	private branchChangeCallbacks = new Set<() => void>();
 	private availableProviderCount = 0;
+	private sessionMode = "Coding chat";
 
 	constructor(private readonly cwd: string) {
 		this.setupGitWatcher();
@@ -78,8 +79,16 @@ export class FooterDataProvider {
 		return this.availableProviderCount;
 	}
 
+	getSessionMode(): string {
+		return this.sessionMode;
+	}
+
 	setAvailableProviderCount(count: number): void {
 		this.availableProviderCount = count;
+	}
+
+	setSessionMode(mode: string): void {
+		this.sessionMode = mode;
 	}
 
 	dispose(): void {

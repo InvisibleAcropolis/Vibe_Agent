@@ -1,0 +1,123 @@
+# LANGEXT Feature Line Tracker
+
+> Central process record for the LangGraph integration / language-extension feature line. This tracker is the mandatory coordination artifact for every orchestration, planning, implementation, verification, and handoff session associated with this feature.
+
+## Purpose and Enforcement Rules
+
+### Purpose
+- Provide a durable, append-friendly execution record for the LangGraph integration feature line.
+- Keep orchestration progress, implementation tasks, validation evidence, and carryover work visible to any incoming engineer or agent.
+- Act as the mandatory source of session-level truth for feature progress, sign-off, and cross-session handoff.
+
+### Mandatory Enforcement Rules
+1. **This file is required process documentation** for the full feature line and must be consulted before beginning work on any LangGraph integration task.
+2. **No orchestration phase is considered complete** until this tracker shows every required task signed off and any carryover work captured in the appropriate handoff sections.
+3. **Every active session must append updates instead of rewriting prior history** except to correct obvious clerical errors.
+4. **Every completed task must be marked complete in the relevant ledger row** before the session closes.
+5. **Any incomplete, partially validated, or blocked work must be recorded** in the current session log, task ledger, risks/blockers, and next-session handoff before closing.
+6. **The next session TODO handoff must be created or refreshed before closing** even if the session fully completes its scoped work.
+7. **A sign-off entry with timestamp and agent label/initials is mandatory** for each work session.
+8. **Validation evidence must be concrete and auditable** (commands run, reviewer notes, or rationale for deferred validation).
+9. **If a task touches implementation files, the corresponding design mandate mapping must be traceable** through the design compliance section and/or ledger notes.
+10. **If tracker entries conflict with conversational memory, the tracker governs process state** until reconciled explicitly in a new signed entry.
+
+### Required Agent Session Rules
+Each current session agent must:
+- mark completed tasks;
+- record incomplete work;
+- create the next session's TODO list before closing;
+- sign off with timestamp and initials/agent label;
+- preserve prior history by appending dated subsections or new table rows instead of replacing old records.
+
+### Orchestration Completion Gate
+No orchestration phase is complete until:
+- all required tasks for that phase appear in the ledger;
+- each required task has an explicit status;
+- completed tasks carry validation and sign-off evidence;
+- incomplete or deferred tasks are captured as carryover work;
+- risks and blockers are updated to reflect current reality;
+- the next-session handoff is present and actionable.
+
+## Phase Breakdown
+
+| Phase | Scope | Exit Criteria | Tracker Evidence Required |
+| --- | --- | --- | --- |
+| Phase 0 - Foundation Alignment | Align architecture, scope, repo touch points, and process expectations. | Design mandates understood, tracker established, and initial work decomposition captured. | Phase ledger rows created, design compliance mapping started, sign-off recorded. |
+| Phase 1 - Orchestrator Core | Implement core LangGraph control-plane integration, state model, routing, and phase execution backbone. | Deterministic graph flow, typed state, phase routing, and initial orchestration hooks are implemented and validated. | Ledger rows complete/signed, validations captured, carryover items documented. |
+| Phase 2 - Worker Execution Plane | Add wave execution, isolated worker sessions, constrained tool/runtime controls, and task dispatch. | Worker lifecycle, dependency-aware wave dispatch, and confinement policies are operational. | Task rows updated with files, validation, blockers, and sign-offs. |
+| Phase 3 - Verification and Recovery | Add verifier/debug loops, durable checkpoints, and fault recovery workflows. | Verification pipeline and restart/recovery paths are functioning with documented evidence. | Validation notes, blocker handling, and DoD criteria updated. |
+| Phase 4 - UX and Operational Hardening | TUI abstraction, telemetry/progress rendering, documentation, and production hardening. | End-user orchestration flow is usable, hardened, and documented for operators/engineers. | Signed completion rows, risk closure, and final DoD confirmation. |
+
+## Design Compliance
+
+This section maps implementation activity back to the major design mandates in `LangGraph Integration for Agentic CLI.md`.
+
+| Design Mandate ID | Major Design Mandate | Expected Implementation Coverage | Related Phase(s) | Ledger Task IDs |
+| --- | --- | --- | --- | --- |
+| DM-01 | Thin orchestrator control plane separated from code-writing workers | LangGraph orchestration must coordinate but not directly perform feature-file modification logic intended for worker agents. | Phase 1, 2 | P1-TBD, P2-TBD |
+| DM-02 | Typed in-memory state replaces file-driven control flow | State schema, reducers, and checkpointed graph state must govern routing instead of markdown parsing. | Phase 1, 3 | P1-TBD, P3-TBD |
+| DM-03 | Deterministic routing and validation gates | Conditional graph edges and explicit validation gates must control plan/execute/verify transitions. | Phase 1, 3 | P1-TBD, P3-TBD |
+| DM-04 | Wave-based isolated execution workers | Independent tasks execute in isolated sessions with dependency-aware batching and traceable outputs. | Phase 2 | P2-TBD |
+| DM-05 | Durable persistence and resumability | Super-step checkpointing, thread continuity, and restart-safe orchestration state must exist. | Phase 3 | P3-TBD |
+| DM-06 | Secure tool interception and confinement | Worker tools require directory confinement, destructive command controls, and escalation boundaries where applicable. | Phase 2, 4 | P2-TBD, P4-TBD |
+| DM-07 | Friendly frontend abstraction with hidden worker noise | User-facing experience must present unified progress/telemetry rather than raw parallel worker output. | Phase 4 | P4-TBD |
+| DM-08 | Durable artifacts for human/agent continuity | Project-readable artifacts, handoffs, and implementation records must remain append-friendly and auditable. | Phase 0-4 | P0-001, cross-phase |
+
+### Design Compliance Notes
+- Use the ledger `validation notes` or `follow-up TODO` fields to record how a task satisfies one or more design mandates.
+- When a new implementation task is added, update the `Ledger Task IDs` column above if the task is materially tied to a mandate.
+- If any task deviates from a design mandate, record the rationale in `Risks / blockers` and obtain explicit sign-off in the session log.
+
+## Phase 1 Task Ledger
+
+> Append new rows; do not delete historical rows. Prefer adding a new dated row or updating status fields for the same task when progress changes.
+
+| task ID | title | owner/agent | date | status | files touched | validation notes | blocker notes | follow-up TODO |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| P0-001 | Establish mandatory feature-line tracker and enforcement model | GPT-5.2-Codex | 2026-03-22 | Completed | `LANGEXTtracker.md` | Tracker created at repo root; structure includes required sections, enforcement rules, append-friendly logging, and design mandate mapping. | None. | Replace placeholder `*-TBD` task references with concrete implementation IDs as Phase 1 planning advances. |
+| P1-001 | Define LangGraph orchestration state schema and lifecycle phase model | Unassigned | — | Not Started | — | Must satisfy DM-02 and support deterministic phase tracking. | Pending implementation planning. | Capture concrete interfaces, reducers, and state transition validation evidence. |
+| P1-002 | Implement deterministic planner/checker routing for orchestration phases | Unassigned | — | Not Started | — | Must satisfy DM-03 with explicit pass/fail routing criteria. | Pending implementation planning. | Document route conditions, failure loops, and validation hooks. |
+| P1-003 | Wire orchestration entry points into the CLI extension surface | Unassigned | — | Not Started | — | Must support DM-01 and Phase 1 exit criteria without leaking worker complexity. | Pending implementation planning. | Identify integration points, command intercept behavior, and operator-visible telemetry requirements. |
+
+## Current Session Work Log
+
+### 2026-03-22 — GPT-5.2-Codex
+- Created the central `LANGEXTtracker.md` document at the repository root to serve as the mandatory process artifact for the full feature line.
+- Added the required fixed sections: purpose/enforcement, phase breakdown, Phase 1 ledger, session work log, sign-off block, next-session TODO handoff, risks/blockers, and definition of done.
+- Added explicit agent rules requiring task completion updates, incomplete-work capture, next-session TODO creation, and timestamped sign-off.
+- Added a design compliance matrix mapping tracker usage and future implementation tasks back to the major mandates in `LangGraph Integration for Agentic CLI.md`.
+- Seeded the ledger with the tracker creation task and placeholder Phase 1 orchestration tasks so future sessions can append progress without restructuring the file.
+- Validation performed: manual structural review of headings, table fields, and enforcement criteria.
+
+## Sign-off Block
+
+| timestamp (UTC) | agent | scope completed | sign-off notes |
+| --- | --- | --- | --- |
+| 2026-03-22T12:00:00Z | GPT-5.2-Codex | Created mandatory feature-line tracker document and initialized Phase 1 ledger/process controls. | Session closed with carryover planning captured below; future sessions must replace placeholder task mappings with concrete implementation IDs as work advances. |
+
+## Next-Session TODO Handoff
+
+### Priority TODOs for Next Session
+1. Replace placeholder design-compliance ledger references (`P1-TBD`, `P2-TBD`, etc.) with concrete task IDs as implementation planning becomes specific.
+2. Confirm the exact repository touch points for LangGraph orchestration integration and append them to the appropriate Phase 1 ledger rows.
+3. Expand the Phase 1 ledger with any newly discovered orchestration tasks before implementation begins.
+4. Record validation commands and outputs directly in ledger/session entries as implementation work starts.
+5. Review this tracker at session start and append rather than rewrite historical entries.
+
+## Risks / Blockers
+
+| date | type | description | owner | mitigation / next action | status |
+| --- | --- | --- | --- | --- | --- |
+| 2026-03-22 | Process risk | Design compliance table currently contains placeholder task references for future implementation work. | GPT-5.2-Codex / next session | Replace placeholders with concrete task IDs during the next planning or implementation pass. | Open |
+| 2026-03-22 | Coordination risk | If future agents update tracker content by rewriting prior rows instead of appending, auditability may be lost. | All future agents | Enforce append-only updates and add dated subsections/rows for each session. | Open |
+
+## Definition of Done
+
+A phase or feature-line milestone is only done when all of the following are true:
+- every required task is represented in the relevant ledger with task ID, title, owner/agent, date, status, files touched, validation notes, blocker notes, and follow-up TODO;
+- every completed task is marked completed and supported by validation evidence;
+- incomplete or deferred work is documented in the session log, risks/blockers, and next-session handoff;
+- design compliance mappings are updated to show how implemented tasks satisfy the major design mandates;
+- required sign-off entries are present with timestamp and agent label/initials;
+- carryover work is explicitly captured before session closure;
+- no orchestration phase is declared complete unless the tracker reflects full sign-off coverage and documented carryover handling.

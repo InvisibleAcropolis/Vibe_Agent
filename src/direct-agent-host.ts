@@ -13,6 +13,7 @@ import {
 	createAgentSession,
 } from "./local-coding-agent.js";
 import type { AgentHost, AgentHostStartResult, AgentHostState, HostCommand } from "./agent-host.js";
+import type { RuntimeDescriptor } from "./runtime/agent-runtime.js";
 
 type DirectAgentHostOptions = {
 	createOptions?: CreateAgentSessionOptions;
@@ -161,6 +162,26 @@ export class DirectAgentHost implements AgentHost {
 			throw new Error(`Model not found: ${provider}/${modelId}`);
 		}
 		await session.setModel(model);
+	}
+
+	listRuntimes(): RuntimeDescriptor[] {
+		return [{
+			id: "coding",
+			kind: "coding",
+			displayName: "Coding Runtime",
+			capabilities: ["interactive-prompt", "session-management", "model-selection", "artifact-source", "log-source"],
+			primary: true,
+		}];
+	}
+
+	getActiveRuntimeDescriptor(): RuntimeDescriptor {
+		return this.listRuntimes()[0]!;
+	}
+
+	async switchRuntime(runtimeId: string): Promise<void> {
+		if (runtimeId !== this.getActiveRuntimeDescriptor().id) {
+			throw new Error(`Runtime not found: ${runtimeId}`);
+		}
 	}
 
 	async getCommands(): Promise<HostCommand[]> {

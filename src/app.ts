@@ -1,7 +1,6 @@
 import { ProcessTerminal, type Component } from "@mariozechner/pi-tui";
 import { getEnvApiKey, stream, streamSimple, supportsXhigh, type ProviderStreamOptions } from "@mariozechner/pi-ai";
 import type { StreamFn } from "@mariozechner/pi-agent-core";
-import { join } from "node:path";
 import { AppLifecycleController } from "./app/app-lifecycle-controller.js";
 import { AppMessageSyncService } from "./app/app-message-sync-service.js";
 import { AppSetupService, type SavedDefaultValidation, type StartupGateAssessment } from "./app/app-setup-service.js";
@@ -13,10 +12,12 @@ import { AnimationEngine, setGlobalAnimationEngine } from "./animation-engine.js
 import { DefaultCommandController } from "./command-controller.js";
 import { createDefaultAgentHost } from "./debug-agent-host.js";
 import { ArtifactCatalogService } from "./durable/artifacts/artifact-catalog-service.js";
+import { ensureVibeDurableStorage, getVibeConfigPath, getVibeDurableRoot } from "./durable/durable-paths.js";
 import { LogCatalogService } from "./durable/logs/log-catalog-service.js";
 import { MemoryStoreService } from "./durable/memory/memory-store-service.js";
 import { WorkbenchInventoryService } from "./durable/workbench-inventory-service.js";
 import { DefaultEditorController } from "./editor-controller.js";
+import { DirectAgentHost } from "./direct-agent-host.js";
 import { DefaultExtensionUiHost } from "./extension-ui-host.js";
 import { DefaultInputController } from "./input-controller.js";
 import { MouseEnabledTerminal } from "./mouse-enabled-terminal.js";
@@ -26,17 +27,18 @@ import { DefaultShellView, type ShellView } from "./shell-view.js";
 import { DefaultStartupController } from "./startup-controller.js";
 import {
 	AuthStorage,
-	getAgentDir,
 	initTheme,
 	KeybindingsManager as InternalKeybindingsManager,
 	ModelRegistry,
 	OAuthSelectorComponent,
 	onThemeChange,
+	SessionManager,
 	type AgentSession,
 } from "./local-coding-agent.js";
 import { CompatAgentRuntime } from "./runtime/compat-agent-runtime.js";
 import { CoordinatedAgentHost } from "./runtime/coordinated-agent-host.js";
 import { RuntimeCoordinator } from "./runtime/runtime-coordinator.js";
+import { getRuntimeSessionDir } from "./runtime/runtime-session-namespace.js";
 import { getThemeNames, onThemeConfigChange, setActiveTheme, type ThemeName } from "./themes/index.js";
 import type { VibeAgentAppOptions } from "./types.js";
 import { type SetupRunRequest, WelcomeController } from "./welcome-controller.js";
@@ -85,6 +87,7 @@ export class VibeAgentApp {
 	private readonly authStorage: AuthStorage;
 	private readonly modelRegistry: ModelRegistry;
 	private readonly configPath: string;
+	private readonly durableRootPath: string;
 	private readonly animEngine: AnimationEngine;
 	private readonly setupService: AppSetupService;
 	private readonly messageSync: AppMessageSyncService;
@@ -103,10 +106,14 @@ export class VibeAgentApp {
 				appRoot: process.cwd(),
 			});
 		this.stateStore = new DefaultAppStateStore();
-		this.configPath = options.configPath ?? join(getAgentDir(), "vibe-agent-config.json");
+		this.durableRootPath = options.durableRootPath ?? getVibeDurableRoot();
+		ensureVibeDurableStorage({ durableRoot: this.durableRootPath });
+		this.configPath = options.configPath ?? getVibeConfigPath("vibe-agent-config.json", { durableRoot: this.durableRootPath });
 		this.appConfig = AppConfig.load(this.configPath);
 		this.stateStore.setShowThinking(this.appConfig.showThinking ?? true);
 		this.previousRenderState = this.stateStoreSnapshot();
+		// Migration note: auth.json is still owned by pi-mono AuthStorage under getAgentDir().
+		// New Vibe durable storage under ~/Vibe_Agent is bootstrapped separately above.
 		this.authStorage = options.authStorage ?? AuthStorage.create();
 		this.modelRegistry = new ModelRegistry(this.authStorage);
 		this.setupService = new AppSetupService(this.authStorage, this.modelRegistry, options.getEnvApiKey ?? getEnvApiKey);
@@ -134,6 +141,19 @@ export class VibeAgentApp {
 					await this.applyConfiguredModelToSession(session);
 				},
 			});
+		const orcHost = new DirectAgentHost({
+			createOptions: {
+				authStorage: this.authStorage,
+				modelRegistry: this.modelRegistry,
+				streamFn: createOpenAIReasoningSummaryStreamFn(),
+				// Migration note: Orc-owned session state now lives in ~/Vibe_Agent/sessions,
+				// while inherited coding-session state remains in pi-mono storage via getAgentDir().
+				sessionManager: SessionManager.create(process.cwd(), getRuntimeSessionDir("orc", process.cwd(), this.durableRootPath)),
+			},
+			onSessionReady: async (session) => {
+				await this.applyConfiguredModelToSession(session);
+			},
+		});
 
 		this.runtimeCoordinator =
 			options.runtimeCoordinator ??
@@ -149,6 +169,15 @@ export class VibeAgentApp {
 						},
 						innerHost,
 					),
+					new CompatAgentRuntime(
+						{
+							id: "orc",
+							kind: "orchestration",
+							displayName: "Orc",
+							capabilities: ["interactive-prompt", "session-management", "planning", "checkpoint-visibility", "orchestration-status"],
+						},
+						orcHost,
+					),
 				],
 				{
 					onRuntimeError: (runtimeId, phase, error) => {
@@ -157,12 +186,12 @@ export class VibeAgentApp {
 				},
 			);
 		this.host = new CoordinatedAgentHost(this.runtimeCoordinator);
-		this.artifactCatalog = options.artifactCatalog ?? new ArtifactCatalogService();
-		this.memoryStoreService = options.memoryStoreService ?? new MemoryStoreService();
-		this.logCatalogService = options.logCatalogService ?? new LogCatalogService();
+		this.artifactCatalog = options.artifactCatalog ?? new ArtifactCatalogService({ durableRoot: this.durableRootPath });
+		this.memoryStoreService = options.memoryStoreService ?? new MemoryStoreService({ durableRoot: this.durableRootPath });
+		this.logCatalogService = options.logCatalogService ?? new LogCatalogService({ durableRoot: this.durableRootPath });
 		this.inventoryService =
 			options.inventoryService
-			?? new WorkbenchInventoryService(this.artifactCatalog, this.memoryStoreService, this.logCatalogService);
+			?? new WorkbenchInventoryService(this.artifactCatalog, this.memoryStoreService, this.logCatalogService, { durableRoot: this.durableRootPath });
 
 		this.terminal = new MouseEnabledTerminal(options.terminal ?? new ProcessTerminal());
 		this.shellView = new DefaultShellView(
@@ -277,8 +306,10 @@ export class VibeAgentApp {
 				},
 				setThinkingVisibility: (show) => this.setThinkingVisibility(show),
 			},
+			() => this.handleRuntimeActivated(),
 		);
 		this.commandController = commandController;
+		this.syncRuntimeDisplayState();
 
 		this.shellView.setEditor(this.editorController.getComponent());
 		this.inputController = new DefaultInputController(
@@ -534,6 +565,7 @@ export class VibeAgentApp {
 			this.shellView.setTitle("Vibe Agent");
 			this.shellView.setEditor(this.editorController.getComponent());
 			this.setFocus(this.editorController.getComponent(), "editor");
+			this.syncRuntimeDisplayState();
 			this.refreshCockpitContext();
 		}
 	}
@@ -566,6 +598,7 @@ export class VibeAgentApp {
 		this.shellView.setTitle("Vibe Agent");
 		this.shellView.setEditor(this.editorController.getComponent());
 		this.setFocus(this.editorController.getComponent(), "editor");
+		this.syncRuntimeDisplayState();
 		this.refreshCockpitContext();
 	}
 
@@ -692,6 +725,30 @@ export class VibeAgentApp {
 	private persistConfig(config: AppConfig): void {
 		this.appConfig = config;
 		AppConfig.save(config, this.configPath);
+	}
+
+	private handleRuntimeActivated(): void {
+		this.stateStore.resetActiveThinking();
+		this.syncRuntimeDisplayState();
+		this.syncMessages();
+		this.refreshProviderAvailability();
+		this.refreshCockpitContext();
+	}
+
+	private syncRuntimeDisplayState(): void {
+		try {
+			const descriptor = this.host.getActiveRuntimeDescriptor();
+			const conversationLabel = descriptor.id === "orc" ? "Orc orchestration chat" : "Coding chat";
+			this.stateStore.setActiveRuntime({
+				id: descriptor.id,
+				name: descriptor.displayName,
+				conversationLabel,
+			});
+			this.shellView.footerData.setSessionMode(conversationLabel);
+		} catch {
+			this.stateStore.setActiveRuntime({ id: "coding", name: "Coding Runtime", conversationLabel: "Coding chat" });
+			this.shellView.footerData.setSessionMode("Coding chat");
+		}
 	}
 
 	private getRuntimeContext(): { runtimeId: string; sessionId?: string } {

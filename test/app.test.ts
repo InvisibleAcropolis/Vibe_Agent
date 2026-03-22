@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,10 +12,17 @@ import { ArtifactCatalogService } from "../src/durable/artifacts/artifact-catalo
 import { LogCatalogService } from "../src/durable/logs/log-catalog-service.js";
 import { MemoryStoreService } from "../src/durable/memory/memory-store-service.js";
 import { WorkbenchInventoryService } from "../src/durable/workbench-inventory-service.js";
+import { ensureVibeDurableStorage, getVibeArtifactCatalogPath, getVibeConfigPath, getVibeLogCatalogPath, getVibeMemoryCatalogPath, getVibeTrackerCatalogPath } from "../src/durable/durable-paths.js";
+import { LocalFileOrcCheckpointStore } from "../src/orchestration/orc-checkpoints.js";
+import { createDefaultOrcSecurityPolicy, ORC_SECURITY_STATUS_TEXT } from "../src/orchestration/orc-security.js";
+import { OrcRuntimeSkeleton } from "../src/orchestration/orc-runtime.js";
+import { FileSystemOrcTracker } from "../src/orchestration/orc-tracker.js";
+import { getRuntimeSessionDir } from "../src/runtime/runtime-session-namespace.js";
 import type { AgentRuntime, RuntimeDescriptor } from "../src/runtime/agent-runtime.js";
 import { CompatAgentRuntime } from "../src/runtime/compat-agent-runtime.js";
 import { RuntimeCoordinator } from "../src/runtime/runtime-coordinator.js";
 import { VirtualTerminal } from "./helpers/virtual-terminal.js";
+import { AppConfig as AppConfigStore } from "../src/app-config.js";
 
 const tempRoot = mkdtempSync(path.join(os.tmpdir(), "vibe-agent-test-"));
 process.on("exit", () => {
@@ -93,6 +100,16 @@ class FakeAgentHost implements AgentHost {
 	}
 
 	async setModel(): Promise<void> {}
+
+	listRuntimes(): RuntimeDescriptor[] {
+		return [{ id: "coding", kind: "coding", displayName: "Coding Runtime", capabilities: [], primary: true }];
+	}
+
+	getActiveRuntimeDescriptor(): RuntimeDescriptor {
+		return this.listRuntimes()[0]!;
+	}
+
+	async switchRuntime(): Promise<void> {}
 
 	async getCommands(): Promise<HostCommand[]> {
 		return [];
@@ -188,6 +205,16 @@ class StubRuntime implements AgentRuntime {
 	}
 
 	async setModel(): Promise<void> {}
+
+	listRuntimes(): RuntimeDescriptor[] {
+		return [{ id: "coding", kind: "coding", displayName: "Coding Runtime", capabilities: [], primary: true }];
+	}
+
+	getActiveRuntimeDescriptor(): RuntimeDescriptor {
+		return this.listRuntimes()[0]!;
+	}
+
+	async switchRuntime(): Promise<void> {}
 
 	async getCommands(): Promise<HostCommand[]> {
 		return [];
@@ -299,14 +326,15 @@ test("RuntimeCoordinator starts active and background runtimes", async () => {
 	assert.strictEqual(toolRuntime.stopped, true);
 });
 
-test("Durable services catalog artifacts, memory stores, and logs", () => {
-	const artifactCatalog = new ArtifactCatalogService();
-	const memoryStores = new MemoryStoreService();
-	const logs = new LogCatalogService();
-	const inventory = new WorkbenchInventoryService(artifactCatalog, memoryStores, logs);
+test("Durable services catalog artifacts, memory stores, logs, and orchestration documents", () => {
+	const durableRoot = path.join(tempRoot, "durable-services-root");
+	const artifactCatalog = new ArtifactCatalogService({ durableRoot });
+	const memoryStores = new MemoryStoreService({ durableRoot });
+	const logs = new LogCatalogService({ durableRoot });
+	const inventory = new WorkbenchInventoryService(artifactCatalog, memoryStores, logs, { durableRoot });
 
 	artifactCatalog.replaceFromMessages(
-		{ runtimeId: "coding", sessionId: "session-1" },
+		{ runtimeId: "coding", sessionId: "session-1", threadId: "thread-7", phase: "planning", waveNumber: 2 },
 		[
 			{
 				role: "assistant",
@@ -315,7 +343,7 @@ test("Durable services catalog artifacts, memory stores, and logs", () => {
 						type: "toolCall",
 						id: "call-1",
 						name: "write",
-						arguments: { file_path: "src/test.ts", content: "export const value = 1;" },
+						arguments: { file_path: "plans/wave-2.md", content: "# Wave 2 Plan\n- capture artifact" },
 					},
 				],
 			} as any,
@@ -323,6 +351,10 @@ test("Durable services catalog artifacts, memory stores, and logs", () => {
 	);
 	memoryStores.registerManifest({
 		ownerRuntimeId: "worker",
+		sessionId: "session-1",
+		threadId: "thread-7",
+		phase: "planning",
+		waveNumber: 2,
 		sourcePath: "memory/manifest.json",
 		manifest: {
 			name: "Primary Memory",
@@ -333,6 +365,10 @@ test("Durable services catalog artifacts, memory stores, and logs", () => {
 	});
 	logs.registerLog({
 		ownerRuntimeId: "coding",
+		sessionId: "session-1",
+		threadId: "thread-7",
+		phase: "planning",
+		waveNumber: 2,
 		sourcePath: ".debug/run-1",
 		logType: "debug-snapshot",
 		label: "Debug Snapshot",
@@ -341,10 +377,39 @@ test("Durable services catalog artifacts, memory stores, and logs", () => {
 
 	const snapshot = inventory.getInventory();
 	assert.strictEqual(snapshot.artifacts.length, 1);
-	assert.strictEqual(snapshot.artifacts[0]?.filePath, "src/test.ts");
+	assert.strictEqual(snapshot.artifacts[0]?.filePath, "plans/wave-2.md");
+	assert.strictEqual(snapshot.artifacts[0]?.phase, "planning");
 	assert.strictEqual(snapshot.memoryStores[0]?.storeType, "vector");
 	assert.ok(snapshot.memoryStores[0]?.tags.includes("index"));
 	assert.strictEqual(snapshot.logs[0]?.logType, "debug-snapshot");
+	assert.ok(snapshot.orchestrationDocuments.some((document) => document.documentType === "plan" && document.label === "wave-2.md"));
+	assert.ok(snapshot.orchestrationDocuments.some((document) => document.documentType === "manifest" && document.label === "wave-2.md manifest"));
+	assert.ok(snapshot.orchestrationDocuments.some((document) => document.relatedRecordIds.includes(snapshot.logs[0]!.id)));
+	assert.strictEqual(statSync(getVibeArtifactCatalogPath({ durableRoot })).isFile(), true);
+	assert.strictEqual(statSync(getVibeMemoryCatalogPath({ durableRoot })).isFile(), true);
+	assert.strictEqual(statSync(getVibeLogCatalogPath({ durableRoot })).isFile(), true);
+	assert.strictEqual(statSync(getVibeTrackerCatalogPath({ durableRoot })).isFile(), true);
+
+	const reloadedArtifacts = new ArtifactCatalogService({ durableRoot });
+	const reloadedMemory = new MemoryStoreService({ durableRoot });
+	const reloadedLogs = new LogCatalogService({ durableRoot });
+	const reloadedInventory = new WorkbenchInventoryService(reloadedArtifacts, reloadedMemory, reloadedLogs, { durableRoot });
+	assert.strictEqual(reloadedArtifacts.list().length, 1);
+	assert.strictEqual(reloadedMemory.list()[0]?.threadId, "thread-7");
+	assert.strictEqual(reloadedLogs.list()[0]?.waveNumber, 2);
+	assert.ok(reloadedInventory.getInventory().orchestrationDocuments.length >= 3);
+});
+
+test("Vibe durable storage bootstraps the full private directory tree", () => {
+	const durableRoot = path.join(tempRoot, "durable-root");
+	const tree = ensureVibeDurableStorage({ durableRoot });
+
+	assert.deepStrictEqual(readdirSync(durableRoot).sort(), ["artifacts", "auth", "checkpoints", "config", "logs", "memory", "plans", "research", "roadmaps", "sessions", "tracker"].sort());
+	for (const dirPath of Object.values(tree)) {
+		assert.strictEqual(statSync(dirPath).isDirectory(), true);
+	}
+	assert.strictEqual(getVibeConfigPath("vibe-agent-config.json", { durableRoot }), path.join(durableRoot, "config", "vibe-agent-config.json"));
+	assert.strictEqual(getRuntimeSessionDir("orc", "/workspace/demo", durableRoot), path.join(durableRoot, "sessions", "orc", Buffer.from("/workspace/demo").toString("base64url")));
 });
 
 test("VibeAgentApp boots with a coding runtime and catalogs artifacts", async () => {
@@ -367,6 +432,8 @@ test("VibeAgentApp boots with a coding runtime and catalogs artifacts", async ()
 		terminal,
 		host,
 		configPath: path.join(tempRoot, "single-runtime-config.json"),
+		durableRootPath: path.join(tempRoot, "app-durable-root"),
+		getEnvApiKey: (providerId) => (providerId === "openai" ? "test-key" : undefined),
 	});
 
 	app.start();
@@ -410,6 +477,8 @@ test("VibeAgentApp starts registered coding, worker, and tool runtimes", async (
 		terminal,
 		runtimes: [codingRuntime, workerRuntime, toolRuntime],
 		configPath: path.join(tempRoot, "multi-runtime-config.json"),
+		durableRootPath: path.join(tempRoot, "multi-runtime-durable-root"),
+		getEnvApiKey: (providerId) => (providerId === "openai" ? "test-key" : undefined),
 	});
 
 	app.start();
@@ -421,4 +490,142 @@ test("VibeAgentApp starts registered coding, worker, and tool runtimes", async (
 
 	app.stop();
 	await flushAsyncWork();
+});
+
+
+test("Local Orc checkpoint store persists manifests and tracker snapshots by stable IDs", async () => {
+	const durableRoot = path.join(tempRoot, "orc-checkpoint-root");
+	const checkpoints = new LocalFileOrcCheckpointStore({ durableRoot });
+	const tracker = new FileSystemOrcTracker(checkpoints, { durableRoot });
+	const state = {
+		threadId: "thread:alpha",
+		checkpointId: "checkpoint:001",
+		phase: "checkpointed",
+		project: { projectId: "proj-1", projectRoot: "/workspace/demo", projectName: "Demo" },
+		messages: [],
+		workerResults: [],
+		verificationErrors: [],
+		lastUpdatedAt: "2026-03-22T00:00:00.000Z",
+	} satisfies import("../src/orchestration/orc-state.js").OrcControlPlaneState;
+
+	await tracker.save(state);
+	const manifest = await checkpoints.saveCheckpoint({
+		metadata: {
+			checkpointId: state.checkpointId,
+			thread: { threadId: state.threadId, projectId: state.project.projectId, runtimeId: "orc", sessionId: "session-42" },
+			sequenceNumber: 1,
+			phase: state.phase,
+			createdAt: state.lastUpdatedAt,
+			trackerStateId: `${state.threadId}:${state.checkpointId}`,
+			resumeData: { phase: state.phase, workerIds: [], instructions: "resume from checkpoint" },
+			stateSnapshot: {
+				snapshotId: "snapshot-1",
+				trackerStateId: `${state.threadId}:${state.checkpointId}`,
+				storageKey: "thread:alpha/checkpoint:001",
+				format: "control-plane-state",
+				capturedAt: state.lastUpdatedAt,
+			},
+			artifactBundleIds: ["bundle-1"],
+			rewindTargetIds: [state.checkpointId],
+		},
+	});
+
+	assert.strictEqual(manifest.latestCheckpointId, state.checkpointId);
+	assert.deepStrictEqual(manifest.checkpointHistory, [state.checkpointId]);
+	assert.deepStrictEqual(manifest.rewindTargetIds, [state.checkpointId]);
+	assert.deepStrictEqual(manifest.artifactBundleIds, ["bundle-1"]);
+	assert.strictEqual((await checkpoints.loadCheckpoint({ threadId: state.threadId }))?.stateSnapshot.storageKey, "thread:alpha/checkpoint:001");
+	assert.strictEqual((await tracker.load(state.threadId, state.checkpointId))?.threadId, state.threadId);
+});
+
+test("AppConfig persists orchestration security settings for main and worker Orc sessions", () => {
+	const configPath = path.join(tempRoot, "orc-security-config.json");
+	AppConfigStore.save(
+		{
+			setupComplete: true,
+			orchestration: {
+				sessionKind: "main-app",
+				allowedWorkingDirectories: ["/workspace/Vibe_Agent"],
+				maximumConcurrency: 3,
+				humanEscalationThresholds: {
+					requiresApprovalAfter: 2,
+					reasons: ["destructive-command", "network-access"],
+				},
+				workerSandbox: {
+					workspaceRoot: "/workspace/Vibe_Agent",
+					durableRoot: "/tmp/vibe-durable",
+					writeAllowedPaths: ["/workspace/Vibe_Agent", "/tmp/vibe-durable"],
+					blockedCommandPatterns: ["rm -rf /", "sudo rm"],
+				},
+			},
+		},
+		configPath,
+	);
+
+	const loaded = AppConfigStore.load(configPath);
+	assert.deepStrictEqual(loaded.orchestration, {
+		sessionKind: "main-app",
+		allowedWorkingDirectories: ["/workspace/Vibe_Agent"],
+		maximumConcurrency: 3,
+		humanEscalationThresholds: {
+			requiresApprovalAfter: 2,
+			reasons: ["destructive-command", "network-access"],
+		},
+		workerSandbox: {
+			workspaceRoot: "/workspace/Vibe_Agent",
+			durableRoot: "/tmp/vibe-durable",
+			writeAllowedPaths: ["/workspace/Vibe_Agent", "/tmp/vibe-durable"],
+			blockedCommandPatterns: ["rm -rf /", "sudo rm"],
+		},
+	});
+});
+
+test("Orc runtime threads merged security policy and UI status text through the session factory", async () => {
+	let sessionSecurity = createDefaultOrcSecurityPolicy({
+		orchestration: {
+			sessionKind: "main-app",
+			workerSandbox: {
+				workspaceRoot: "/workspace/Vibe_Agent",
+				durableRoot: "/tmp/vibe-durable",
+				writeAllowedPaths: ["/workspace/Vibe_Agent"],
+				blockedCommandPatterns: ["rm -rf /"],
+			},
+		},
+	});
+	const runtime = new OrcRuntimeSkeleton(
+		{},
+		{
+			securityPolicy: sessionSecurity,
+			sessionFactory: {
+				createSession: (_request, securityPolicy) => {
+					sessionSecurity = securityPolicy;
+					return {
+						threadId: "thread-1",
+						checkpointId: "checkpoint-1",
+						securityPolicy,
+						getState: () => undefined,
+					};
+				},
+			},
+		},
+	);
+
+	await assert.rejects(
+		runtime.launch({
+			project: { projectId: "proj-1", projectRoot: "/workspace/Vibe_Agent" },
+			prompt: "launch",
+			securityPolicyOverrides: {
+				sessionKind: "ephemeral-worker",
+				maximumConcurrency: 4,
+				allowedWorkingDirectories: ["/workspace/Vibe_Agent", "/tmp/vibe-durable"],
+			},
+		}),
+		/not implemented yet/,
+	);
+
+	assert.strictEqual(sessionSecurity.sessionKind, "ephemeral-worker");
+	assert.strictEqual(sessionSecurity.maximumConcurrency, 4);
+	assert.deepStrictEqual(sessionSecurity.allowedWorkingDirectories, ["/workspace/Vibe_Agent", "/tmp/vibe-durable"]);
+	assert.strictEqual(ORC_SECURITY_STATUS_TEXT["approval-required"], "Approval required");
+	assert.strictEqual(ORC_SECURITY_STATUS_TEXT["blocked-command"], "Blocked command");
 });

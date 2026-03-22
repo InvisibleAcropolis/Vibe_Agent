@@ -2,6 +2,7 @@ import type { PiMonoAppDebugger } from "./app-debugger.js";
 import type { AgentHost, AgentHostStartResult, AgentHostState, HostCommand } from "./agent-host.js";
 import { DirectAgentHost } from "./direct-agent-host.js";
 import type { AgentSession, CreateAgentSessionOptions, ExtensionError } from "./local-coding-agent.js";
+import type { RuntimeDescriptor } from "./runtime/agent-runtime.js";
 
 function durationMs(startTime: number): number {
 	return Date.now() - startTime;
@@ -106,6 +107,18 @@ export class DebugAgentHost implements AgentHost {
 
 	async setModel(provider: string, modelId: string): Promise<void> {
 		await this.measure("setModel", () => this.inner.setModel(provider, modelId), { provider, modelId });
+	}
+
+	listRuntimes(): RuntimeDescriptor[] {
+		return this.inner.listRuntimes();
+	}
+
+	getActiveRuntimeDescriptor(): RuntimeDescriptor {
+		return this.inner.getActiveRuntimeDescriptor();
+	}
+
+	async switchRuntime(runtimeId: string): Promise<void> {
+		await this.measure("switchRuntime", () => this.inner.switchRuntime(runtimeId), { runtimeId });
 	}
 
 	async getCommands(): Promise<HostCommand[]> {

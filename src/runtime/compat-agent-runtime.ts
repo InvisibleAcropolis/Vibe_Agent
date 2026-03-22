@@ -60,6 +60,18 @@ export class CompatAgentRuntime implements AgentRuntime {
 		await this.host.setModel(provider, modelId);
 	}
 
+	listRuntimes() {
+		return this.host.listRuntimes();
+	}
+
+	getActiveRuntimeDescriptor() {
+		return this.host.getActiveRuntimeDescriptor();
+	}
+
+	async switchRuntime(runtimeId: string): Promise<void> {
+		await this.host.switchRuntime(runtimeId);
+	}
+
 	async getCommands(): Promise<HostCommand[]> {
 		return await this.host.getCommands();
 	}

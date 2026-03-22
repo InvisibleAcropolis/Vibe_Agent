@@ -33,6 +33,9 @@ export interface AppShellState {
 	artifacts: Artifact[];
 	showArtifactPanel: boolean;
 	sessionStatsVisible: boolean;
+	activeRuntimeId: string;
+	activeRuntimeName: string;
+	activeConversationLabel: string;
 	activeThinking: ActiveThinkingState;
 	permissionPending?: { toolName: string; args: Record<string, unknown>; resolve: (approved: boolean) => void };
 }
@@ -64,6 +67,7 @@ export interface AppStateStore {
 	clearArtifacts(): void;
 	setShowArtifactPanel(show: boolean): void;
 	setSessionStatsVisible(visible: boolean): void;
+	setActiveRuntime(runtime: { id: string; name: string; conversationLabel: string }): void;
 	setActiveThinking(state: ActiveThinkingState): void;
 	resetActiveThinking(): void;
 	setPermissionPending(pending: AppShellState["permissionPending"]): void;
@@ -80,6 +84,9 @@ export class DefaultAppStateStore implements AppStateStore {
 		artifacts: [],
 		showArtifactPanel: false,
 		sessionStatsVisible: false,
+		activeRuntimeId: "coding",
+		activeRuntimeName: "Coding Runtime",
+		activeConversationLabel: "Coding chat",
 		activeThinking: { ...EMPTY_ACTIVE_THINKING },
 	};
 	private listeners = new Set<AppStateListener>();
@@ -188,6 +195,14 @@ export class DefaultAppStateStore implements AppStateStore {
 
 	setSessionStatsVisible(visible: boolean): void {
 		this.update({ sessionStatsVisible: visible });
+	}
+
+	setActiveRuntime(runtime: { id: string; name: string; conversationLabel: string }): void {
+		this.update({
+			activeRuntimeId: runtime.id,
+			activeRuntimeName: runtime.name,
+			activeConversationLabel: runtime.conversationLabel,
+		});
 	}
 
 	setActiveThinking(state: ActiveThinkingState): void {

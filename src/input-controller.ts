@@ -98,7 +98,7 @@ export class DefaultInputController implements InputController {
 			return { consume: true };
 		}
 		if (matchesKey(nextData, "f3")) {
-			this.onToggleSessionsPanel?.();
+			this.openOrcSubmenu();
 			return { consume: true };
 		}
 		if ((matchesKey(nextData, "escape") || matchesKey(nextData, "esc")) && this.overlayController.getOverlayDepth() > 0) {
@@ -117,6 +117,10 @@ export class DefaultInputController implements InputController {
 
 	private openSessionsSubmenu(): void {
 		this.commandController.openSessionsOverlay();
+	}
+
+	private openOrcSubmenu(): void {
+		this.commandController.openOrchestrationOverlay();
 	}
 
 	private logMouse(event: MouseEvent): void {
