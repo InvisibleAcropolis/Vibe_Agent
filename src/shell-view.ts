@@ -304,6 +304,7 @@ export class DefaultShellView implements ShellView {
 		const menuItems: MenuBarItem[] = [
 			{ key: "F1", label: "Settings" },
 			{ key: "F2", label: "Sessions" },
+			{ key: "F3", label: "Orc" },
 		];
 		const layout = measureMenuBarItems(menuItems).find((item) => item.key === key);
 		const splashHeight = this.chromeSplashBand.render(cols).length;
@@ -465,10 +466,11 @@ export class DefaultShellView implements ShellView {
 			this.chromeHeaderInfo.setText(headerLines.join("\n"));
 		}
 
-		// Menu bar: [F1] Settings  ◆  [F2] Sessions ══════════════════════════════
+		// Menu bar: [F1] Settings  ◆  [F2] Sessions  ◆  [F3] Orc ═══════════════════
 		const MENU_ITEMS: MenuBarItem[] = [
 			{ key: "F1", label: "Settings" },
 			{ key: "F2", label: "Sessions" },
+			{ key: "F3", label: "Orc" },
 		];
 		this.chromeMenuBar.setText(renderMenuBar(
 			MENU_ITEMS, cols, bc,

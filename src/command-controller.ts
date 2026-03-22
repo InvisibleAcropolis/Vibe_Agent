@@ -83,6 +83,7 @@ export interface CommandController {
 	openTreeSelector(): Promise<void>;
 	openSettingsOverlay(): void;
 	openSessionsOverlay(): void;
+	openOrchestrationOverlay(): void;
 	openStatsOverlay(): void;
 	openArtifactViewer(): void;
 	openHelpOverlay(): void;
@@ -381,6 +382,24 @@ export class DefaultCommandController implements CommandController {
 		});
 	}
 
+	openOrchestrationOverlay(): void {
+		const anchor = this.shellView.getMenuAnchor("F3");
+		this.overlayController.openMenuOverlay("menu-orc", {
+			title: "[F3] Orc",
+			subtitle: "Phase 1 orchestration surfaces and status hooks.",
+			anchor,
+			width: 34,
+			childWidth: 46,
+			items: [
+				{ kind: "action", id: "summon-orc", label: "Summon Orc", description: "Initialize the orchestration assistant shell.", onSelect: () => this.showPlaceholderStatus("Summon Orc is not implemented yet.") },
+				{ kind: "action", id: "tracker", label: "Tracker", description: "Inspect orchestration progress and checkpoints.", onSelect: () => this.showPlaceholderStatus("Tracker is not implemented yet.") },
+				{ kind: "action", id: "artifacts", label: "Artifacts", description: "Browse orchestration artifacts and outputs.", onSelect: () => this.showPlaceholderStatus("Orc Artifacts is not implemented yet.") },
+				{ kind: "action", id: "logs", label: "Logs", description: "Review orchestration execution logs.", onSelect: () => this.showPlaceholderStatus("Orc Logs is not implemented yet.") },
+				{ kind: "action", id: "settings", label: "Settings", description: "Adjust orchestration defaults and preferences.", onSelect: () => this.showPlaceholderStatus("Orc Settings is not implemented yet.") },
+			],
+		});
+	}
+
 	openStatsOverlay(): void {
 		try {
 			const stats = this.host.getSessionStats();
@@ -548,6 +567,10 @@ export class DefaultCommandController implements CommandController {
 			// ignore persistence errors
 		}
 		this.stateStore.setStatusMessage(`Theme set to "${arg}".`);
+	}
+
+	private showPlaceholderStatus(message: string): void {
+		this.stateStore.setStatusMessage(message);
 	}
 
 	private writeSnapshotAndStatus(reason: string): void {
