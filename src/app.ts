@@ -17,6 +17,7 @@ import { LogCatalogService } from "./durable/logs/log-catalog-service.js";
 import { MemoryStoreService } from "./durable/memory/memory-store-service.js";
 import { WorkbenchInventoryService } from "./durable/workbench-inventory-service.js";
 import { DefaultEditorController } from "./editor-controller.js";
+import { DirectAgentHost } from "./direct-agent-host.js";
 import { DefaultExtensionUiHost } from "./extension-ui-host.js";
 import { DefaultInputController } from "./input-controller.js";
 import { MouseEnabledTerminal } from "./mouse-enabled-terminal.js";
@@ -32,11 +33,13 @@ import {
 	ModelRegistry,
 	OAuthSelectorComponent,
 	onThemeChange,
+	SessionManager,
 	type AgentSession,
 } from "./local-coding-agent.js";
 import { CompatAgentRuntime } from "./runtime/compat-agent-runtime.js";
 import { CoordinatedAgentHost } from "./runtime/coordinated-agent-host.js";
 import { RuntimeCoordinator } from "./runtime/runtime-coordinator.js";
+import { getRuntimeSessionDir } from "./runtime/runtime-session-namespace.js";
 import { getThemeNames, onThemeConfigChange, setActiveTheme, type ThemeName } from "./themes/index.js";
 import type { VibeAgentAppOptions } from "./types.js";
 import { type SetupRunRequest, WelcomeController } from "./welcome-controller.js";
@@ -134,6 +137,17 @@ export class VibeAgentApp {
 					await this.applyConfiguredModelToSession(session);
 				},
 			});
+		const orcHost = new DirectAgentHost({
+			createOptions: {
+				authStorage: this.authStorage,
+				modelRegistry: this.modelRegistry,
+				streamFn: createOpenAIReasoningSummaryStreamFn(),
+				sessionManager: SessionManager.create(process.cwd(), getRuntimeSessionDir("orc")),
+			},
+			onSessionReady: async (session) => {
+				await this.applyConfiguredModelToSession(session);
+			},
+		});
 
 		this.runtimeCoordinator =
 			options.runtimeCoordinator ??
@@ -148,6 +162,15 @@ export class VibeAgentApp {
 							primary: true,
 						},
 						innerHost,
+					),
+					new CompatAgentRuntime(
+						{
+							id: "orc",
+							kind: "orchestration",
+							displayName: "Orc",
+							capabilities: ["interactive-prompt", "session-management", "planning", "checkpoint-visibility", "orchestration-status"],
+						},
+						orcHost,
 					),
 				],
 				{
@@ -277,8 +300,10 @@ export class VibeAgentApp {
 				},
 				setThinkingVisibility: (show) => this.setThinkingVisibility(show),
 			},
+			() => this.handleRuntimeActivated(),
 		);
 		this.commandController = commandController;
+		this.syncRuntimeDisplayState();
 
 		this.shellView.setEditor(this.editorController.getComponent());
 		this.inputController = new DefaultInputController(
@@ -534,6 +559,7 @@ export class VibeAgentApp {
 			this.shellView.setTitle("Vibe Agent");
 			this.shellView.setEditor(this.editorController.getComponent());
 			this.setFocus(this.editorController.getComponent(), "editor");
+			this.syncRuntimeDisplayState();
 			this.refreshCockpitContext();
 		}
 	}
@@ -566,6 +592,7 @@ export class VibeAgentApp {
 		this.shellView.setTitle("Vibe Agent");
 		this.shellView.setEditor(this.editorController.getComponent());
 		this.setFocus(this.editorController.getComponent(), "editor");
+		this.syncRuntimeDisplayState();
 		this.refreshCockpitContext();
 	}
 
@@ -692,6 +719,30 @@ export class VibeAgentApp {
 	private persistConfig(config: AppConfig): void {
 		this.appConfig = config;
 		AppConfig.save(config, this.configPath);
+	}
+
+	private handleRuntimeActivated(): void {
+		this.stateStore.resetActiveThinking();
+		this.syncRuntimeDisplayState();
+		this.syncMessages();
+		this.refreshProviderAvailability();
+		this.refreshCockpitContext();
+	}
+
+	private syncRuntimeDisplayState(): void {
+		try {
+			const descriptor = this.host.getActiveRuntimeDescriptor();
+			const conversationLabel = descriptor.id === "orc" ? "Orc orchestration chat" : "Coding chat";
+			this.stateStore.setActiveRuntime({
+				id: descriptor.id,
+				name: descriptor.displayName,
+				conversationLabel,
+			});
+			this.shellView.footerData.setSessionMode(conversationLabel);
+		} catch {
+			this.stateStore.setActiveRuntime({ id: "coding", name: "Coding Runtime", conversationLabel: "Coding chat" });
+			this.shellView.footerData.setSessionMode("Coding chat");
+		}
 	}
 
 	private getRuntimeContext(): { runtimeId: string; sessionId?: string } {

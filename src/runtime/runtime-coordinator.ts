@@ -4,6 +4,8 @@ import type { AgentRuntime, RuntimeDescriptor } from "./agent-runtime.js";
 
 type RuntimePhase = "start" | "stop";
 
+type ActiveRuntimeListener = (runtime: AgentRuntime) => void;
+
 export interface RuntimeCoordinatorOptions {
 	onRuntimeError?: (runtimeId: string, phase: RuntimePhase, error: unknown) => void;
 }
@@ -11,7 +13,9 @@ export interface RuntimeCoordinatorOptions {
 export class RuntimeCoordinator {
 	private readonly runtimes = new Map<string, AgentRuntime>();
 	private readonly startedRuntimeIds = new Set<string>();
+	private readonly activeRuntimeListeners = new Set<ActiveRuntimeListener>();
 	private activeRuntimeId?: string;
+	private uiContext?: ExtensionUIContext;
 
 	constructor(
 		runtimes: AgentRuntime[] = [],
@@ -33,6 +37,10 @@ export class RuntimeCoordinator {
 		return [...this.runtimes.values()].map((runtime) => runtime.descriptor);
 	}
 
+	getDescriptor(runtimeId: string): RuntimeDescriptor | undefined {
+		return this.runtimes.get(runtimeId)?.descriptor;
+	}
+
 	getActiveRuntime(): AgentRuntime {
 		const activeRuntime = this.activeRuntimeId ? this.runtimes.get(this.activeRuntimeId) : undefined;
 		if (activeRuntime) {
@@ -46,25 +54,36 @@ export class RuntimeCoordinator {
 		return fallbackRuntime;
 	}
 
-	setActiveRuntime(runtimeId: string): void {
-		if (!this.runtimes.has(runtimeId)) {
+	onActiveRuntimeChange(listener: ActiveRuntimeListener): () => void {
+		this.activeRuntimeListeners.add(listener);
+		return () => this.activeRuntimeListeners.delete(listener);
+	}
+
+	async setActiveRuntime(runtimeId: string): Promise<void> {
+		const runtime = this.runtimes.get(runtimeId);
+		if (!runtime) {
 			throw new Error(`Runtime not found: ${runtimeId}`);
 		}
+		if (!this.startedRuntimeIds.has(runtimeId) && this.uiContext) {
+			await this.startRuntime(runtime, this.uiContext);
+		}
 		this.activeRuntimeId = runtimeId;
+		for (const listener of this.activeRuntimeListeners) {
+			listener(runtime);
+		}
 	}
 
 	async start(uiContext: ExtensionUIContext): Promise<AgentHostStartResult> {
+		this.uiContext = uiContext;
 		const activeRuntime = this.getActiveRuntime();
-		const startResult = await activeRuntime.start(uiContext);
-		this.startedRuntimeIds.add(activeRuntime.descriptor.id);
+		const startResult = await this.startRuntime(activeRuntime, uiContext);
 
 		for (const runtime of this.runtimes.values()) {
 			if (runtime.descriptor.id === activeRuntime.descriptor.id) {
 				continue;
 			}
 			try {
-				await runtime.start(uiContext);
-				this.startedRuntimeIds.add(runtime.descriptor.id);
+				await this.startRuntime(runtime, uiContext);
 			} catch (error) {
 				this.options.onRuntimeError?.(runtime.descriptor.id, "start", error);
 			}
@@ -87,5 +106,11 @@ export class RuntimeCoordinator {
 				this.startedRuntimeIds.delete(runtime.descriptor.id);
 			}
 		}
+	}
+
+	private async startRuntime(runtime: AgentRuntime, uiContext: ExtensionUIContext): Promise<AgentHostStartResult> {
+		const startResult = await runtime.start(uiContext);
+		this.startedRuntimeIds.add(runtime.descriptor.id);
+		return startResult;
 	}
 }

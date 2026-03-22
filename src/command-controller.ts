@@ -40,6 +40,7 @@ const BUILTIN_COMMAND_META: Record<string, { category: string; order: number; de
 	thinking: { category: "Session", order: 16, description: "Pick the reasoning budget for the active model." },
 	compact: { category: "Session", order: 17, description: "Compact the current context window." },
 	clear: { category: "Session", order: 18, description: "Clear the chat display." },
+	"summon-orc": { category: "Session", order: 19, description: "Switch into the dedicated Orc orchestration chat." },
 	help: { category: "Help", order: 30, description: "Show keybindings and setup guidance." },
 	"debug-dump": { category: "Help", order: 31, description: "Write a debug snapshot bundle at the app root." },
 };
@@ -84,6 +85,8 @@ export interface CommandController {
 	openSettingsOverlay(): void;
 	openSessionsOverlay(): void;
 	openOrchestrationOverlay(): void;
+	summonOrc(): Promise<void>;
+	returnToCodingChat(): Promise<void>;
 	openStatsOverlay(): void;
 	openArtifactViewer(): void;
 	openHelpOverlay(): void;
@@ -102,6 +105,7 @@ export class DefaultCommandController implements CommandController {
 		private readonly shellView: ShellView,
 		private readonly inventory: WorkbenchInventoryService,
 		private readonly setupActions: SetupActions,
+		private readonly onRuntimeActivated: () => void,
 	) {}
 
 	async handleSlashCommand(text: string): Promise<boolean> {
@@ -144,6 +148,11 @@ export class DefaultCommandController implements CommandController {
 		if (text === "/artifacts") {
 			this.editorController.setText("");
 			this.openArtifactViewer();
+			return true;
+		}
+		if (text === "/summon-orc") {
+			this.editorController.setText("");
+			await this.summonOrc();
 			return true;
 		}
 		if (text === "/help") {
@@ -391,13 +400,26 @@ export class DefaultCommandController implements CommandController {
 			width: 34,
 			childWidth: 46,
 			items: [
-				{ kind: "action", id: "summon-orc", label: "Summon Orc", description: "Initialize the orchestration assistant shell.", onSelect: () => this.showPlaceholderStatus("Summon Orc is not implemented yet.") },
+				{ kind: "action", id: "summon-orc", label: "Summon Orc", description: "Initialize the orchestration assistant shell.", onSelect: () => void this.summonOrc().catch((error) => this.handleError("summonOrc", error)) },
+				{ kind: "action", id: "coding-chat", label: "Coding Chat", description: "Return to the standard coding session transcript.", onSelect: () => void this.returnToCodingChat().catch((error) => this.handleError("returnToCodingChat", error)) },
 				{ kind: "action", id: "tracker", label: "Tracker", description: "Inspect orchestration progress and checkpoints.", onSelect: () => this.showPlaceholderStatus("Tracker is not implemented yet.") },
 				{ kind: "action", id: "artifacts", label: "Artifacts", description: "Browse orchestration artifacts and outputs.", onSelect: () => this.showPlaceholderStatus("Orc Artifacts is not implemented yet.") },
 				{ kind: "action", id: "logs", label: "Logs", description: "Review orchestration execution logs.", onSelect: () => this.showPlaceholderStatus("Orc Logs is not implemented yet.") },
 				{ kind: "action", id: "settings", label: "Settings", description: "Adjust orchestration defaults and preferences.", onSelect: () => this.showPlaceholderStatus("Orc Settings is not implemented yet.") },
 			],
 		});
+	}
+
+	async summonOrc(): Promise<void> {
+		await this.host.switchRuntime("orc");
+		this.onRuntimeActivated();
+		this.stateStore.setStatusMessage("Orc orchestration chat active. Phase 1 backend is running in its dedicated session namespace.");
+	}
+
+	async returnToCodingChat(): Promise<void> {
+		await this.host.switchRuntime("coding");
+		this.onRuntimeActivated();
+		this.stateStore.setStatusMessage("Standard coding chat active.");
 	}
 
 	openStatsOverlay(): void {

@@ -1,20 +1,43 @@
 import type { AgentHost, AgentHostStartResult, AgentHostState, HostCommand } from "../agent-host.js";
 import type { AgentSessionEvent, ExtensionUIContext, SessionInfo, SessionStats } from "../local-coding-agent.js";
+import type { RuntimeDescriptor } from "./agent-runtime.js";
 import { RuntimeCoordinator } from "./runtime-coordinator.js";
 
 export class CoordinatedAgentHost implements AgentHost {
+	private readonly eventListeners = new Set<(event: AgentSessionEvent) => void>();
+	private activeRuntimeUnsubscribe?: () => void;
+	private activeRuntimeChangeUnsubscribe?: () => void;
+
 	constructor(private readonly coordinator: RuntimeCoordinator) {}
 
 	async start(uiContext: ExtensionUIContext): Promise<AgentHostStartResult> {
-		return await this.coordinator.start(uiContext);
+		const result = await this.coordinator.start(uiContext);
+		this.activeRuntimeChangeUnsubscribe?.();
+		this.activeRuntimeChangeUnsubscribe = this.coordinator.onActiveRuntimeChange(() => {
+			this.rebindActiveRuntimeSubscription();
+		});
+		this.rebindActiveRuntimeSubscription();
+		return result;
 	}
 
 	async stop(): Promise<void> {
+		this.activeRuntimeUnsubscribe?.();
+		this.activeRuntimeUnsubscribe = undefined;
+		this.activeRuntimeChangeUnsubscribe?.();
+		this.activeRuntimeChangeUnsubscribe = undefined;
 		await this.coordinator.stop();
 	}
 
 	subscribe(listener: (event: AgentSessionEvent) => void): () => void {
-		return this.coordinator.getActiveRuntime().subscribe(listener);
+		this.eventListeners.add(listener);
+		this.rebindActiveRuntimeSubscription();
+		return () => {
+			this.eventListeners.delete(listener);
+			if (this.eventListeners.size === 0) {
+				this.activeRuntimeUnsubscribe?.();
+				this.activeRuntimeUnsubscribe = undefined;
+			}
+		};
 	}
 
 	getMessages() {
@@ -55,6 +78,18 @@ export class CoordinatedAgentHost implements AgentHost {
 
 	async setModel(provider: string, modelId: string): Promise<void> {
 		await this.coordinator.getActiveRuntime().setModel(provider, modelId);
+	}
+
+	listRuntimes(): RuntimeDescriptor[] {
+		return this.coordinator.listDescriptors();
+	}
+
+	getActiveRuntimeDescriptor(): RuntimeDescriptor {
+		return this.coordinator.getActiveRuntime().descriptor;
+	}
+
+	async switchRuntime(runtimeId: string): Promise<void> {
+		await this.coordinator.setActiveRuntime(runtimeId);
 	}
 
 	async getCommands(): Promise<HostCommand[]> {
@@ -103,5 +138,18 @@ export class CoordinatedAgentHost implements AgentHost {
 
 	async setSessionName(name: string): Promise<void> {
 		await this.coordinator.getActiveRuntime().setSessionName(name);
+	}
+
+	private rebindActiveRuntimeSubscription(): void {
+		this.activeRuntimeUnsubscribe?.();
+		this.activeRuntimeUnsubscribe = undefined;
+		if (this.eventListeners.size === 0) {
+			return;
+		}
+		this.activeRuntimeUnsubscribe = this.coordinator.getActiveRuntime().subscribe((event) => {
+			for (const listener of this.eventListeners) {
+				listener(event);
+			}
+		});
 	}
 }
