@@ -1,5 +1,6 @@
 import { style } from "../ansi.js";
 import type { AnimationState } from "../animation-engine.js";
+import { requireBooleanOption, requireNumberOption, requireStringOption } from "./anim-option-helpers.js";
 import { lerpColor } from "../themes/index.js";
 import type { ThemeConfig } from "../themes/index.js";
 
@@ -17,19 +18,20 @@ const PAL_DEFAULT = ['░', '▒', '▓', '█'] as const;
 const PAL_FIRE = [' ', '.', ':', ';', '|', 'i', 't', 'S', '8', '#', '@'] as const;
 const PAL_OCEAN = [' ', '·', ':', '=', '≡', '▒', '▓', '█'] as const;
 const PAL_TOXIC = ['░', '▒', '▓', '█', '◐', '◑', '◒', '◓'] as const;
+const MODULE_ID = "anim_plasma";
 
 export function renderPlasma(
 	animState: AnimationState,
 	theme: ThemeConfig,
 	opts?: PlasmaOptions,
 ): string {
-	const width = opts?.width ?? 24;
-	const height = opts?.height ?? 8;
-	const freq = opts?.freq ?? 0.35;
-	const timeScale = opts?.timeScale ?? 0.06;
-	const colorCycle = opts?.colorCycle ?? false;
-	const palette = opts?.palette ?? "default";
-	const freqModulation = opts?.freqModulation ?? 0;
+	const width = requireNumberOption(opts?.width, MODULE_ID, "width");
+	const height = requireNumberOption(opts?.height, MODULE_ID, "height");
+	const freq = requireNumberOption(opts?.freq, MODULE_ID, "freq");
+	const timeScale = requireNumberOption(opts?.timeScale, MODULE_ID, "timeScale");
+	const colorCycle = requireBooleanOption(opts?.colorCycle, MODULE_ID, "colorCycle");
+	const palette = requireStringOption(opts?.palette, MODULE_ID, "palette");
+	const freqModulation = requireNumberOption(opts?.freqModulation, MODULE_ID, "freqModulation");
 
 	let pal: readonly string[];
 	switch (palette) {

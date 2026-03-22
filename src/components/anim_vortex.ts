@@ -1,5 +1,6 @@
 import { style } from "../ansi.js";
 import type { AnimationState } from "../animation-engine.js";
+import { requireBooleanOption, requireNumberOption, requireStringOption } from "./anim-option-helpers.js";
 import { lerpColor } from "../themes/index.js";
 import type { ThemeConfig } from "../themes/index.js";
 
@@ -22,6 +23,7 @@ interface Particle {
 	angularSpeed: number;
 	trail: Array<{ x: number; y: number; t: number }>;
 }
+const MODULE_ID = "anim_vortex";
 
 function spawnParticle(baseRadius: number, pattern: string): Particle {
 	switch (pattern) {
@@ -57,14 +59,14 @@ function spawnParticle(baseRadius: number, pattern: string): Particle {
 }
 
 export function createVortex(opts?: VortexOptions): (animState: AnimationState, theme: ThemeConfig) => string {
-	const cols = opts?.cols ?? 24;
-	const rows = opts?.rows ?? 10;
-	const count = opts?.count ?? 35;
-	const pullStrength = opts?.pullStrength ?? 0.04;
-	const trailLength = opts?.trailLength ?? 3;
-	const spawnPattern = opts?.spawnPattern ?? "random";
-	const colorTrail = opts?.colorTrail ?? true;
-	const magneticField = opts?.magneticField ?? false;
+	const cols = requireNumberOption(opts?.cols, MODULE_ID, "cols");
+	const rows = requireNumberOption(opts?.rows, MODULE_ID, "rows");
+	const count = requireNumberOption(opts?.count, MODULE_ID, "count");
+	const pullStrength = requireNumberOption(opts?.pullStrength, MODULE_ID, "pullStrength");
+	const trailLength = requireNumberOption(opts?.trailLength, MODULE_ID, "trailLength");
+	const spawnPattern = requireStringOption(opts?.spawnPattern, MODULE_ID, "spawnPattern");
+	const colorTrail = requireBooleanOption(opts?.colorTrail, MODULE_ID, "colorTrail");
+	const magneticField = requireBooleanOption(opts?.magneticField, MODULE_ID, "magneticField");
 
 	const baseRadius = Math.min(cols, rows * 2) / 2;
 

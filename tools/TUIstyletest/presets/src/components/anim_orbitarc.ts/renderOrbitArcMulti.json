@@ -1,0 +1,8 @@
+{
+  "count": 3,
+  "speedMultiplier": 1.0,
+  "reverse": false,
+  "orbitType": "circular",
+  "trailLength": 6,
+  "trailStyle": "dots"
+}

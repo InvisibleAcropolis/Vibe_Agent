@@ -1,5 +1,6 @@
 import { style } from "../ansi.js";
 import type { AnimationState } from "../animation-engine.js";
+import { requireBooleanOption, requireNumberOption, requireStringOption } from "./anim-option-helpers.js";
 import { lerpColor } from "../themes/index.js";
 import type { ThemeConfig } from "../themes/index.js";
 
@@ -18,6 +19,7 @@ export interface GameOfLifeOptions {
 }
 
 const LIVE_CHARS = ['░', '▒', '▓', '█'] as const;
+const MODULE_ID = "anim_gameoflife";
 
 function parseRule(rule: string): { born: Set<number>; survives: Set<number> } {
 	const parts = rule.split('/');
@@ -27,17 +29,17 @@ function parseRule(rule: string): { born: Set<number>; survives: Set<number> } {
 }
 
 export function createGameOfLife(opts?: GameOfLifeOptions): (animState: AnimationState, theme: ThemeConfig) => string {
-	const cols = opts?.cols ?? 24;
-	const rows = opts?.rows ?? 8;
-	const density = opts?.density ?? 0.35;
-	const ticksPerStep = opts?.ticksPerStep ?? 3;
-	const rule = opts?.rule ?? "B3/S23";
-	const randomSeed = opts?.randomSeed ?? true;
-	const cellAging = opts?.cellAging ?? true;
-	const agingSpeed = opts?.agingSpeed ?? 20;
-	const reseedOnStagnation = opts?.reseedOnStagnation ?? true;
-	const stagnationThreshold = opts?.stagnationThreshold ?? 60;
-	const maxGenerations = opts?.maxGenerations ?? 400;
+	const cols = requireNumberOption(opts?.cols, MODULE_ID, "cols");
+	const rows = requireNumberOption(opts?.rows, MODULE_ID, "rows");
+	const density = requireNumberOption(opts?.density, MODULE_ID, "density");
+	const ticksPerStep = requireNumberOption(opts?.ticksPerStep, MODULE_ID, "ticksPerStep");
+	const rule = requireStringOption(opts?.rule, MODULE_ID, "rule");
+	const randomSeed = requireBooleanOption(opts?.randomSeed, MODULE_ID, "randomSeed");
+	const cellAging = requireBooleanOption(opts?.cellAging, MODULE_ID, "cellAging");
+	const agingSpeed = requireNumberOption(opts?.agingSpeed, MODULE_ID, "agingSpeed");
+	const reseedOnStagnation = requireBooleanOption(opts?.reseedOnStagnation, MODULE_ID, "reseedOnStagnation");
+	const stagnationThreshold = requireNumberOption(opts?.stagnationThreshold, MODULE_ID, "stagnationThreshold");
+	const maxGenerations = requireNumberOption(opts?.maxGenerations, MODULE_ID, "maxGenerations");
 
 	const { born, survives } = parseRule(rule);
 

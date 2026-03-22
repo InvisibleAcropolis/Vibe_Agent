@@ -1,0 +1,10 @@
+{
+  "cols": 6,
+  "decay": 0.92,
+  "peakHold": true,
+  "smoothing": 0.3,
+  "speed": 1.0,
+  "peakDecay": 0.98,
+  "barGap": 0,
+  "rows": 6
+}

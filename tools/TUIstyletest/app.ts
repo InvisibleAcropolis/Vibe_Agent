@@ -24,6 +24,7 @@ import { buildDemoCatalog, createCatalogErrorDemo, getDefaultDemoId, getDefaultD
 type FocusPane = "browser" | "preview" | "controls";
 
 type PanelListRow = { kind: "group"; label: string } | { kind: "demo"; id: string; title: string; sourceFile: string; kindLabel: string };
+type ActionRow = { id: string; label: string; type: "action" };
 
 interface MouseAwareComponent extends Component {
 	handleMouse?(event: MouseEvent, rect: Rect): boolean;
@@ -132,6 +133,7 @@ class ControlsPanel implements MouseAwareComponent {
 		private readonly getDemo: () => StyleTestDemoDefinition,
 		private readonly getValues: () => StyleTestControlValues,
 		private readonly getThemeName: () => ThemeName,
+		private readonly getPresetActions: () => ActionRow[],
 		private readonly isFocused: () => boolean,
 		private readonly onAdjust: (controlId: string, delta: number) => void,
 		private readonly onToggle: (controlId: string) => void,
@@ -142,13 +144,14 @@ class ControlsPanel implements MouseAwareComponent {
 
 	invalidate(): void {}
 
-	private controlsForRender(): Array<StyleTestControl | { id: string; label: string; type: "action" }> {
+	private controlsForRender(): Array<StyleTestControl | ActionRow> {
 		const demo = this.getDemo();
-		const actionRows: Array<{ id: string; label: string; type: "action" }> = [
+		const actionRows: ActionRow[] = [
 			{ id: "action-cycle-theme", label: `Theme: ${this.getThemeName()}`, type: "action" },
 			{ id: "action-reset", label: "Reset Demo", type: "action" },
 			{ id: "action-randomize", label: "Randomize Values", type: "action" },
 		];
+		actionRows.push(...this.getPresetActions());
 		for (const preset of demo.presets ?? []) {
 			actionRows.push({ id: `preset:${preset.id}`, label: `Preset: ${preset.label}`, type: "action" });
 		}
@@ -343,6 +346,7 @@ export class TUIStyleTestApp {
 	private readonly innerContent: SideBySideContainer;
 	private readonly outerContent: SideBySideContainer;
 	private readonly values = new Map<string, StyleTestControlValues>();
+	private readonly activePresetIds = new Map<string, string>();
 	private runtime?: StyleTestRuntime;
 	private running = false;
 	private focusedPane: FocusPane = "browser";
@@ -363,6 +367,7 @@ export class TUIStyleTestApp {
 			() => this.currentDemo(),
 			() => this.currentValues(),
 			() => this.getThemeName(),
+			() => this.currentPresetActions(),
 			() => this.focusedPane === "controls",
 			(controlId, delta) => this.adjustNumberControl(controlId, delta),
 			(controlId) => this.toggleBooleanControl(controlId),
@@ -425,6 +430,31 @@ export class TUIStyleTestApp {
 		return { ...(this.values.get(this.selectedDemoId) ?? {}) };
 	}
 
+	private currentPresetId(): string {
+		return this.activePresetIds.get(this.selectedDemoId) ?? "default";
+	}
+
+	private currentPresetLabel(): string {
+		const variants = this.currentDemo().listPresetVariants?.() ?? [];
+		const currentId = this.currentPresetId();
+		return variants.find((entry) => entry.id === currentId)?.label ?? "Default";
+	}
+
+	private currentPresetActions(): ActionRow[] {
+		const variants = this.currentDemo().listPresetVariants?.() ?? [];
+		if (variants.length === 0) {
+			return [];
+		}
+		return [
+			{ id: "action-save-preset-as", label: `Save Preset As (${this.currentPresetLabel()})`, type: "action" },
+			...variants.map((variant) => ({
+				id: `variant:${variant.id}`,
+				label: `${variant.id === this.currentPresetId() ? "Variant *" : "Variant"}: ${variant.label}`,
+				type: "action" as const,
+			})),
+		];
+	}
+
 	getThemeName(): ThemeName {
 		return getActiveTheme().name;
 	}
@@ -441,6 +471,7 @@ export class TUIStyleTestApp {
 	updateControlValue(controlId: string, value: string | number | boolean): void {
 		const next = { ...this.currentValues(), [controlId]: value };
 		this.values.set(this.selectedDemoId, next);
+		this.currentDemo().saveValues?.(next, this.currentPresetId());
 		this.rebuildRuntime();
 		this.tui.requestRender();
 	}
@@ -485,8 +516,10 @@ export class TUIStyleTestApp {
 			this.demos = [createCatalogErrorDemo(`Failed to build the live style catalog: ${message}`)];
 		}
 		this.values.clear();
+		this.activePresetIds.clear();
 		for (const demo of this.demos) {
 			this.values.set(demo.id, getDefaultDemoValues(demo));
+			this.activePresetIds.set(demo.id, "default");
 		}
 		this.selectedDemoId = getDefaultDemoId(this.demos);
 		this.rebuildRuntime();
@@ -496,7 +529,8 @@ export class TUIStyleTestApp {
 		const dynamicTheme = createDynamicTheme(this.animationEngine.getState());
 		const themeName = this.getThemeName();
 		const headerLeft = `${agentTheme.chromeBadge(" TUIstyletest ")} ${agentTheme.chromeMeta(`Standalone style lab  |  ${this.currentDemo().kind.toUpperCase()}`)}`;
-		const headerRight = agentTheme.dim(`theme=${themeName}  demo=${this.currentDemo().title}`);
+		const presetLabel = this.currentDemo().listPresetVariants ? this.currentPresetLabel() : undefined;
+		const headerRight = agentTheme.dim(`theme=${themeName}  demo=${this.currentDemo().title}${presetLabel ? `  preset=${presetLabel}` : ""}`);
 		this.header.setText(paintBoxLineTwoParts(headerLeft, headerRight, this.terminal.columns, " ", undefined, dynamicTheme.borderAnimated));
 		const menuItems: MenuBarItem[] = [
 			{ key: "Tab", label: "Focus" },
@@ -657,7 +691,20 @@ export class TUIStyleTestApp {
 		const control = this.currentControl(controlId);
 		if (!control || control.type !== "text") return;
 		this.stateStore.setFocusLabel(`edit:${controlId}`);
-		this.overlayController.openTextPrompt(control.label, control.description ?? "Edit control value.", String(this.currentValues()[controlId] ?? control.defaultValue), (value) => {
+		const initialValue = String(this.currentValues()[controlId] ?? control.defaultValue);
+		if (control.multiline) {
+			this.overlayController.openEditorPrompt(
+				control.label,
+				initialValue,
+				(value) => {
+					this.updateControlValue(controlId, value);
+					this.setFocusPane("controls");
+				},
+				() => this.setFocusPane("controls"),
+			);
+			return;
+		}
+		this.overlayController.openTextPrompt(control.label, control.description ?? "Edit control value.", initialValue, (value) => {
 			this.updateControlValue(controlId, value);
 			this.setFocusPane("controls");
 		});
@@ -665,7 +712,8 @@ export class TUIStyleTestApp {
 
 	private runAction(actionId: string): void {
 		if (actionId === "action-reset") {
-			this.values.set(this.selectedDemoId, getDefaultDemoValues(this.currentDemo()));
+			const demo = this.currentDemo();
+			this.values.set(this.selectedDemoId, demo.loadValues ? demo.loadValues(this.currentPresetId()) : getDefaultDemoValues(demo));
 			this.rebuildRuntime();
 			this.tui.requestRender();
 			return;
@@ -703,6 +751,32 @@ export class TUIStyleTestApp {
 		}
 		if (actionId === "action-open-overlay") {
 			this.openCurrentOverlay();
+			return;
+		}
+		if (actionId === "action-save-preset-as") {
+			const currentDemo = this.currentDemo();
+			this.overlayController.openTextPrompt("Save Preset As", "Enter a name for the new preset variant.", "", (value) => {
+				const nextId = currentDemo.saveValues?.(this.currentValues(), value.trim());
+				if (typeof nextId === "string" && nextId.length > 0) {
+					this.activePresetIds.set(this.selectedDemoId, nextId);
+				}
+				this.rebuildRuntime();
+				this.refreshChrome();
+				this.tui.requestRender();
+				this.setFocusPane("controls");
+			}, () => this.setFocusPane("controls"));
+			return;
+		}
+		if (actionId.startsWith("variant:")) {
+			const presetId = actionId.slice("variant:".length);
+			const demo = this.currentDemo();
+			this.activePresetIds.set(this.selectedDemoId, presetId);
+			if (demo.loadValues) {
+				this.values.set(this.selectedDemoId, demo.loadValues(presetId));
+			}
+			this.rebuildRuntime();
+			this.refreshChrome();
+			this.tui.requestRender();
 			return;
 		}
 		if (actionId.startsWith("preset:")) {

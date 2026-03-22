@@ -1,0 +1,11 @@
+{
+  "rows": 12,
+  "numVLines": 9,
+  "perspectiveFactor": 0.6,
+  "cols": 48,
+  "animateVanishingPoint": false,
+  "animateSpeed": 0.02,
+  "vanishingPointY": "top",
+  "speed": 0.4,
+  "vanishingPointX": "center"
+}

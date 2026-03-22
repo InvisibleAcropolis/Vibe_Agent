@@ -1,5 +1,6 @@
 import { style } from "../ansi.js";
 import type { AnimationState } from "../animation-engine.js";
+import { requireBooleanOption, requireNumberOption } from "./anim-option-helpers.js";
 import { lerpColor } from "../themes/index.js";
 import type { ThemeConfig } from "../themes/index.js";
 
@@ -22,16 +23,17 @@ interface BarTracker {
 	value: number;
 	peak: number;
 }
+const MODULE_ID = "anim_spectrumbars";
 
 export function createSpectrumBars(opts?: SpectrumBarsOptions): (animState: AnimationState, theme: ThemeConfig) => string {
-	const cols = opts?.cols ?? 12;
-	const rows = opts?.rows ?? 6;
-	const speed = opts?.speed ?? 1.0;
-	const decay = opts?.decay ?? 0.92;
-	const peakHold = opts?.peakHold ?? true;
-	const peakDecay = opts?.peakDecay ?? 0.98;
-	const smoothing = opts?.smoothing ?? 0.3;
-	const barGap = opts?.barGap ?? 0;
+	const cols = requireNumberOption(opts?.cols, MODULE_ID, "cols");
+	const rows = requireNumberOption(opts?.rows, MODULE_ID, "rows");
+	const speed = requireNumberOption(opts?.speed, MODULE_ID, "speed");
+	const decay = requireNumberOption(opts?.decay, MODULE_ID, "decay");
+	const peakHold = requireBooleanOption(opts?.peakHold, MODULE_ID, "peakHold");
+	const peakDecay = requireNumberOption(opts?.peakDecay, MODULE_ID, "peakDecay");
+	const smoothing = requireNumberOption(opts?.smoothing, MODULE_ID, "smoothing");
+	const barGap = requireNumberOption(opts?.barGap, MODULE_ID, "barGap");
 
 	const trackers: BarTracker[] = Array.from({ length: cols }, (_, i) => ({
 		phase: i * 0.4,
@@ -103,7 +105,7 @@ export function renderSpectrumBarsStereo(
 	theme: ThemeConfig,
 	opts?: SpectrumBarsOptions,
 ): string {
-	const cols = opts?.cols ?? 6;
+	const cols = requireNumberOption(opts?.cols, MODULE_ID, "cols");
 	const renderer = createSpectrumBars({ ...opts, cols });
 	const left = renderer(animState, theme);
 	const right = renderer(animState, theme);

@@ -1,0 +1,13 @@
+{
+  "rows": 8,
+  "trailLengthMin": 6,
+  "charDensity": 1.0,
+  "cols": 12,
+  "speedMax": 1.2,
+  "speedMin": 0.3,
+  "fadeMode": "gradient",
+  "mutationRate": 0.05,
+  "glyphSet": "katakana",
+  "brightnessGradient": "top",
+  "trailLengthMax": 18
+}

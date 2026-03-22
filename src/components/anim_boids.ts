@@ -1,5 +1,6 @@
 import { style } from "../ansi.js";
 import type { AnimationState } from "../animation-engine.js";
+import { requireBooleanOption, requireNumberOption, requireStringOption } from "./anim-option-helpers.js";
 import { lerpColor } from "../themes/index.js";
 import type { ThemeConfig } from "../themes/index.js";
 
@@ -33,21 +34,22 @@ interface FoodSource {
 	y: number;
 	strength: number;
 }
+const MODULE_ID = "anim_boids";
 
 export function createBoids(opts?: BoidsOptions): (animState: AnimationState, theme: ThemeConfig) => string {
-	const cols = opts?.cols ?? 28;
-	const rows = opts?.rows ?? 8;
-	const count = opts?.count ?? 25;
-	const maxSpeed = opts?.maxSpeed ?? 0.5;
-	const radius = opts?.radius ?? 6.0;
+	const cols = requireNumberOption(opts?.cols, MODULE_ID, "cols");
+	const rows = requireNumberOption(opts?.rows, MODULE_ID, "rows");
+	const count = requireNumberOption(opts?.count, MODULE_ID, "count");
+	const maxSpeed = requireNumberOption(opts?.maxSpeed, MODULE_ID, "maxSpeed");
+	const radius = requireNumberOption(opts?.radius, MODULE_ID, "radius");
 	const sepRadius = radius * 0.4;
-	const boundaryBehavior = opts?.boundaryBehavior ?? "wrap";
-	const predatorEnabled = opts?.predatorEnabled ?? false;
-	const predatorCount = opts?.predatorCount ?? 2;
+	const boundaryBehavior = requireStringOption(opts?.boundaryBehavior, MODULE_ID, "boundaryBehavior");
+	const predatorEnabled = requireBooleanOption(opts?.predatorEnabled, MODULE_ID, "predatorEnabled");
+	const predatorCount = requireNumberOption(opts?.predatorCount, MODULE_ID, "predatorCount");
 	const foodSources = opts?.foodSources ?? [];
-	const separationStrength = opts?.separationStrength ?? 0.06;
-	const alignmentStrength = opts?.alignmentStrength ?? 0.02;
-	const cohesionStrength = opts?.cohesionStrength ?? 0.005;
+	const separationStrength = requireNumberOption(opts?.separationStrength, MODULE_ID, "separationStrength");
+	const alignmentStrength = requireNumberOption(opts?.alignmentStrength, MODULE_ID, "alignmentStrength");
+	const cohesionStrength = requireNumberOption(opts?.cohesionStrength, MODULE_ID, "cohesionStrength");
 
 	const boids: Boid[] = Array.from({ length: count }, () => ({
 		x: Math.random() * cols,

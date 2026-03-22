@@ -1,6 +1,6 @@
 import { style } from "../ansi.js";
 import type { AnimationState } from "../animation-engine.js";
-import { defineStyleTestDemos } from "../style-test-contract.js";
+import { requireBooleanOption, requireNumberOption, requireStringOption } from "./anim-option-helpers.js";
 import { lerpColor } from "../themes/index.js";
 import type { ThemeConfig } from "../themes/index.js";
 
@@ -19,6 +19,7 @@ const FILL_CHARS_SMOOTH = ['░', '▒', '▓', '█'] as const;
 const FILL_CHARS_DISCRETE = [' ', '▏', '▎', '▍', '▌', '▋', '▊', '▉', '▊', '█'] as const;
 const FILL_CHARS_BLOCK = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'] as const;
 const DIM_COLOR = '#1a3348';
+const MODULE_ID = "anim_pulsemeter";
 
 export function createPulseMeterTracker() {
 	let peak = 0;
@@ -46,12 +47,12 @@ export function renderPulseMeter(
 	theme: ThemeConfig,
 	opts?: PulseMeterOptions,
 ): string {
-	const width = opts?.width ?? 24;
+	const width = requireNumberOption(opts?.width, MODULE_ID, "width");
 	const label = opts?.label ?? `${Math.round(value * 100)}%`;
-	const segmentMode = opts?.segmentMode ?? "smooth";
-	const orientation = opts?.orientation ?? "left";
-	const dualMode = opts?.dualMode ?? false;
-	const peakHold = opts?.peakHold ?? false;
+	const segmentMode = requireStringOption(opts?.segmentMode, MODULE_ID, "segmentMode");
+	const orientation = requireStringOption(opts?.orientation, MODULE_ID, "orientation");
+	const dualMode = requireBooleanOption(opts?.dualMode, MODULE_ID, "dualMode");
+	const peakHold = requireBooleanOption(opts?.peakHold, MODULE_ID, "peakHold");
 
 	let fillChars: readonly string[];
 	switch (segmentMode) {
@@ -113,69 +114,8 @@ export function renderDualPulseMeter(
 	theme: ThemeConfig,
 	opts?: PulseMeterOptions,
 ): string {
-	const width = opts?.width ?? 10;
+	const width = requireNumberOption(opts?.width, MODULE_ID, "width");
 	const meterA = renderPulseMeter(leftValue, animState, theme, { ...opts, width, dualMode: true, label: "" });
 	const meterB = renderPulseMeter(rightValue, animState, theme, { ...opts, width, dualMode: true, label: "" });
 	return `${meterA} ${meterB}`;
 }
-
-export const styleTestDemos = defineStyleTestDemos({
-	exports: {
-		createPulseMeterTracker: {
-			hidden: true,
-		},
-		renderPulseMeter: {
-			title: "Pulse Meter",
-			category: "Animations",
-			kind: "animation",
-			description: "Segment modes, orientations, and peak-hold tracking.",
-			controls: [
-				{ id: "width", label: "Width", type: "number", defaultValue: 24, min: 8, max: 40, step: 1 },
-				{ id: "value", label: "Value", type: "number", defaultValue: 74, min: 0, max: 100, step: 1 },
-				{ id: "segmentMode", label: "Segments", type: "enum", defaultValue: "gradient", options: ["smooth", "discrete", "gradient"] },
-				{ id: "orientation", label: "Orientation", type: "enum", defaultValue: "left", options: ["left", "right", "center"] },
-				{ id: "peakHold", label: "Peak Hold", type: "boolean", defaultValue: true },
-			],
-			createRuntime: (_moduleNamespace, _exportName, _exportValue, context, values) => {
-				const tracker = createPulseMeterTracker();
-				return {
-					render() {
-						return [
-							renderPulseMeter(Number(values.value) / 100, context.getAnimationState(), context.getTheme(), {
-								width: Number(values.width),
-								segmentMode: String(values.segmentMode) as "smooth" | "discrete" | "gradient",
-								orientation: String(values.orientation) as "left" | "right" | "center",
-								peakHold: Boolean(values.peakHold),
-							}),
-							`Peak ${Math.round(tracker.update(Number(values.value) / 100, 24) * 100)}%`,
-						];
-					},
-				};
-			},
-		},
-		renderDualPulseMeter: {
-			title: "Dual Pulse Meter",
-			category: "Animations",
-			kind: "animation",
-			description: "Stereo pair using the enhanced pulse-meter renderer.",
-			controls: [
-				{ id: "leftValue", label: "Left", type: "number", defaultValue: 45, min: 0, max: 100, step: 1 },
-				{ id: "rightValue", label: "Right", type: "number", defaultValue: 80, min: 0, max: 100, step: 1 },
-				{ id: "width", label: "Width", type: "number", defaultValue: 10, min: 6, max: 20, step: 1 },
-			],
-			createRuntime: (_moduleNamespace, _exportName, _exportValue, context, values) => ({
-				render() {
-					return [
-						renderDualPulseMeter(
-							Number(values.leftValue) / 100,
-							Number(values.rightValue) / 100,
-							context.getAnimationState(),
-							context.getTheme(),
-							{ width: Number(values.width), segmentMode: "gradient" },
-						),
-					];
-				},
-			}),
-		},
-	},
-});

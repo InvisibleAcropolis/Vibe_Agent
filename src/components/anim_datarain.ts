@@ -1,5 +1,6 @@
 import { style } from "../ansi.js";
 import type { AnimationState } from "../animation-engine.js";
+import { requireBooleanOption, requireNumberOption, requireStringOption } from "./anim-option-helpers.js";
 import { lerpColor } from "../themes/index.js";
 import type { ThemeConfig } from "../themes/index.js";
 
@@ -17,6 +18,7 @@ const HEX_GLYPHS = '0123456789ABCDEF';
 const BINARY_GLYPHS = '01';
 const KATAKANA = Array.from({ length: 0xFF9D - 0xFF66 + 1 }, (_, i) => String.fromCodePoint(0xFF66 + i));
 const SYMBOL_GLYPHS = '★☆◆◇○●◐◑◒◓◔◕';
+const MODULE_ID = "anim_datarain";
 
 function seededRand(seed: number) {
 	return Math.abs(Math.sin(seed * 9301 + 49297) * 233280) % 1;
@@ -27,12 +29,12 @@ export function renderDataRain(
 	theme: ThemeConfig,
 	opts?: DataRainOptions,
 ): string {
-	const cols = opts?.cols ?? 4;
-	const rows = opts?.rows ?? 3;
-	const refreshEveryN = opts?.refreshEveryN ?? 4;
-	const glyphSetType = opts?.glyphSet ?? "default";
+	const cols = requireNumberOption(opts?.cols, MODULE_ID, "cols");
+	const rows = requireNumberOption(opts?.rows, MODULE_ID, "rows");
+	const refreshEveryN = requireNumberOption(opts?.refreshEveryN, MODULE_ID, "refreshEveryN");
+	const glyphSetType = requireStringOption(opts?.glyphSet, MODULE_ID, "glyphSet");
 	const columnSpeed = opts?.columnSpeed;
-	const seeded = opts?.seeded ?? false;
+	const seeded = requireBooleanOption(opts?.seeded, MODULE_ID, "seeded");
 
 	let glyphSet: string;
 	switch (glyphSetType) {

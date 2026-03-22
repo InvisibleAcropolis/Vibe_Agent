@@ -1,0 +1,11 @@
+{
+  "rows": 8,
+  "reflectionEnabled": false,
+  "cols": 24,
+  "multipleDrops": false,
+  "raindropStrength": 180,
+  "refractionStrength": 0.5,
+  "raindropChance": 0.3,
+  "disturbInterval": 40,
+  "damping": 0.98
+}

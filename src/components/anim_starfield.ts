@@ -1,5 +1,6 @@
 import { style } from "../ansi.js";
 import type { AnimationState } from "../animation-engine.js";
+import { requireBooleanOption, requireNumberOption } from "./anim-option-helpers.js";
 import { lerpColor } from "../themes/index.js";
 import type { ThemeConfig } from "../themes/index.js";
 
@@ -26,6 +27,7 @@ interface Star {
 	vy: number;
 	colorIdx: number;
 }
+const MODULE_ID = "anim_starfield";
 
 function respawn(s: Star, cols: number, rows: number): void {
 	s.x = (Math.random() - 0.5) * 2;
@@ -36,15 +38,15 @@ function respawn(s: Star, cols: number, rows: number): void {
 }
 
 export function createStarfield(opts?: StarfieldOptions): (animState: AnimationState, theme: ThemeConfig) => string {
-	const cols = opts?.cols ?? 24;
-	const rows = opts?.rows ?? 8;
-	const count = opts?.count ?? 80;
-	const speed = opts?.speed ?? 0.015;
-	const cometTail = opts?.cometTail ?? false;
-	const tailLength = opts?.tailLength ?? 4;
-	const depthOfField = opts?.depthOfField ?? false;
+	const cols = requireNumberOption(opts?.cols, MODULE_ID, "cols");
+	const rows = requireNumberOption(opts?.rows, MODULE_ID, "rows");
+	const count = requireNumberOption(opts?.count, MODULE_ID, "count");
+	const speed = requireNumberOption(opts?.speed, MODULE_ID, "speed");
+	const cometTail = requireBooleanOption(opts?.cometTail, MODULE_ID, "cometTail");
+	const tailLength = requireNumberOption(opts?.tailLength, MODULE_ID, "tailLength");
+	const depthOfField = requireBooleanOption(opts?.depthOfField, MODULE_ID, "depthOfField");
 	const starColors = opts?.starColors ?? [];
-	const colorVariety = opts?.colorVariety ?? 0.3;
+	const colorVariety = requireNumberOption(opts?.colorVariety, MODULE_ID, "colorVariety");
 
 	const stars: Star[] = Array.from({ length: count }, () => ({
 		x: (Math.random() - 0.5) * 2,

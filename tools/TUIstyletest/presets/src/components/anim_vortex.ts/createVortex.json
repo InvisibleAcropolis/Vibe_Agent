@@ -1,0 +1,10 @@
+{
+  "colorTrail": true,
+  "spawnPattern": "random",
+  "cols": 24,
+  "magneticField": false,
+  "pullStrength": 0.04,
+  "count": 35,
+  "rows": 10,
+  "trailLength": 3
+}

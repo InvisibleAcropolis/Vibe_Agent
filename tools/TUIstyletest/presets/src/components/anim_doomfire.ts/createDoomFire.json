@@ -1,0 +1,10 @@
+{
+  "height": 8,
+  "coolingStrength": 0.15,
+  "windStrength": 0.0,
+  "windDirection": 0,
+  "coolingPattern": "random",
+  "colorMapping": "default",
+  "seedInterval": 1,
+  "width": 20
+}

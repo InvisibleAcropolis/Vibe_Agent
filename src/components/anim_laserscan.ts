@@ -1,5 +1,6 @@
 import { style } from "../ansi.js";
 import type { AnimationState } from "../animation-engine.js";
+import { requireBooleanOption, requireNumberOption, requireStringOption } from "./anim-option-helpers.js";
 import { lerpColor } from "../themes/index.js";
 import type { ThemeConfig } from "../themes/index.js";
 
@@ -16,17 +17,18 @@ export interface LaserScanOptions {
 }
 
 const DEFAULT_GLYPHS = '▐▓▒░█▄▀◆■•─╌═≡∽╣╗╝╔╩╦╠╬┼┤├┐└│⣾⣽⣻⢿⡿⣟⣯⣷÷×~+#@$%&*=';
+const MODULE_ID = "anim_laserscan";
 
 export function createLaserScan(opts?: LaserScanOptions): (animState: AnimationState, theme: ThemeConfig) => string {
-	const cols = opts?.cols ?? 64;
-	const rows = opts?.rows ?? 2;
-	const speed = opts?.speed ?? 1.5;
-	const beamWidth = opts?.beamWidth ?? 5;
-	const beamCount = opts?.beamCount ?? 1;
+	const cols = requireNumberOption(opts?.cols, MODULE_ID, "cols");
+	const rows = requireNumberOption(opts?.rows, MODULE_ID, "rows");
+	const speed = requireNumberOption(opts?.speed, MODULE_ID, "speed");
+	const beamWidth = requireNumberOption(opts?.beamWidth, MODULE_ID, "beamWidth");
+	const beamCount = requireNumberOption(opts?.beamCount, MODULE_ID, "beamCount");
 	const glyphSet = opts?.glyphSet ?? DEFAULT_GLYPHS;
-	const beamStyle = opts?.beamStyle ?? "gaussian";
-	const reverseScan = opts?.reverseScan ?? false;
-	const reflectionPasses = opts?.reflectionPasses ?? 0;
+	const beamStyle = requireStringOption(opts?.beamStyle, MODULE_ID, "beamStyle");
+	const reverseScan = requireBooleanOption(opts?.reverseScan, MODULE_ID, "reverseScan");
+	const reflectionPasses = requireNumberOption(opts?.reflectionPasses, MODULE_ID, "reflectionPasses");
 
 	const data: string[][] = Array.from({ length: rows }, () =>
 		Array.from({ length: cols }, () => glyphSet[Math.floor(Math.random() * glyphSet.length)]!)

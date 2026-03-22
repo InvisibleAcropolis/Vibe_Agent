@@ -1,5 +1,6 @@
 import { style } from "../ansi.js";
 import type { AnimationState } from "../animation-engine.js";
+import { requireNumberOption } from "./anim-option-helpers.js";
 import { lerpColor } from "../themes/index.js";
 import type { ThemeConfig } from "../themes/index.js";
 
@@ -24,6 +25,7 @@ interface Particle {
 	vy: number;
 	trail: Array<{ x: number; y: number }>;
 }
+const MODULE_ID = "anim_flowfield";
 
 function noise(x: number, y: number, t: number): number {
 	return (
@@ -43,15 +45,15 @@ function curl(x: number, y: number, t: number, scale: number): number {
 }
 
 export function createFlowField(opts?: FlowFieldOptions): (animState: AnimationState, theme: ThemeConfig) => string {
-	const cols = opts?.cols ?? 28;
-	const rows = opts?.rows ?? 8;
-	const count = opts?.count ?? 40;
-	const timeScale = opts?.timeScale ?? 0.015;
-	const turbulence = opts?.turbulence ?? 0.1;
-	const trailLength = opts?.trailLength ?? 4;
-	const particleSpeed = opts?.particleSpeed ?? 0.25;
-	const inertia = opts?.inertia ?? 0.85;
-	const curlStrength = opts?.curlStrength ?? 0;
+	const cols = requireNumberOption(opts?.cols, MODULE_ID, "cols");
+	const rows = requireNumberOption(opts?.rows, MODULE_ID, "rows");
+	const count = requireNumberOption(opts?.count, MODULE_ID, "count");
+	const timeScale = requireNumberOption(opts?.timeScale, MODULE_ID, "timeScale");
+	const turbulence = requireNumberOption(opts?.turbulence, MODULE_ID, "turbulence");
+	const trailLength = requireNumberOption(opts?.trailLength, MODULE_ID, "trailLength");
+	const particleSpeed = requireNumberOption(opts?.particleSpeed, MODULE_ID, "particleSpeed");
+	const inertia = requireNumberOption(opts?.inertia, MODULE_ID, "inertia");
+	const curlStrength = requireNumberOption(opts?.curlStrength, MODULE_ID, "curlStrength");
 
 	const particles: Particle[] = Array.from({ length: count }, () => ({
 		x: Math.random() * cols,

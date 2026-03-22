@@ -1,5 +1,6 @@
 import { style } from "../ansi.js";
 import type { AnimationState } from "../animation-engine.js";
+import { requireBooleanOption, requireNumberOption, requireStringOption } from "./anim-option-helpers.js";
 import { lerpColor } from "../themes/index.js";
 import type { ThemeConfig } from "../themes/index.js";
 
@@ -20,21 +21,22 @@ const HEX_GLYPHS = '0123456789ABCDEF';
 const BINARY_GLYPHS = '01';
 const SYMBOL_GLYPHS = '★☆◆◇○●◐◑◒◓◔◕◖◗◘◙◚◛◜◝◞◟◠◡◢◣◤◥◦◧◨◩◪◫◬◭◮◯';
 const BLOCK_GLYPHS = ' ▁▂▃▄▅▆▇█';
+const MODULE_ID = "anim_glyphcascade";
 
 function seededRandom(seed: number): number {
 	return Math.abs(Math.sin(seed * 9301 + 49297) * 233280) % 1;
 }
 
 export function createGlyphCascade(opts?: GlyphCascadeOptions): (animState: AnimationState, theme: ThemeConfig) => string {
-	const maxCount = opts?.maxCount ?? 8;
-	const historyRows = opts?.historyRows ?? 11;
-	const ticksPerStep = opts?.ticksPerStep ?? 2;
+	const maxCount = requireNumberOption(opts?.maxCount, MODULE_ID, "maxCount");
+	const historyRows = requireNumberOption(opts?.historyRows, MODULE_ID, "historyRows");
+	const ticksPerStep = requireNumberOption(opts?.ticksPerStep, MODULE_ID, "ticksPerStep");
 	const glyphSet = opts?.glyphSet ?? DEFAULT_GLYPHS;
-	const direction = opts?.direction ?? "alternate";
-	const multiRow = opts?.multiRow ?? false;
-	const rowHeight = opts?.rowHeight ?? 1;
-	const colorShift = opts?.colorShift ?? 0;
-	const seeded = opts?.seeded ?? false;
+	const direction = requireStringOption(opts?.direction, MODULE_ID, "direction");
+	const multiRow = requireBooleanOption(opts?.multiRow, MODULE_ID, "multiRow");
+	const rowHeight = requireNumberOption(opts?.rowHeight, MODULE_ID, "rowHeight");
+	const colorShift = requireNumberOption(opts?.colorShift, MODULE_ID, "colorShift");
+	const seeded = requireBooleanOption(opts?.seeded, MODULE_ID, "seeded");
 
 	let count = 1;
 	let dir: 1 | -1 = 1;

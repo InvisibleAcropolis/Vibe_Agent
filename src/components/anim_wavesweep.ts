@@ -1,5 +1,6 @@
 import { style } from "../ansi.js";
 import type { AnimationState } from "../animation-engine.js";
+import { requireNumberOption, requireStringOption } from "./anim-option-helpers.js";
 import { lerpColor } from "../themes/index.js";
 import type { ThemeConfig } from "../themes/index.js";
 
@@ -15,19 +16,20 @@ export interface WaveSweepOptions {
 
 const DIM_COLOR = '#1a3348';
 const WAVE_CHARS = ['·', '∙', '•', '─', '╌', '═', '≡'] as const;
+const MODULE_ID = "anim_wavesweep";
 
 export function renderWaveSweep(
 	animState: AnimationState,
 	theme: ThemeConfig,
 	opts?: WaveSweepOptions,
 ): string {
-	const width = opts?.width ?? 24;
-	const speed = opts?.speed ?? 0.5;
-	const sigma = opts?.sigma ?? 5.0;
-	const phaseOffset = opts?.phaseOffset ?? 0;
-	const waveCount = opts?.waveCount ?? 1;
-	const interference = opts?.interference ?? "add";
-	const damping = opts?.damping ?? 0.3;
+	const width = requireNumberOption(opts?.width, MODULE_ID, "width");
+	const speed = requireNumberOption(opts?.speed, MODULE_ID, "speed");
+	const sigma = requireNumberOption(opts?.sigma, MODULE_ID, "sigma");
+	const phaseOffset = requireNumberOption(opts?.phaseOffset, MODULE_ID, "phaseOffset");
+	const waveCount = requireNumberOption(opts?.waveCount, MODULE_ID, "waveCount");
+	const interference = requireStringOption(opts?.interference, MODULE_ID, "interference");
+	const damping = requireNumberOption(opts?.damping, MODULE_ID, "damping");
 
 	const wavePos = (animState.tickCount * speed + phaseOffset) % width;
 
@@ -79,7 +81,7 @@ export function renderWaveSweepDual(
 	theme: ThemeConfig,
 	opts?: WaveSweepOptions,
 ): string {
-	const width = opts?.width ?? 12;
+	const width = requireNumberOption(opts?.width, MODULE_ID, "width");
 	const wave1 = renderWaveSweep(animState, theme, { ...opts, width, phaseOffset: 0 });
 	const wave2 = renderWaveSweep(animState, theme, { ...opts, width, phaseOffset: Math.PI });
 	return `${wave1}  ${wave2}`;

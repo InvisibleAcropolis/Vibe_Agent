@@ -1,0 +1,13 @@
+{
+  "rows": 12,
+  "deltaSpeed": 0.008,
+  "cols": 24,
+  "b": 2,
+  "strokeWidth": 1,
+  "a": 3,
+  "phaseShift": 0.0,
+  "trailPoints": 300,
+  "threeDimensional": false,
+  "resonanceMode": false,
+  "decay": 0.92
+}

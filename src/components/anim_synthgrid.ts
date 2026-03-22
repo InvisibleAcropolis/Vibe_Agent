@@ -1,5 +1,6 @@
 import { style } from "../ansi.js";
 import type { AnimationState } from "../animation-engine.js";
+import { requireBooleanOption, requireNumberOption, requireOption } from "./anim-option-helpers.js";
 import { lerpColor } from "../themes/index.js";
 import type { ThemeConfig } from "../themes/index.js";
 
@@ -14,21 +15,22 @@ export interface SynthgridOptions {
 	animateVanishingPoint?: boolean;
 	animateSpeed?: number;
 }
+const MODULE_ID = "anim_synthgrid";
 
 export function renderSynthgrid(
 	animState: AnimationState,
 	theme: ThemeConfig,
 	opts?: SynthgridOptions,
 ): string {
-	const cols = opts?.cols ?? 36;
-	const rows = opts?.rows ?? 10;
-	const speed = opts?.speed ?? 0.4;
-	const numVLines = opts?.numVLines ?? 7;
-	const vanishingPointX = opts?.vanishingPointX ?? "center";
-	const vanishingPointY = opts?.vanishingPointY ?? "top";
-	const perspectiveFactor = opts?.perspectiveFactor ?? 0.6;
-	const animateVanishingPoint = opts?.animateVanishingPoint ?? false;
-	const animateSpeed = opts?.animateSpeed ?? 0.02;
+	const cols = requireNumberOption(opts?.cols, MODULE_ID, "cols");
+	const rows = requireNumberOption(opts?.rows, MODULE_ID, "rows");
+	const speed = requireNumberOption(opts?.speed, MODULE_ID, "speed");
+	const numVLines = requireNumberOption(opts?.numVLines, MODULE_ID, "numVLines");
+	const vanishingPointX = requireOption(opts?.vanishingPointX, MODULE_ID, "vanishingPointX");
+	const vanishingPointY = requireOption(opts?.vanishingPointY, MODULE_ID, "vanishingPointY");
+	const perspectiveFactor = requireNumberOption(opts?.perspectiveFactor, MODULE_ID, "perspectiveFactor");
+	const animateVanishingPoint = requireBooleanOption(opts?.animateVanishingPoint, MODULE_ID, "animateVanishingPoint");
+	const animateSpeed = requireNumberOption(opts?.animateSpeed, MODULE_ID, "animateSpeed");
 	const tick = animState.tickCount;
 
 	let vpX: number;

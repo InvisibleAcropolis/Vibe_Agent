@@ -1,0 +1,13 @@
+{
+  "rows": 8,
+  "density": 0.35,
+  "cols": 24,
+  "reseedOnStagnation": true,
+  "maxGenerations": 400,
+  "rule": "B3/S23",
+  "cellAging": true,
+  "randomSeed": true,
+  "stagnationThreshold": 60,
+  "agingSpeed": 20,
+  "ticksPerStep": 3
+}

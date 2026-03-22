@@ -1,5 +1,6 @@
 import { style } from "../ansi.js";
 import type { AnimationState } from "../animation-engine.js";
+import { requireBooleanOption, requireNumberOption } from "./anim-option-helpers.js";
 import { lerpColor } from "../themes/index.js";
 import type { ThemeConfig } from "../themes/index.js";
 
@@ -23,17 +24,18 @@ interface Raindrop {
 	y: number;
 	strength: number;
 }
+const MODULE_ID = "anim_waterripple";
 
 export function createWaterRipple(opts?: WaterRippleOptions): (animState: AnimationState, theme: ThemeConfig) => string {
-	const cols = opts?.cols ?? 24;
-	const rows = opts?.rows ?? 8;
-	const damping = opts?.damping ?? 0.98;
-	const disturbInterval = opts?.disturbInterval ?? 40;
-	const raindropChance = opts?.raindropChance ?? 0.3;
-	const raindropStrength = opts?.raindropStrength ?? 180;
-	const reflectionEnabled = opts?.reflectionEnabled ?? false;
-	const refractionStrength = opts?.refractionStrength ?? 0.5;
-	const multipleDrops = opts?.multipleDrops ?? false;
+	const cols = requireNumberOption(opts?.cols, MODULE_ID, "cols");
+	const rows = requireNumberOption(opts?.rows, MODULE_ID, "rows");
+	const damping = requireNumberOption(opts?.damping, MODULE_ID, "damping");
+	const disturbInterval = requireNumberOption(opts?.disturbInterval, MODULE_ID, "disturbInterval");
+	const raindropChance = requireNumberOption(opts?.raindropChance, MODULE_ID, "raindropChance");
+	const raindropStrength = requireNumberOption(opts?.raindropStrength, MODULE_ID, "raindropStrength");
+	const reflectionEnabled = requireBooleanOption(opts?.reflectionEnabled, MODULE_ID, "reflectionEnabled");
+	const refractionStrength = requireNumberOption(opts?.refractionStrength, MODULE_ID, "refractionStrength");
+	const multipleDrops = requireBooleanOption(opts?.multipleDrops, MODULE_ID, "multipleDrops");
 
 	let cur = new Float32Array(cols * rows);
 	let prv = new Float32Array(cols * rows);

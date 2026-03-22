@@ -1,0 +1,8 @@
+{
+  "speed": 0.5,
+  "width": 12,
+  "interference": "add",
+  "sigma": 5.0,
+  "damping": 0.3,
+  "waveCount": 1
+}

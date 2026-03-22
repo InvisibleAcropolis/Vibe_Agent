@@ -1,0 +1,10 @@
+{
+  "multiRow": false,
+  "seeded": false,
+  "direction": "alternate",
+  "ticksPerStep": 2,
+  "rowHeight": 1,
+  "maxCount": 8,
+  "historyRows": 11,
+  "colorShift": 0.0
+}

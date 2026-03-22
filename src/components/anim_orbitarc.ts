@@ -1,5 +1,6 @@
 import { style } from "../ansi.js";
 import type { AnimationState } from "../animation-engine.js";
+import { requireBooleanOption, requireNumberOption, requireStringOption } from "./anim-option-helpers.js";
 import { lerpColor } from "../themes/index.js";
 import type { ThemeConfig } from "../themes/index.js";
 
@@ -16,18 +17,19 @@ const BRAILLE_FRAMES = ['⣾', '⣽', '⣻', '⢿', '⡿', '⣟', '⣯', '⣷'] 
 const DOT_TRAIL = ['●', '◉', '•', '∙', '·', ' '] as const;
 const LINE_TRAIL = ['─', '╌', '═', '≡', '∽', '~'] as const;
 const DASH_TRAIL = ['┄', '┅', '┆', '┇', '┈', '┉', '│', '┃'] as const;
+const MODULE_ID = "anim_orbitarc";
 
 export function renderOrbitArc(
 	animState: AnimationState,
 	theme: ThemeConfig,
 	opts?: OrbitArcOptions,
 ): string {
-	const trailLength = opts?.trailLength ?? 6;
+	const trailLength = requireNumberOption(opts?.trailLength, MODULE_ID, "trailLength");
 	const label = opts?.label ?? '';
-	const trailStyle = opts?.trailStyle ?? "dots";
-	const speedMultiplier = opts?.speedMultiplier ?? 1.0;
-	const reverse = opts?.reverse ?? false;
-	const orbitType = opts?.orbitType ?? "circular";
+	const trailStyle = requireStringOption(opts?.trailStyle, MODULE_ID, "trailStyle");
+	const speedMultiplier = requireNumberOption(opts?.speedMultiplier, MODULE_ID, "speedMultiplier");
+	const reverse = requireBooleanOption(opts?.reverse, MODULE_ID, "reverse");
+	const orbitType = requireStringOption(opts?.orbitType, MODULE_ID, "orbitType");
 
 	const frameIdx = reverse
 		? (7 - (animState.spinnerFrame * speedMultiplier) % 8)

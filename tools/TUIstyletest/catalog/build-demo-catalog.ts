@@ -15,9 +15,10 @@ function defaultValuesForDemo(demo: StyleTestDemoDefinition): StyleTestControlVa
 }
 
 export async function buildDemoCatalog(options: BuildDemoCatalogOptions = {}): Promise<StyleTestDemoDefinition[]> {
+	const rootDir = options.rootDir ?? process.cwd();
 	const discovered = discoverStyleModules(options);
 	const loaded = await Promise.all(discovered.map((entry) => loadStyleModule(entry)));
-	const demos = loaded.flatMap((entry) => buildAutoDemos(entry));
+	const demos = loaded.flatMap((entry) => buildAutoDemos(entry, rootDir));
 	return demos.sort((a, b) => {
 		const orderDelta = (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER);
 		if (orderDelta !== 0) return orderDelta;
@@ -32,6 +33,12 @@ export function getDefaultDemoId(demos: StyleTestDemoDefinition[]): string {
 }
 
 export function getDefaultDemoValues(demo: StyleTestDemoDefinition): StyleTestControlValues {
+	if (demo.loadValues) {
+		return demo.loadValues("default");
+	}
+	if (demo.initialValues) {
+		return { ...demo.initialValues };
+	}
 	return defaultValuesForDemo(demo);
 }
 

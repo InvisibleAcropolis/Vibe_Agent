@@ -1,0 +1,10 @@
+{
+  "peakHoldTime": 24,
+  "value": 74,
+  "dualMode": false,
+  "segments": 8,
+  "orientation": "left",
+  "segmentMode": "smooth",
+  "peakHold": false,
+  "width": 24
+}

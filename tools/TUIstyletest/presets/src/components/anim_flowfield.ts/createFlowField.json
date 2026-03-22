@@ -1,0 +1,11 @@
+{
+  "rows": 8,
+  "cols": 28,
+  "timeScale": 0.015,
+  "inertia": 0.85,
+  "trailLength": 4,
+  "particleSpeed": 0.25,
+  "curlStrength": 0.0,
+  "count": 40,
+  "turbulence": 0.1
+}

@@ -1,5 +1,6 @@
 import { style } from "../ansi.js";
 import type { AnimationState } from "../animation-engine.js";
+import { requireNumberOption, requireStringOption } from "./anim-option-helpers.js";
 import { lerpColor } from "../themes/index.js";
 import type { ThemeConfig } from "../themes/index.js";
 
@@ -31,6 +32,7 @@ interface Column {
 	restartDelay: number;
 	glyphSet: string;
 }
+const MODULE_ID = "anim_matrixrain";
 
 function createGlyphSet(type: string): string {
 	switch (type) {
@@ -47,17 +49,17 @@ function randGlyph(glyphSet: string): string {
 }
 
 export function createMatrixRain(opts?: MatrixRainOptions): (animState: AnimationState, theme: ThemeConfig) => string {
-	const cols = opts?.cols ?? 12;
-	const rows = opts?.rows ?? 8;
-	const mutationRate = opts?.mutationRate ?? 0.05;
-	const speedMin = opts?.speedMin ?? 0.3;
-	const speedMax = opts?.speedMax ?? 1.2;
-	const trailLengthMin = opts?.trailLengthMin ?? 6;
-	const trailLengthMax = opts?.trailLengthMax ?? 18;
-	const glyphSetType = opts?.glyphSet ?? "katakana";
-	const charDensity = opts?.charDensity ?? 1.0;
-	const brightnessGradient = opts?.brightnessGradient ?? "top";
-	const fadeMode = opts?.fadeMode ?? "gradient";
+	const cols = requireNumberOption(opts?.cols, MODULE_ID, "cols");
+	const rows = requireNumberOption(opts?.rows, MODULE_ID, "rows");
+	const mutationRate = requireNumberOption(opts?.mutationRate, MODULE_ID, "mutationRate");
+	const speedMin = requireNumberOption(opts?.speedMin, MODULE_ID, "speedMin");
+	const speedMax = requireNumberOption(opts?.speedMax, MODULE_ID, "speedMax");
+	const trailLengthMin = requireNumberOption(opts?.trailLengthMin, MODULE_ID, "trailLengthMin");
+	const trailLengthMax = requireNumberOption(opts?.trailLengthMax, MODULE_ID, "trailLengthMax");
+	const glyphSetType = requireStringOption(opts?.glyphSet, MODULE_ID, "glyphSet");
+	const charDensity = requireNumberOption(opts?.charDensity, MODULE_ID, "charDensity");
+	const brightnessGradient = requireStringOption(opts?.brightnessGradient, MODULE_ID, "brightnessGradient");
+	const fadeMode = requireStringOption(opts?.fadeMode, MODULE_ID, "fadeMode");
 
 	const glyphSet = createGlyphSet(glyphSetType);
 

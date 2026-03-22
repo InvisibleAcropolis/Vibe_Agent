@@ -1,5 +1,6 @@
 import { style } from "../ansi.js";
 import type { AnimationState } from "../animation-engine.js";
+import { requireBooleanOption, requireNumberOption, requireStringOption } from "./anim-option-helpers.js";
 import { lerpColor } from "../themes/index.js";
 import type { ThemeConfig } from "../themes/index.js";
 
@@ -13,6 +14,7 @@ export interface NoiseFieldOptions {
 	palette?: "default" | "fire" | "ice" | "toxic";
 	flowIntegration?: boolean;
 }
+const MODULE_ID = "anim_noisefield";
 
 const PAL_DEFAULT = ['░', '▒', '▓', '█'] as const;
 const PAL_FIRE = [' ', '.', ':', ';', '|', 'i', 't', 'S', '8', '#', '@'] as const;
@@ -44,14 +46,14 @@ export function renderNoiseField(
 	theme: ThemeConfig,
 	opts?: NoiseFieldOptions,
 ): string {
-	const cols = opts?.cols ?? 24;
-	const rows = opts?.rows ?? 8;
-	const timeScale = opts?.timeScale ?? 0.025;
-	const freqScale = opts?.freqScale ?? 1.0;
-	const octaves = opts?.octaves ?? 3;
-	const octavePersistence = opts?.octavePersistence ?? 0.5;
-	const palette = opts?.palette ?? "default";
-	const flowIntegration = opts?.flowIntegration ?? false;
+	const cols = requireNumberOption(opts?.cols, MODULE_ID, "cols");
+	const rows = requireNumberOption(opts?.rows, MODULE_ID, "rows");
+	const timeScale = requireNumberOption(opts?.timeScale, MODULE_ID, "timeScale");
+	const freqScale = requireNumberOption(opts?.freqScale, MODULE_ID, "freqScale");
+	const octaves = requireNumberOption(opts?.octaves, MODULE_ID, "octaves");
+	const octavePersistence = requireNumberOption(opts?.octavePersistence, MODULE_ID, "octavePersistence");
+	const palette = requireStringOption(opts?.palette, MODULE_ID, "palette");
+	const flowIntegration = requireBooleanOption(opts?.flowIntegration, MODULE_ID, "flowIntegration");
 
 	let pal: readonly string[];
 	switch (palette) {

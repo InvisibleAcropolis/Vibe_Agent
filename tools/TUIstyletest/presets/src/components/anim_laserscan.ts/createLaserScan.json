@@ -1,0 +1,10 @@
+{
+  "beamWidth": 5,
+  "beamCount": 1,
+  "beamStyle": "gaussian",
+  "cols": 64,
+  "reflectionPasses": 0,
+  "speed": 1.5,
+  "reverseScan": false,
+  "rows": 2
+}

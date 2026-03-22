@@ -1,0 +1,12 @@
+{
+  "peakHoldTime": 24,
+  "segmentMode": "gradient",
+  "rightValue": 80,
+  "segments": 8,
+  "width": 10,
+  "peakHold": false,
+  "dualMode": true,
+  "label": "",
+  "leftValue": 45,
+  "orientation": "left"
+}

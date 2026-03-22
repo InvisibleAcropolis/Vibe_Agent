@@ -1,5 +1,6 @@
 import { style } from "../ansi.js";
 import type { AnimationState } from "../animation-engine.js";
+import { requireNumberOption, requireStringOption } from "./anim-option-helpers.js";
 import { lerpColor } from "../themes/index.js";
 import type { ThemeConfig } from "../themes/index.js";
 
@@ -18,16 +19,17 @@ const PAL_DEFAULT = ' .,:;+=ox#%@';
 const PAL_ELECTRIC = ' .━┄┅┃◤◢❖✦';
 const PAL_LAVA = ' .oO@#%&8%B@';
 const PAL_PLASMA = ' ░▒▓█◐◑◒◓';
+const MODULE_ID = "anim_doomfire";
 
 export function createDoomFire(opts?: DoomFireOptions): (animState: AnimationState, theme: ThemeConfig) => string {
-	const W = opts?.width ?? 20;
-	const H = opts?.height ?? 8;
-	const coolingStrength = opts?.coolingStrength ?? 0.15;
-	const coolingPattern = opts?.coolingPattern ?? "random";
-	const colorMapping = opts?.colorMapping ?? "default";
-	const windStrength = opts?.windStrength ?? 0;
-	const windDirection = opts?.windDirection ?? 0;
-	const seedInterval = opts?.seedInterval ?? 1;
+	const W = requireNumberOption(opts?.width, MODULE_ID, "width");
+	const H = requireNumberOption(opts?.height, MODULE_ID, "height");
+	const coolingStrength = requireNumberOption(opts?.coolingStrength, MODULE_ID, "coolingStrength");
+	const coolingPattern = requireStringOption(opts?.coolingPattern, MODULE_ID, "coolingPattern");
+	const colorMapping = requireStringOption(opts?.colorMapping, MODULE_ID, "colorMapping");
+	const windStrength = requireNumberOption(opts?.windStrength, MODULE_ID, "windStrength");
+	const windDirection = requireNumberOption(opts?.windDirection, MODULE_ID, "windDirection");
+	const seedInterval = requireNumberOption(opts?.seedInterval, MODULE_ID, "seedInterval");
 
 	let pal: string;
 	switch (colorMapping) {

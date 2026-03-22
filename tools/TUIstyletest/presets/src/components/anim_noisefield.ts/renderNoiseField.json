@@ -1,0 +1,10 @@
+{
+  "octaves": 3,
+  "palette": "default",
+  "cols": 24,
+  "flowIntegration": false,
+  "octavePersistence": 0.5,
+  "timeScale": 0.025,
+  "rows": 8,
+  "freqScale": 1.0
+}

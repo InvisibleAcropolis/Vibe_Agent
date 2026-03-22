@@ -1,5 +1,6 @@
 import { style } from "../ansi.js";
 import type { AnimationState } from "../animation-engine.js";
+import { requireBooleanOption, requireNumberOption } from "./anim-option-helpers.js";
 import { lerpColor } from "../themes/index.js";
 import type { ThemeConfig } from "../themes/index.js";
 
@@ -18,19 +19,20 @@ export interface LissajousOptions {
 }
 
 const CHARS = ['·', '•', '●', '◉'] as const;
+const MODULE_ID = "anim_lissajous";
 
 export function createLissajous(opts?: LissajousOptions): (animState: AnimationState, theme: ThemeConfig) => string {
-	const cols = opts?.cols ?? 24;
-	const rows = opts?.rows ?? 12;
-	const a = opts?.a ?? 3;
-	const b = opts?.b ?? 2;
-	const deltaSpeed = opts?.deltaSpeed ?? 0.008;
-	const trailPoints = opts?.trailPoints ?? 300;
-	const decay = opts?.decay ?? 0.92;
-	const threeDimensional = opts?.threeDimensional ?? false;
-	const phaseShift = opts?.phaseShift ?? 0;
-	const resonanceMode = opts?.resonanceMode ?? false;
-	const strokeWidth = opts?.strokeWidth ?? 1;
+	const cols = requireNumberOption(opts?.cols, MODULE_ID, "cols");
+	const rows = requireNumberOption(opts?.rows, MODULE_ID, "rows");
+	const a = requireNumberOption(opts?.a, MODULE_ID, "a");
+	const b = requireNumberOption(opts?.b, MODULE_ID, "b");
+	const deltaSpeed = requireNumberOption(opts?.deltaSpeed, MODULE_ID, "deltaSpeed");
+	const trailPoints = requireNumberOption(opts?.trailPoints, MODULE_ID, "trailPoints");
+	const decay = requireNumberOption(opts?.decay, MODULE_ID, "decay");
+	const threeDimensional = requireBooleanOption(opts?.threeDimensional, MODULE_ID, "threeDimensional");
+	const phaseShift = requireNumberOption(opts?.phaseShift, MODULE_ID, "phaseShift");
+	const resonanceMode = requireBooleanOption(opts?.resonanceMode, MODULE_ID, "resonanceMode");
+	const strokeWidth = requireNumberOption(opts?.strokeWidth, MODULE_ID, "strokeWidth");
 
 	const A = cols / 2 - 1;
 	const B = rows / 2 - 1;

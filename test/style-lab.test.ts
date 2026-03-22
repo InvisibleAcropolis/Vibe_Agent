@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { TUI } from "@mariozechner/pi-tui";
 import { getActiveTheme } from "../src/themes/index.js";
@@ -45,6 +45,8 @@ async function main(): Promise<void> {
 	const renderFixturePath = path.join(tempRoot, "render-fixture.ts");
 	const metadataFixturePath = path.join(tempRoot, "metadata-fixture.ts");
 	const unsupportedFixturePath = path.join(tempRoot, "unsupported-fixture.ts");
+	const inferredAnimationFixturePath = path.join(tempRoot, "anim_inferred.ts");
+	const tempPresetRoot = path.join(path.resolve("tools", "TUIstyletest", "presets"), path.relative(process.cwd(), tempRoot));
 
 	try {
 		writeFileSync(
@@ -88,6 +90,20 @@ async function main(): Promise<void> {
 				"export const fixtureValue = 1;",
 			].join("\n"),
 		);
+		writeFileSync(
+			inferredAnimationFixturePath,
+			[
+				"export interface DemoAnimOptions {",
+				"\tintensity?: number;",
+				"\tmode?: 'low' | 'high';",
+				"\tposition?: number | 'center';",
+				"\tpayload?: string[];",
+				"}",
+				"export function renderInferred(animState, theme, opts?: DemoAnimOptions) {",
+				"\treturn JSON.stringify({ tick: animState.tickCount, theme: theme.name, ...opts });",
+				"}",
+			].join("\n"),
+		);
 
 		let demos = await buildDemoCatalog({ componentDirs: [tempRoot], rootDir: process.cwd() });
 		const renderDemo = demos.find((demo) => demo.id.endsWith("#renderSpark"));
@@ -111,6 +127,58 @@ async function main(): Promise<void> {
 		assert.ok(placeholderDemo, "unsupported file should still produce a placeholder demo");
 		assert.match(placeholderDemo!.description, /No auto-demoable exports/);
 
+		const inferredAnimationDemo = demos.find((demo) => demo.id.endsWith("anim_inferred.ts#renderInferred"));
+		assert.ok(inferredAnimationDemo, "inferred animation export should produce a demo");
+		assert.deepStrictEqual(
+			inferredAnimationDemo!.controls.map((control) => `${control.id}:${control.type}`),
+			["intensity:number", "mode:enum", "position:text", "payload:text"],
+		);
+		const payloadControl = inferredAnimationDemo!.controls.find((control) => control.id === "payload");
+		assert.ok(payloadControl && payloadControl.type === "text" && payloadControl.multiline, "json/text controls should open in the editor overlay");
+		inferredAnimationDemo!.saveValues?.({
+			...getDefaultDemoValues(inferredAnimationDemo!),
+			intensity: 1.25,
+			mode: "high",
+			position: "center",
+			payload: '["alpha","beta"]',
+		});
+		const inferredPresetPath = path.join(tempPresetRoot, "anim_inferred.ts", "renderInferred.json");
+		const inferredPreset = JSON.parse(readFileSync(inferredPresetPath, "utf-8")) as Record<string, unknown>;
+		assert.deepStrictEqual(inferredPreset, {
+			intensity: 1.25,
+			mode: "high",
+			position: "center",
+			payload: ["alpha", "beta"],
+		});
+
+		demos = await buildDemoCatalog({ componentDirs: [tempRoot], rootDir: process.cwd() });
+		const reloadedAnimationDemo = demos.find((demo) => demo.id.endsWith("anim_inferred.ts#renderInferred"));
+		assert.ok(reloadedAnimationDemo, "reloaded inferred animation demo should exist");
+		assert.deepStrictEqual(getDefaultDemoValues(reloadedAnimationDemo!), {
+			intensity: 1.25,
+			mode: "high",
+			position: "center",
+			payload: '[\n  "alpha",\n  "beta"\n]',
+		});
+		const savedVariantId = reloadedAnimationDemo!.saveValues?.(
+			{
+				...getDefaultDemoValues(reloadedAnimationDemo!),
+				intensity: 0.75,
+				mode: "low",
+				position: "center",
+				payload: '["gamma"]',
+			},
+			"Night Mode",
+		);
+		assert.strictEqual(savedVariantId, "night-mode");
+		assert.deepStrictEqual(reloadedAnimationDemo!.listPresetVariants?.().map((entry) => entry.id), ["default", "night-mode"]);
+		assert.deepStrictEqual(reloadedAnimationDemo!.loadValues?.("night-mode"), {
+			intensity: 0.75,
+			mode: "low",
+			position: "center",
+			payload: '[\n  "gamma"\n]',
+		});
+
 		await new Promise((resolve) => setTimeout(resolve, 20));
 		writeFileSync(
 			renderFixturePath,
@@ -128,9 +196,12 @@ async function main(): Promise<void> {
 		assert.match(updatedRuntime.render(40, 10).join("\n"), /spark-updated-2-/);
 	} finally {
 		rmSync(tempRoot, { recursive: true, force: true });
+		rmSync(tempPresetRoot, { recursive: true, force: true });
 	}
 
 	const terminal = new VirtualTerminal(130, 40);
+	const plasmaPresetPath = path.resolve("tools", "TUIstyletest", "presets", "src", "components", "anim_plasma.ts", "renderPlasma.json");
+	const plasmaOriginalPreset = readFileSync(plasmaPresetPath, "utf-8");
 	const app = new TUIStyleTestApp({ terminal });
 	await app.start();
 
@@ -165,8 +236,23 @@ async function main(): Promise<void> {
 		await new Promise((resolve) => setTimeout(resolve, 160));
 		const secondFrame = (await flush(terminal)).join("\n");
 		assert.notStrictEqual(firstFrame, secondFrame);
+
+		app.selectDemo("src/components/anim_plasma.ts#renderPlasma");
+		app.updateControlValue("width", 31);
+		const persistedPreset = JSON.parse(readFileSync(plasmaPresetPath, "utf-8")) as Record<string, unknown>;
+		assert.strictEqual(persistedPreset.width, 31);
+		writeFileSync(plasmaPresetPath, `${JSON.stringify({ ...persistedPreset, width: 27 }, null, 2)}\n`);
+		(app as unknown as { runAction(actionId: string): void }).runAction("action-reset");
+		assert.strictEqual(app.currentValues().width, 27);
+		const plasmaDemo = app.currentDemo();
+		const variantId = plasmaDemo.saveValues?.({ ...app.currentValues(), width: 44 }, "Wide Stage");
+		assert.strictEqual(variantId, "wide-stage");
+		(app as unknown as { runAction(actionId: string): void }).runAction("variant:wide-stage");
+		assert.strictEqual(app.currentValues().width, 44);
 	} finally {
 		app.stop();
+		writeFileSync(plasmaPresetPath, plasmaOriginalPreset);
+		rmSync(path.resolve("tools", "TUIstyletest", "presets", "src", "components", "anim_plasma.ts", "renderPlasma.variants"), { recursive: true, force: true });
 	}
 }
 

@@ -36,6 +36,7 @@ export interface StyleTestTextControl extends StyleTestControlBase {
 	type: "text";
 	defaultValue: string;
 	placeholder?: string;
+	multiline?: boolean;
 }
 
 export type StyleTestControl =
@@ -48,6 +49,11 @@ export interface StyleTestPreset {
 	id: string;
 	label: string;
 	values: StyleTestControlValues;
+}
+
+export interface StyleTestPresetVariant {
+	id: string;
+	label: string;
 }
 
 export interface StyleTestRuntime {
@@ -80,6 +86,10 @@ export interface StyleTestDemoDefinition {
 	description: string;
 	controls: StyleTestControl[];
 	presets?: StyleTestPreset[];
+	initialValues?: StyleTestControlValues;
+	listPresetVariants?(): StyleTestPresetVariant[];
+	loadValues?(presetId?: string): StyleTestControlValues;
+	saveValues?(values: StyleTestControlValues, presetId?: string): string | void;
 	createRuntime(context: StyleTestRuntimeContext, values: StyleTestControlValues): StyleTestRuntime;
 	order?: number;
 }
@@ -93,6 +103,10 @@ export interface StyleTestEntryMetadata {
 	description?: string;
 	controls?: StyleTestControl[];
 	presets?: StyleTestPreset[];
+	initialValues?: StyleTestControlValues;
+	listPresetVariants?: () => StyleTestPresetVariant[];
+	loadValues?: (presetId?: string) => StyleTestControlValues;
+	saveValues?: (values: StyleTestControlValues, presetId?: string) => string | void;
 	hidden?: boolean;
 	order?: number;
 	createRuntime?: (

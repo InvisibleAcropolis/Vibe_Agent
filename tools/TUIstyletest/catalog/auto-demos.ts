@@ -3,12 +3,11 @@ import { createComponentRuntime, createOverlayPreviewRuntime, createPlaceholderR
 import type {
 	StyleTestControlValues,
 	StyleTestDemoDefinition,
-	StyleTestEntryMetadata,
 	StyleTestKind,
-	StyleTestModuleNamespace,
 	StyleTestRuntime,
 	StyleTestRuntimeContext,
 } from "../../../src/style-test-contract.js";
+import { inferAnimationStyleMetadata } from "./infer-animation-demos.js";
 import type { LoadedStyleModule } from "./module-loader.js";
 
 function humanizeIdentifier(identifier: string): string {
@@ -183,10 +182,14 @@ function defaultKindForExport(exportName: string): StyleTestKind {
 	return "component";
 }
 
-export function buildAutoDemos(loaded: LoadedStyleModule): StyleTestDemoDefinition[] {
+export function buildAutoDemos(loaded: LoadedStyleModule, rootDir: string): StyleTestDemoDefinition[] {
 	const namespace = loaded.moduleNamespace;
-	const metadataByExport = loaded.metadata?.exports ?? {};
-	const autoExportsEnabled = loaded.metadata?.autoExports ?? true;
+	const inferredMetadata = inferAnimationStyleMetadata(loaded, rootDir);
+	const metadataByExport = {
+		...(inferredMetadata?.exports ?? {}),
+		...(loaded.metadata?.exports ?? {}),
+	};
+	const autoExportsEnabled = loaded.metadata?.autoExports ?? !(inferredMetadata?.onlyUseInferred ?? false);
 	const demos: StyleTestDemoDefinition[] = [];
 	const discoveredExports = autoExportsEnabled
 		? Object.entries(namespace)
@@ -263,6 +266,10 @@ export function buildAutoDemos(loaded: LoadedStyleModule): StyleTestDemoDefiniti
 			description,
 			controls,
 			presets,
+			initialValues: metadata?.initialValues,
+			listPresetVariants: metadata?.listPresetVariants,
+			loadValues: metadata?.loadValues,
+			saveValues: metadata?.saveValues,
 			order: metadata?.order,
 			createRuntime,
 		});
