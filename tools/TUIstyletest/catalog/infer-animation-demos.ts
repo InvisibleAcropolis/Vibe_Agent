@@ -36,6 +36,7 @@ interface InferredAnimationExport {
 }
 
 interface AnimationAdapter {
+	pattern?: StandardAnimationPattern;
 	omitOptionFields?: string[];
 	fixedOptions?: Record<string, unknown>;
 	extraControls?: StyleTestControl[];
@@ -66,6 +67,7 @@ const ADAPTERS: Record<string, AnimationAdapter> = {
 		fixedOptions: { glyphSet: "katakana" },
 	},
 	"src/components/anim_orbitarc.ts#renderOrbitArcMulti": {
+		pattern: "render-anim-theme",
 		extraControls: [{ id: "count", label: "Count", type: "number", defaultValue: 3, min: 1, max: 8, step: 1 }],
 		createRuntime(exportValue, context, values, options) {
 			if (typeof exportValue !== "function") {
@@ -80,6 +82,7 @@ const ADAPTERS: Record<string, AnimationAdapter> = {
 		},
 	},
 	"src/components/anim_pulsemeter.ts#renderPulseMeter": {
+		pattern: "render-anim-theme",
 		extraControls: [{ id: "value", label: "Value", type: "number", defaultValue: 74, min: 0, max: 100, step: 1 }],
 		createRuntime(exportValue, context, values, options) {
 			if (typeof exportValue !== "function") {
@@ -94,6 +97,7 @@ const ADAPTERS: Record<string, AnimationAdapter> = {
 		},
 	},
 	"src/components/anim_pulsemeter.ts#renderDualPulseMeter": {
+		pattern: "render-anim-theme",
 		omitOptionFields: ["label", "dualMode"],
 		fixedOptions: { label: "", dualMode: true },
 		extraControls: [
@@ -455,8 +459,9 @@ function classifyAnimationExport(
 	if (!optionsInterfaceName || !interfaceNames.has(optionsInterfaceName)) {
 		return undefined;
 	}
-	if (ADAPTERS[`${sourcePath}#${exportName}`]) {
-		return { interfaceName: optionsInterfaceName, pattern: "render-anim-theme" };
+	const adapter = ADAPTERS[`${sourcePath}#${exportName}`];
+	if (adapter?.pattern) {
+		return { interfaceName: optionsInterfaceName, pattern: adapter.pattern };
 	}
 	if (exportName.startsWith("create")) {
 		return { interfaceName: optionsInterfaceName, pattern: "factory" };
