@@ -18,6 +18,8 @@ export type VibeDurableTree = {
 	checkpoints: string;
 	tracker: string;
 	plans: string;
+	roadmaps: string;
+	research: string;
 	sessions: string;
 };
 
@@ -65,6 +67,14 @@ export function getVibePlansDir(options?: VibeDurablePathOptions): string {
 	return join(resolveRoot(options), "plans");
 }
 
+export function getVibeRoadmapsDir(options?: VibeDurablePathOptions): string {
+	return join(resolveRoot(options), "roadmaps");
+}
+
+export function getVibeResearchDir(options?: VibeDurablePathOptions): string {
+	return join(resolveRoot(options), "research");
+}
+
 /**
  * Orc-owned session namespaces now live under ~/Vibe_Agent/sessions. Coding-runtime sessions still
  * remain in pi-mono storage via getAgentDir() until their migration is designed and documented.
@@ -84,6 +94,8 @@ export function getVibeDurableTree(options?: VibeDurablePathOptions): VibeDurabl
 		checkpoints: getVibeCheckpointsDir(options),
 		tracker: getVibeTrackerDir(options),
 		plans: getVibePlansDir(options),
+		roadmaps: getVibeRoadmapsDir(options),
+		research: getVibeResearchDir(options),
 		sessions: getVibeSessionsDir(options),
 	};
 }
@@ -163,4 +175,16 @@ export function getVibeMemoryCatalogPath(options?: VibeDurablePathOptions): stri
 
 export function getVibeTrackerCatalogPath(options?: VibeDurablePathOptions): string {
 	return join(getVibeTrackerDir(options), "catalog.json");
+}
+
+export function getVibeRoadmapPath(filename: string, options?: VibeDurablePathOptions): string {
+	return join(getVibeRoadmapsDir(options), filename);
+}
+
+export function getVibeResearchPath(filename: string, options?: VibeDurablePathOptions): string {
+	return join(getVibeResearchDir(options), filename);
+}
+
+export function getVibeLangExtTrackerSnapshotPath(filename = "LANGEXTtracker.md", options?: VibeDurablePathOptions): string {
+	return join(getVibeTrackerDir(options), filename);
 }

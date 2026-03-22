@@ -426,9 +426,9 @@ export class DefaultCommandController implements CommandController {
 				{ kind: "action", id: "orc-resume", label: "Resume Thread", description: "Placeholder controller action for resuming an Orc thread.", onSelect: () => this.resumeOrcThread() },
 				{ kind: "action", id: "orc-checkpoints", label: "Inspect Checkpoints", description: "Placeholder controller action for viewing Orc checkpoints.", onSelect: () => this.inspectOrcCheckpoints() },
 				{ kind: "action", id: "orc-rewind", label: "Rewind Checkpoint", description: "Placeholder controller action for rewinding to a checkpoint.", onSelect: () => this.rewindOrcCheckpoint() },
-				{ kind: "action", id: "tracker", label: "Tracker", description: "Inspect orchestration progress and checkpoints.", onSelect: () => this.showPlaceholderStatus("Tracker is not implemented yet.") },
-				{ kind: "action", id: "artifacts", label: "Artifacts", description: "Browse orchestration artifacts and outputs.", onSelect: () => this.showPlaceholderStatus("Orc Artifacts is not implemented yet.") },
-				{ kind: "action", id: "logs", label: "Logs", description: "Review orchestration execution logs.", onSelect: () => this.showPlaceholderStatus("Orc Logs is not implemented yet.") },
+				{ kind: "action", id: "tracker", label: "Tracker", description: "Browse tracker docs, summaries, and reserved LANGEXT exports.", onSelect: () => this.openOrchestrationDocumentViewer(["tracker", "artifact-summary", "manifest"]) },
+				{ kind: "action", id: "artifacts", label: "Artifacts", description: "Browse plans, roadmaps, research notes, and session documents.", onSelect: () => this.openOrchestrationDocumentViewer(["plan", "roadmap", "research", "session", "manifest"]) },
+				{ kind: "action", id: "logs", label: "Logs", description: "Review orchestration execution logs via generated summaries.", onSelect: () => this.openOrchestrationDocumentViewer(["artifact-summary"]) },
 				{ kind: "action", id: "settings", label: "Settings", description: "Adjust orchestration defaults and preferences.", onSelect: () => this.showPlaceholderStatus("Orc Settings is not implemented yet.") },
 			],
 		});
@@ -477,6 +477,14 @@ export class DefaultCommandController implements CommandController {
 		this.overlayController.showCustomOverlay(
 			"artifact-viewer",
 			new ArtifactViewer(this.inventory.listArtifactViews(), () => this.overlayController.closeOverlay("artifact-viewer")),
+			{ width: "85%", maxHeight: "80%", anchor: "center", margin: 1 },
+		);
+	}
+
+	openOrchestrationDocumentViewer(documentTypes?: import("./durable/workbench-inventory-service.js").OrchestrationDocumentType[]): void {
+		this.overlayController.showCustomOverlay(
+			"orc-document-viewer",
+			new ArtifactViewer(this.inventory.listOrchestrationDocumentViews(documentTypes), () => this.overlayController.closeOverlay("orc-document-viewer")),
 			{ width: "85%", maxHeight: "80%", anchor: "center", margin: 1 },
 		);
 	}

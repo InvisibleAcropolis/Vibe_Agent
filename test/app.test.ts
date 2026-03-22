@@ -380,6 +380,7 @@ test("Durable services catalog artifacts, memory stores, logs, and orchestration
 	assert.ok(snapshot.memoryStores[0]?.tags.includes("index"));
 	assert.strictEqual(snapshot.logs[0]?.logType, "debug-snapshot");
 	assert.ok(snapshot.orchestrationDocuments.some((document) => document.documentType === "plan" && document.label === "wave-2.md"));
+	assert.ok(snapshot.orchestrationDocuments.some((document) => document.documentType === "manifest" && document.label === "wave-2.md manifest"));
 	assert.ok(snapshot.orchestrationDocuments.some((document) => document.relatedRecordIds.includes(snapshot.logs[0]!.id)));
 	assert.strictEqual(statSync(getVibeArtifactCatalogPath({ durableRoot })).isFile(), true);
 	assert.strictEqual(statSync(getVibeMemoryCatalogPath({ durableRoot })).isFile(), true);
@@ -400,7 +401,7 @@ test("Vibe durable storage bootstraps the full private directory tree", () => {
 	const durableRoot = path.join(tempRoot, "durable-root");
 	const tree = ensureVibeDurableStorage({ durableRoot });
 
-	assert.deepStrictEqual(readdirSync(durableRoot).sort(), ["artifacts", "auth", "checkpoints", "config", "logs", "memory", "plans", "sessions", "tracker"].sort());
+	assert.deepStrictEqual(readdirSync(durableRoot).sort(), ["artifacts", "auth", "checkpoints", "config", "logs", "memory", "plans", "research", "roadmaps", "sessions", "tracker"].sort());
 	for (const dirPath of Object.values(tree)) {
 		assert.strictEqual(statSync(dirPath).isDirectory(), true);
 	}
