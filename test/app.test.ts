@@ -17,9 +17,17 @@ import { LocalFileOrcCheckpointStore } from "../src/orchestration/orc-checkpoint
 import { OrcAsyncEventBus } from "../src/orchestration/orc-event-bus.js";
 import { attachOrcDurableEventLogWriter, getOrcEventLogLocation } from "../src/orchestration/orc-event-log.js";
 import type { OrcBusEvent } from "../src/orchestration/orc-events.js";
+import type { OrcCanonicalEventEnvelope } from "../src/orchestration/orc-io.js";
+import type {
+	OrcPythonTransport,
+	OrcPythonTransportDiagnosticEvent,
+	OrcPythonTransportHealth,
+	OrcPythonTransportLifecycleEvent,
+} from "../src/orchestration/orc-python-transport.js";
 import { createDefaultOrcSecurityPolicy, ORC_SECURITY_STATUS_TEXT } from "../src/orchestration/orc-security.js";
 import { OrcRuntimeSkeleton } from "../src/orchestration/orc-runtime.js";
 import { FileSystemOrcTracker } from "../src/orchestration/orc-tracker.js";
+import type { OrcControlPlaneState } from "../src/orchestration/orc-state.js";
 import { getRuntimeSessionDir } from "../src/runtime/runtime-session-namespace.js";
 import type { AgentRuntime, RuntimeDescriptor } from "../src/runtime/agent-runtime.js";
 import { CompatAgentRuntime } from "../src/runtime/compat-agent-runtime.js";
@@ -263,6 +271,82 @@ class StubRuntime implements AgentRuntime {
 async function flushAsyncWork(): Promise<void> {
 	await new Promise<void>((resolve) => setImmediate(resolve));
 	await new Promise<void>((resolve) => setImmediate(resolve));
+}
+
+class StubOrcPythonTransport implements OrcPythonTransport {
+	health: OrcPythonTransportHealth = {
+		stage: "idle",
+		status: "idle",
+		args: [],
+		stdoutLines: 0,
+		stderrLines: 0,
+		stdoutBufferedBytes: 0,
+		stderrBufferedBytes: 0,
+		diagnosticsDropped: 0,
+		warningEvents: 0,
+		faultEvents: 0,
+		parseFailures: 0,
+		consecutiveParseFailures: 0,
+		timeouts: { idleWarningMs: 5_000, stallTimeoutMs: 15_000, readyTimeoutMs: 10_000 },
+	};
+	lifecycleListeners: Array<(event: OrcPythonTransportLifecycleEvent) => void> = [];
+	envelopeListeners: Array<(envelope: OrcCanonicalEventEnvelope) => void> = [];
+	diagnosticListeners: Array<(event: OrcPythonTransportDiagnosticEvent) => void> = [];
+	launchInputs: unknown[] = [];
+	resumeInputs: unknown[] = [];
+	cancelReasons: string[] = [];
+	shutdownReasons: string[] = [];
+
+	async launch(input: any): Promise<void> {
+		this.launchInputs.push(input);
+		this.health = { ...this.health, threadId: input.threadId, runCorrelationId: input.runCorrelationId, stage: "ready", status: "healthy" };
+		this.emitLifecycle({ stage: "spawned", at: new Date().toISOString(), threadId: input.threadId, runCorrelationId: input.runCorrelationId, pid: 101 });
+		this.emitLifecycle({ stage: "ready", at: new Date().toISOString(), threadId: input.threadId, runCorrelationId: input.runCorrelationId, pid: 101 });
+	}
+
+	async resume(input: any): Promise<void> {
+		this.resumeInputs.push(input);
+		await this.launch(input);
+	}
+
+	async cancel(reason = "cancel_requested"): Promise<void> {
+		this.cancelReasons.push(reason);
+		this.health = { ...this.health, stage: "terminated", status: "offline" };
+		this.emitLifecycle({ stage: "terminated", at: new Date().toISOString(), threadId: this.health.threadId, runCorrelationId: this.health.runCorrelationId, reason });
+	}
+
+	async shutdown(reason = "shutdown_requested"): Promise<void> {
+		this.shutdownReasons.push(reason);
+		this.health = { ...this.health, stage: "exited", status: "offline", lastExitCode: 0 };
+		this.emitLifecycle({ stage: "exit", at: new Date().toISOString(), threadId: this.health.threadId, runCorrelationId: this.health.runCorrelationId, exitCode: 0, reason });
+	}
+
+	getHealth(): OrcPythonTransportHealth {
+		return { ...this.health, args: [...this.health.args], timeouts: { ...this.health.timeouts } };
+	}
+
+	onLifecycle(listener: (event: OrcPythonTransportLifecycleEvent) => void): () => void {
+		this.lifecycleListeners.push(listener);
+		return () => undefined;
+	}
+
+	onEnvelope(listener: (envelope: OrcCanonicalEventEnvelope) => void): () => void {
+		this.envelopeListeners.push(listener);
+		return () => undefined;
+	}
+
+	onDiagnostic(listener: (event: OrcPythonTransportDiagnosticEvent) => void): () => void {
+		this.diagnosticListeners.push(listener);
+		return () => undefined;
+	}
+
+	async dispose(): Promise<void> {}
+
+	private emitLifecycle(event: OrcPythonTransportLifecycleEvent): void {
+		for (const listener of this.lifecycleListeners) {
+			listener(event);
+		}
+	}
 }
 
 test("AppSetupService handles startup gate and saved defaults", () => {
@@ -514,7 +598,7 @@ test("Local Orc checkpoint store persists manifests and tracker snapshots by sta
 	await tracker.save(state);
 	const manifest = await checkpoints.saveCheckpoint({
 		metadata: {
-			checkpointId: state.checkpointId,
+			checkpointId: state.checkpointId!,
 			thread: { threadId: state.threadId, projectId: state.project.projectId, runtimeId: "orc", sessionId: "session-42" },
 			sequenceNumber: 1,
 			phase: state.phase,
@@ -529,7 +613,7 @@ test("Local Orc checkpoint store persists manifests and tracker snapshots by sta
 				capturedAt: state.lastUpdatedAt,
 			},
 			artifactBundleIds: ["bundle-1"],
-			rewindTargetIds: [state.checkpointId],
+			rewindTargetIds: [state.checkpointId!],
 		},
 	});
 
@@ -595,42 +679,105 @@ test("Orc runtime threads merged security policy and UI status text through the 
 			},
 		},
 	});
+	const transport = new StubOrcPythonTransport();
 	const runtime = new OrcRuntimeSkeleton(
-		{},
+		{ createPythonTransport: () => transport },
 		{
 			securityPolicy: sessionSecurity,
 			sessionFactory: {
-				createSession: (_request, securityPolicy) => {
+				createSession: ({ securityPolicy, threadId, checkpointId, runCorrelationId, state }) => {
 					sessionSecurity = securityPolicy;
 					return {
-						threadId: "thread-1",
-						checkpointId: "checkpoint-1",
+						threadId,
+						checkpointId: checkpointId ?? "checkpoint-1",
 						securityPolicy,
-						getState: () => undefined,
+						runCorrelationId,
+						getState: () => state,
+						updateState: () => undefined,
+						getRuntimeHooks: () => undefined,
+						attachRuntimeHooks: () => undefined,
 					};
 				},
 			},
 		},
 	);
 
-	await assert.rejects(
-		runtime.launch({
-			project: { projectId: "proj-1", projectRoot: "/workspace/Vibe_Agent" },
-			prompt: "launch",
-			securityPolicyOverrides: {
-				sessionKind: "ephemeral-worker",
-				maximumConcurrency: 4,
-				allowedWorkingDirectories: ["/workspace/Vibe_Agent", "/tmp/vibe-durable"],
-			},
-		}),
-		/not implemented yet/,
-	);
+	const response = await runtime.launch({
+		project: { projectId: "proj-1", projectRoot: "/workspace/Vibe_Agent" },
+		prompt: "launch",
+		securityPolicyOverrides: {
+			sessionKind: "ephemeral-worker",
+			maximumConcurrency: 4,
+			allowedWorkingDirectories: ["/workspace/Vibe_Agent", "/tmp/vibe-durable"],
+		},
+	});
 
 	assert.strictEqual(sessionSecurity.sessionKind, "ephemeral-worker");
 	assert.strictEqual(sessionSecurity.maximumConcurrency, 4);
 	assert.deepStrictEqual(sessionSecurity.allowedWorkingDirectories, ["/workspace/Vibe_Agent", "/tmp/vibe-durable"]);
+	assert.strictEqual(response.state.securityPolicy?.sessionKind, "ephemeral-worker");
+	assert.strictEqual(transport.launchInputs.length, 1);
 	assert.strictEqual(ORC_SECURITY_STATUS_TEXT["approval-required"], "Approval required");
 	assert.strictEqual(ORC_SECURITY_STATUS_TEXT["blocked-command"], "Blocked command");
+});
+
+test("Orc runtime resumes tracker/checkpoint state and exposes stable session hooks", async () => {
+	const durableRoot = path.join(tempRoot, "orc-runtime-resume");
+	const checkpoints = new LocalFileOrcCheckpointStore({ durableRoot });
+	const tracker = new FileSystemOrcTracker(checkpoints, { durableRoot });
+	const state: OrcControlPlaneState = {
+		threadId: "thread-resume-1",
+		checkpointId: "checkpoint-resume-1",
+		phase: "checkpointed",
+		project: { projectId: "proj-1", projectRoot: "/workspace/Vibe_Agent", projectName: "Vibe Agent" },
+		securityPolicy: createDefaultOrcSecurityPolicy(),
+		messages: [],
+		workerResults: [],
+		verificationErrors: [],
+		lastUpdatedAt: new Date().toISOString(),
+	};
+	await tracker.save(state);
+	await checkpoints.saveCheckpoint({
+		metadata: {
+			checkpointId: state.checkpointId!,
+			thread: { threadId: state.threadId, projectId: state.project.projectId },
+			sequenceNumber: 1,
+			phase: state.phase,
+			createdAt: state.lastUpdatedAt,
+			trackerStateId: `${state.threadId}:${state.checkpointId}`,
+			resumeData: { phase: "checkpointed", workerIds: [], instructions: "resume checkpointed thread", activeWaveId: "wave-1" },
+			stateSnapshot: {
+				snapshotId: "snapshot-1",
+				trackerStateId: `${state.threadId}:${state.checkpointId}`,
+				storageKey: "thread-resume-1/checkpoint-resume-1",
+				format: "control-plane-state",
+				capturedAt: state.lastUpdatedAt,
+			},
+			artifactBundleIds: [],
+			rewindTargetIds: [state.checkpointId!],
+		},
+	});
+
+	const transport = new StubOrcPythonTransport();
+	const runtime = new OrcRuntimeSkeleton(
+		{ createPythonTransport: () => transport },
+		{ tracker, checkpointStore: checkpoints },
+	);
+
+	const response = await runtime.resumeThread({ threadId: state.threadId, checkpointId: state.checkpointId });
+	assert.strictEqual(response.threadId, state.threadId);
+	assert.strictEqual(response.checkpointId, state.checkpointId);
+	assert.strictEqual(response.state?.project.projectName, "Vibe Agent");
+	assert.strictEqual(transport.resumeInputs.length, 1);
+
+	const session = runtime.getSession(state.threadId);
+	assert.ok(session);
+	assert.ok(session?.getRuntimeHooks());
+	assert.strictEqual(session?.getRuntimeHooks()?.getTransportHealth()?.threadId, state.threadId);
+	assert.strictEqual((await runtime.loadTrackerState({ threadId: state.threadId })).found, true);
+
+	await session?.getRuntimeHooks()?.shutdown("test_shutdown");
+	assert.strictEqual(runtime.getSession(state.threadId), undefined);
 });
 
 
