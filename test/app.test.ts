@@ -34,6 +34,7 @@ import { createDefaultOrcSecurityPolicy, ORC_SECURITY_STATUS_TEXT } from "../src
 import { OrcRuntimeSkeleton } from "../src/orchestration/orc-runtime.js";
 import { presentOrcEventSummary, presentOrcTrackerSummary } from "../src/orchestration/orc-presentation.js";
 import { FileSystemOrcTracker, createOrcTrackerDashboardViewModel } from "../src/orchestration/orc-tracker.js";
+import { createOrcTuiTelemetrySubscriber } from "../src/orchestration/orc-tui-subscriber.js";
 import type { OrcControlPlaneState } from "../src/orchestration/orc-state.js";
 import { getRuntimeSessionDir } from "../src/runtime/runtime-session-namespace.js";
 import type { AgentRuntime, RuntimeDescriptor } from "../src/runtime/agent-runtime.js";
@@ -1108,4 +1109,101 @@ test("presentation helpers generate concise summaries and degrade gracefully whe
 	const dashboard = createOrcTrackerDashboardViewModel(state);
 	assert.equal(dashboard.fields.trackerSignOffStatus.value, "Blocked");
 	assert.equal(dashboard.fields.blockedTasks.value, "2");
+});
+
+
+test("createOrcTuiTelemetrySubscriber batches bursty event-bus updates into TUI-friendly slices", async () => {
+	const bus = new OrcAsyncEventBus({ component: "test-tui" });
+	const subscriber = createOrcTuiTelemetrySubscriber({
+		threadId: "thread-tui",
+		batchWindowMs: 5,
+		project: { projectId: "proj-tui", projectRoot: "/tmp/project" },
+	});
+	subscriber.attach(bus, { threadId: "thread-tui" });
+	const notifications: string[] = [];
+	const unsubscribe = subscriber.subscribe((state) => {
+		notifications.push(`${state.controlPlane.phase}:${state.eventLogTail.length}`);
+	});
+
+	const mkEvent = (sequence: number, kind: OrcBusEvent["kind"], payload: Record<string, unknown>, status: OrcCanonicalEventEnvelope["what"]["status"] = "started"): OrcBusEvent => ({
+		kind,
+		payload: payload as any,
+		envelope: {
+			origin: { eventId: `tui-${sequence}`, emittedAt: `2026-03-22T02:00:0${sequence}.000Z`, threadId: "thread-tui", runCorrelationId: "run-tui", streamSequence: sequence, source: "future_replay", workerId: "worker-1", waveId: "wave-1" },
+			who: { id: "agent-1", kind: kind === "transport.fault" ? "transport" : "agent", label: "Agent 1", workerId: "worker-1" },
+			what: { category: "lifecycle", name: `event-${sequence}`, status, severity: kind === "transport.fault" ? "warning" : "notice", description: `event-${sequence}` },
+			how: { channel: kind === "transport.fault" ? "event_bus" : "stdout_jsonl", interactionTarget: kind === "agent.message" ? "user" : "computer", environment: kind === "transport.fault" ? "transport" : "worker" },
+			when: `2026-03-22T02:00:0${sequence}.000Z`,
+		},
+		interaction: { target: kind === "agent.message" ? "user" : "computer", lane: kind === "agent.message" ? "agent_interacting_with_user" : "agent_interacting_with_computer", isUserFacing: kind === "agent.message", isComputerFacing: kind !== "agent.message" },
+		debug: { normalizedFrom: "test" },
+	});
+
+	bus.publish(mkEvent(1, "worker.status", { workerId: "worker-1", waveId: "wave-1", status: "running", summary: "Worker started" }));
+	bus.publish(mkEvent(2, "agent.message", { messageId: "msg-1", content: "Progress update", workerId: "worker-1", agentId: "agent-1" }, "succeeded"));
+	bus.publish(mkEvent(3, "transport.fault", { faultCode: "transport_idle_timeout", message: "Runner quiet", status: "degraded" }, "failed"));
+	await new Promise((resolve) => setTimeout(resolve, 20));
+
+	const state = subscriber.getState();
+	assert.equal(notifications.length, 2);
+	assert.equal(state.dashboard.fields.activeThread.value, "thread-tui");
+	assert.equal(state.subagentActivity[0]?.agentId, "agent-1");
+	assert.equal(state.transportHealth.status, "degraded");
+	assert.deepStrictEqual(state.eventLogTail.map((entry) => entry.eventId), ["tui-3", "tui-2", "tui-1"]);
+	assert.equal(state.recentErrors[0]?.eventId, "tui-3");
+
+	unsubscribe();
+	subscriber.dispose();
+	bus.dispose();
+});
+
+test("createOrcTuiTelemetrySubscriber resets transient overlays and tails when the operator switches threads", async () => {
+	const bus = new OrcAsyncEventBus({ component: "test-tui-switch" });
+	const subscriber = createOrcTuiTelemetrySubscriber({
+		threadId: "thread-a",
+		batchWindowMs: 0,
+		project: { projectId: "proj-a", projectRoot: "/tmp/project-a" },
+	});
+	subscriber.attach(bus, { threadId: "thread-a" });
+
+	bus.publish({
+		kind: "tool.call",
+		payload: { callId: "call-1", toolName: "npm test", workerId: "worker-a", agentId: "agent-a" },
+		envelope: {
+			origin: { eventId: "call-1", emittedAt: "2026-03-22T03:00:00.000Z", threadId: "thread-a", runCorrelationId: "run-a", streamSequence: 1, source: "future_replay", workerId: "worker-a", waveId: "wave-a" },
+			who: { id: "agent-a", kind: "agent", label: "Agent A", workerId: "worker-a" },
+			what: { category: "tool_call", name: "tool_call", status: "started", severity: "info", description: "tool call" },
+			how: { channel: "stdout_jsonl", interactionTarget: "computer", environment: "worker", toolName: "npm test", toolCallId: "call-1" },
+			when: "2026-03-22T03:00:00.000Z",
+		},
+		interaction: { target: "computer", lane: "agent_interacting_with_computer", isUserFacing: false, isComputerFacing: true },
+		debug: { normalizedFrom: "test" },
+	});
+	await new Promise((resolve) => setTimeout(resolve, 10));
+
+	assert.equal(subscriber.getState().eventLogTail.length, 1);
+	assert.equal(subscriber.getState().transportHealth.status, "unknown");
+
+	subscriber.switchThread("thread-b", {
+		threadId: "thread-b",
+		phase: "bootstrapping",
+		project: { projectId: "proj-b", projectRoot: "/tmp/project-b" },
+		messages: [],
+		securityEvents: [],
+		workerResults: [],
+		verificationErrors: [],
+		checkpointMetadata: createInitialCheckpointMetadataSummary(),
+		transportHealth: createInitialReducedTransportHealth(),
+		terminalState: createInitialTerminalStateSummary(),
+		lastUpdatedAt: "2026-03-22T03:00:01.000Z",
+	});
+
+	const state = subscriber.getState();
+	assert.equal(state.threadId, "thread-b");
+	assert.equal(state.eventLogTail.length, 0);
+	assert.equal(state.overlays.visibleEntries.length, 0);
+	assert.equal(state.controlPlane.phase, "bootstrapping");
+
+	subscriber.dispose();
+	bus.dispose();
 });
