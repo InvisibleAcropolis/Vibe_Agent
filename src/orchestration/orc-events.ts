@@ -21,6 +21,98 @@ export type OrcBusEventKind =
 export type OrcOverlayKind = "agent-detail" | "tool-call" | "approval" | "transport-health" | "checkpoint" | "error";
 export type OrcTransportHealthStatus = "unknown" | "healthy" | "degraded" | "faulted" | "offline";
 export type OrcInteractionLane = "agent_interacting_with_user" | "agent_interacting_with_computer" | "system_support";
+export type OrcTransportRecoveryBoundary = "recoverable_noise" | "fatal_corruption";
+export type OrcTransportWarningCode =
+	| "transport_parse_noise"
+	| "transport_idle_timeout"
+	| "transport_partial_line_truncated"
+	| "transport_stderr_truncated";
+export type OrcTransportFaultCode =
+	| "transport_corrupt_stream"
+	| "transport_ready_timeout"
+	| "transport_stall_timeout"
+	| "transport_stdout_overflow";
+
+/**
+ * Phase 2 recovery taxonomy:
+ * - `recoverable_noise` warnings are malformed or incomplete records where the transport can keep reading later lines.
+ * - `fatal_corruption` faults mean framing/progress guarantees have broken badly enough that runtime supervision should treat the stream as unhealthy.
+ */
+export interface OrcTransportFaultBoundaryRule {
+	code: OrcTransportWarningCode | OrcTransportFaultCode;
+	boundary: OrcTransportRecoveryBoundary;
+	defaultStatus: OrcTransportHealthStatus;
+	recovery: "continue_stream" | "request_supervisor_restart" | "terminate_transport";
+	description: string;
+}
+
+export const ORC_TRANSPORT_FAULT_BOUNDARY_RULES: Record<
+	OrcTransportWarningCode | OrcTransportFaultCode,
+	OrcTransportFaultBoundaryRule
+> = {
+	transport_parse_noise: {
+		code: "transport_parse_noise",
+		boundary: "recoverable_noise",
+		defaultStatus: "degraded",
+		recovery: "continue_stream",
+		description: "A single completed stdout line could not be decoded or normalized, but newline framing remains intact.",
+	},
+	transport_idle_timeout: {
+		code: "transport_idle_timeout",
+		boundary: "recoverable_noise",
+		defaultStatus: "degraded",
+		recovery: "continue_stream",
+		description: "The child process has gone quiet longer than the idle threshold but has not yet exceeded the fatal stall timeout.",
+	},
+	transport_partial_line_truncated: {
+		code: "transport_partial_line_truncated",
+		boundary: "recoverable_noise",
+		defaultStatus: "degraded",
+		recovery: "continue_stream",
+		description: "End-of-stream arrived with an unterminated stdout JSONL fragment, so the partial bytes were reported instead of silently parsed or dropped.",
+	},
+	transport_stderr_truncated: {
+		code: "transport_stderr_truncated",
+		boundary: "recoverable_noise",
+		defaultStatus: "degraded",
+		recovery: "continue_stream",
+		description: "A stderr diagnostic snippet exceeded the preview budget and was truncated for UI/debug safety.",
+	},
+	transport_corrupt_stream: {
+		code: "transport_corrupt_stream",
+		boundary: "fatal_corruption",
+		defaultStatus: "faulted",
+		recovery: "request_supervisor_restart",
+		description: "Repeated malformed stdout lines or invalid envelope structure indicate the JSONL stream can no longer be trusted.",
+	},
+	transport_ready_timeout: {
+		code: "transport_ready_timeout",
+		boundary: "fatal_corruption",
+		defaultStatus: "faulted",
+		recovery: "request_supervisor_restart",
+		description: "The child process spawned but failed to produce a valid ready-capable envelope before the launch timeout elapsed.",
+	},
+	transport_stall_timeout: {
+		code: "transport_stall_timeout",
+		boundary: "fatal_corruption",
+		defaultStatus: "faulted",
+		recovery: "request_supervisor_restart",
+		description: "No stdout/stderr progress was observed beyond the fatal stall threshold, so the transport should be considered hung.",
+	},
+	transport_stdout_overflow: {
+		code: "transport_stdout_overflow",
+		boundary: "fatal_corruption",
+		defaultStatus: "faulted",
+		recovery: "terminate_transport",
+		description: "The stdout assembler buffer exceeded its byte budget before a newline arrived, destroying trustworthy record boundaries.",
+	},
+};
+
+export function classifyOrcTransportIssue(
+	code: OrcTransportWarningCode | OrcTransportFaultCode,
+): OrcTransportFaultBoundaryRule {
+	return ORC_TRANSPORT_FAULT_BOUNDARY_RULES[code];
+}
 
 export interface OrcBaseBusEvent<
 	TKind extends OrcBusEventKind,
