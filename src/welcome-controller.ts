@@ -64,7 +64,7 @@ class SetupIntroComponent extends Container implements Focusable {
 		this.addChild(new Spacer(1));
 		this.addChild(new Text(agentTheme.bannerInfo("  What setup will persist locally"), 1, 0));
 		this.addChild(new TruncatedText(agentTheme.bannerBody("    auth.json credentials via Pi-mono AuthStorage"), 0, 0));
-		this.addChild(new TruncatedText(agentTheme.bannerBody("    vibe-agent-config.json default provider/model"), 0, 0));
+		this.addChild(new TruncatedText(agentTheme.bannerBody("    ~/Vibe_Agent/config/vibe-agent-config.json default provider/model"), 0, 0));
 		this.addChild(new Spacer(1));
 		this.addChild(new Text(agentTheme.bannerDim("  Enter continue  |  Esc skip for now"), 1, 0));
 	}

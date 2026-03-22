@@ -12,8 +12,8 @@ import type { FooterDataProvider } from "./footer-data-provider.js";
 import type { ShellView } from "./shell-view.js";
 import { getThemeNames, setActiveTheme, getActiveTheme, type ThemeName } from "./themes/index.js";
 import { AppConfig } from "./app-config.js";
-import { basename, join } from "node:path";
-import { getAgentDir } from "./local-coding-agent.js";
+import { basename } from "node:path";
+import { getVibeConfigPath } from "./durable/durable-paths.js";
 
 interface SetupActions {
 	openSetupHub(): Promise<void>;
@@ -582,7 +582,7 @@ export class DefaultCommandController implements CommandController {
 		setActiveTheme(arg as ThemeName);
 		// Persist to config
 		try {
-			const configPath = join(getAgentDir(), "vibe-agent-config.json");
+			const configPath = getVibeConfigPath();
 			const config = AppConfig.load(configPath);
 			AppConfig.save({ ...config, selectedTheme: arg }, configPath);
 		} catch {

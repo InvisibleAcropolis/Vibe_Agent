@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,6 +12,8 @@ import { ArtifactCatalogService } from "../src/durable/artifacts/artifact-catalo
 import { LogCatalogService } from "../src/durable/logs/log-catalog-service.js";
 import { MemoryStoreService } from "../src/durable/memory/memory-store-service.js";
 import { WorkbenchInventoryService } from "../src/durable/workbench-inventory-service.js";
+import { ensureVibeDurableStorage, getVibeConfigPath } from "../src/durable/durable-paths.js";
+import { getRuntimeSessionDir } from "../src/runtime/runtime-session-namespace.js";
 import type { AgentRuntime, RuntimeDescriptor } from "../src/runtime/agent-runtime.js";
 import { CompatAgentRuntime } from "../src/runtime/compat-agent-runtime.js";
 import { RuntimeCoordinator } from "../src/runtime/runtime-coordinator.js";
@@ -367,6 +369,18 @@ test("Durable services catalog artifacts, memory stores, and logs", () => {
 	assert.strictEqual(snapshot.logs[0]?.logType, "debug-snapshot");
 });
 
+test("Vibe durable storage bootstraps the full private directory tree", () => {
+	const durableRoot = path.join(tempRoot, "durable-root");
+	const tree = ensureVibeDurableStorage({ durableRoot });
+
+	assert.deepStrictEqual(readdirSync(durableRoot).sort(), ["artifacts", "auth", "checkpoints", "config", "logs", "memory", "plans", "sessions", "tracker"].sort());
+	for (const dirPath of Object.values(tree)) {
+		assert.strictEqual(statSync(dirPath).isDirectory(), true);
+	}
+	assert.strictEqual(getVibeConfigPath("vibe-agent-config.json", { durableRoot }), path.join(durableRoot, "config", "vibe-agent-config.json"));
+	assert.strictEqual(getRuntimeSessionDir("orc", "/workspace/demo", durableRoot), path.join(durableRoot, "sessions", "orc", Buffer.from("/workspace/demo").toString("base64url")));
+});
+
 test("VibeAgentApp boots with a coding runtime and catalogs artifacts", async () => {
 	const terminal = new VirtualTerminal(100, 30);
 	const host = new FakeAgentHost([
@@ -387,6 +401,7 @@ test("VibeAgentApp boots with a coding runtime and catalogs artifacts", async ()
 		terminal,
 		host,
 		configPath: path.join(tempRoot, "single-runtime-config.json"),
+		durableRootPath: path.join(tempRoot, "app-durable-root"),
 		getEnvApiKey: (providerId) => (providerId === "openai" ? "test-key" : undefined),
 	});
 
@@ -431,6 +446,7 @@ test("VibeAgentApp starts registered coding, worker, and tool runtimes", async (
 		terminal,
 		runtimes: [codingRuntime, workerRuntime, toolRuntime],
 		configPath: path.join(tempRoot, "multi-runtime-config.json"),
+		durableRootPath: path.join(tempRoot, "multi-runtime-durable-root"),
 		getEnvApiKey: (providerId) => (providerId === "openai" ? "test-key" : undefined),
 	});
 
