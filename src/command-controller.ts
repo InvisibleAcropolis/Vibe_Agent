@@ -5,10 +5,12 @@ import type { EditorController } from "./editor-controller.js";
 import type { OverlayController } from "./overlay-controller.js";
 import { ArtifactViewer } from "./components/artifact-viewer.js";
 import { HelpOverlay } from "./components/help-overlay.js";
+import { OrchestrationStatusPanel } from "./components/orchestration-status-panel.js";
 import type { ShellMenuItem } from "./components/shell-menu-overlay.js";
 import { SessionStatsOverlay } from "./components/session-stats-overlay.js";
 import { WorkbenchInventoryService } from "./durable/workbench-inventory-service.js";
 import type { FooterDataProvider } from "./footer-data-provider.js";
+import { createOrcTrackerDashboardViewModel } from "./orchestration/orc-tracker.js";
 import type { ShellView } from "./shell-view.js";
 import { getThemeNames, setActiveTheme, getActiveTheme, type ThemeName } from "./themes/index.js";
 import { AppConfig } from "./app-config.js";
@@ -88,6 +90,7 @@ export interface CommandController {
 	openSettingsOverlay(): void;
 	openSessionsOverlay(): void;
 	openOrchestrationOverlay(): void;
+	openOrcDashboard(): void;
 	summonOrc(): Promise<void>;
 	resumeOrcThread(): void;
 	inspectOrcCheckpoints(): void;
@@ -422,6 +425,7 @@ export class DefaultCommandController implements CommandController {
 			childWidth: 46,
 			items: [
 				{ kind: "action", id: "summon-orc", label: "Summon Orc", description: "Initialize the orchestration assistant shell.", onSelect: () => void this.summonOrc().catch((error) => this.handleError("summonOrc", error)) },
+				{ kind: "action", id: "dashboard", label: "Dashboard", description: "Open the friendly Orc telemetry dashboard.", onSelect: () => this.openOrcDashboard() },
 				{ kind: "action", id: "coding-chat", label: "Coding Chat", description: "Return to the standard coding session transcript.", onSelect: () => void this.returnToCodingChat().catch((error) => this.handleError("returnToCodingChat", error)) },
 				{ kind: "action", id: "orc-resume", label: "Resume Thread", description: "Placeholder controller action for resuming an Orc thread.", onSelect: () => this.resumeOrcThread() },
 				{ kind: "action", id: "orc-checkpoints", label: "Inspect Checkpoints", description: "Placeholder controller action for viewing Orc checkpoints.", onSelect: () => this.inspectOrcCheckpoints() },
@@ -432,6 +436,14 @@ export class DefaultCommandController implements CommandController {
 				{ kind: "action", id: "settings", label: "Settings", description: "Adjust orchestration defaults and preferences.", onSelect: () => this.showPlaceholderStatus("Orc Settings is not implemented yet.") },
 			],
 		});
+	}
+
+	openOrcDashboard(): void {
+		this.overlayController.showCustomOverlay(
+			"orc-dashboard",
+			new OrchestrationStatusPanel(createOrcTrackerDashboardViewModel(), () => this.overlayController.closeOverlay("orc-dashboard")),
+			{ width: 78, maxHeight: "80%", anchor: "center", margin: 1 },
+		);
 	}
 
 	async summonOrc(): Promise<void> {

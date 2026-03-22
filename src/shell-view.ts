@@ -471,6 +471,7 @@ export class DefaultShellView implements ShellView {
 		}
 
 		// Menu bar: [F1] Settings  ◆  [F2] Sessions  ◆  [F3] Orc ═══════════════════
+		// F3 now anchors the dedicated Orc dashboard/menu entry for summarized orchestration telemetry.
 		const MENU_ITEMS: MenuBarItem[] = [
 			{ key: "F1", label: "Settings" },
 			{ key: "F2", label: "Sessions" },
