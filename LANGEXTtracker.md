@@ -86,7 +86,7 @@ This section maps implementation activity back to the major design mandates in `
 
 | task ID | title | owner/agent | date | status | files touched | validation notes | blocker notes | follow-up TODO |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| P2-001 | Freeze the Phase 2 control/data-plane contract | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory documents the transport/event contract and requires tracker read/update on every task. | Awaiting implementation. | Extend `src/orchestration/orc-io.ts` / `orc-state.ts` with concrete Phase 2 event-envelope types. |
+| P2-001 | Freeze the Phase 2 control/data-plane contract | GPT-5.2-Codex | 2026-03-22 | Completed | `LANGEXTtracker.md`, `src/orchestration/orc-io.ts`, `src/orchestration/orc-state.ts` | Static review completed after adding Phase 2 run/event/sequence/origin/category/severity/lifecycle transport types, the canonical `who`/`what`/`how`/`when` envelope, and ownership-boundary comments. Verified with `npm run build`. | None. | Next session can consume the frozen envelope contract from `src/orchestration/orc-io.ts` while implementing `P2-002` reducer/event-bus normalization. |
 | P2-002 | Define the canonical Global Event Bus schema and reducers | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory captures typed event unions, normalization rules, and reducer targets for live telemetry. | Awaiting implementation. | Add `src/orchestration/orc-events.ts` and reducer-facing summaries for agent/user vs agent/computer activity. |
 | P2-003 | Build the Python LangGraph runner bootstrap and execution envelope | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory defines the Python runner bootstrap, stderr/stdout split, and launch contract. | Awaiting implementation. | Create the Python runner entry point and document its environment contract. |
 | P2-004 | Implement JSONL telemetry emission for LangGraph and DeepAgents activity | GPT-5.2-Codex | 2026-03-22 | Planned | `docs/orchestration/phase-2-execution-plan.md`, `LANGEXTtracker.md` | Planned task inventory requires strict single-line JSON emission with run correlation, sequencing, and raw payload passthrough. | Awaiting implementation. | Instrument graph, subagent, tool, retry, and completion events as JSONL telemetry. |
@@ -124,12 +124,20 @@ This section maps implementation activity back to the major design mandates in `
 - Updated the design compliance matrix to replace the placeholder Phase 2 task references for DM-01, DM-04, and DM-06 with concrete planned task IDs.
 - Validation performed: static document review of task sequencing, dependency map, and tracker-touch requirements for every Phase 2 task.
 
+### 2026-03-22 — GPT-5.2-Codex (P2-001 contract freeze)
+- Updated the `P2-001` ledger row to `In Progress` before touching implementation files, then completed the row after the contract work and static validation finished.
+- Extended `src/orchestration/orc-io.ts` with the Phase 2 transport vocabulary: run correlation ids, event ids, stream sequence numbers, origin metadata, event categories, severity, lifecycle status, and actor/delivery descriptors.
+- Added a canonical event envelope that captures `who`, `what`, `how`, and `when` plus a namespaced raw-payload passthrough field for Python-runner and future replay metadata.
+- Documented the minimum metadata needed to separate agent→user interactions from agent→computer/tool activity and clarified the ownership boundary in `src/orchestration/orc-state.ts` between transport facts, reduced control-plane state, tracker snapshots, and future TUI view models.
+- Validation performed: `npm run build` plus static review of comments and type boundaries for downstream implementers.
+
 ## Sign-off Block
 
 | timestamp (UTC) | agent | scope completed | sign-off notes |
 | --- | --- | --- | --- |
 | 2026-03-22T12:00:00Z | GPT-5.2-Codex | Created mandatory feature-line tracker document and initialized Phase 1 ledger/process controls. | Session closed with carryover planning captured below; future sessions must replace placeholder task mappings with concrete implementation IDs as work advances. |
 | 2026-03-22T13:30:00Z | GPT-5.2-Codex | Planned the full Phase 2 backlog and added the Phase 2 execution-plan guide. | Session closed after updating the tracker, documenting 18 concrete Phase 2 tasks, and mapping initial Phase 2 design mandates to real task IDs. |
+| 2026-03-22T14:15:00Z | GPT-5.2-Codex | Completed P2-001 contract freeze for the Phase 2 transport and state boundary vocabulary. | Session closed after freezing the canonical event envelope, updating the tracker ledger/work log, and validating the TypeScript contract with `npm run build`. |
 
 ## Next-Session TODO Handoff
 
@@ -137,8 +145,9 @@ This section maps implementation activity back to the major design mandates in `
 1. Begin implementation with `P2-001` and `P2-002`, extending the Orc TypeScript contracts for transport envelopes, event schemas, and reducer targets before building transport code.
 2. Confirm the exact repository path for the new Python LangGraph runner and add it to `P2-003` once the implementation branch starts touching files.
 3. Replace the remaining placeholder design-compliance mappings for Phase 1 and future Phase 3/4 work as those task inventories become concrete.
-4. Record concrete validation commands, reviewer notes, or deferred-validation rationale directly in the Phase 2 ledger rows as implementation work starts.
-5. Continue to read `LANGEXTtracker.md` at session start and append updates rather than rewriting prior history.
+4. Use the frozen `OrcCanonicalEventEnvelope` contract from `src/orchestration/orc-io.ts` to implement `P2-002` normalization and reducers without redefining transport metadata.
+5. Record concrete validation commands, reviewer notes, or deferred-validation rationale directly in the Phase 2 ledger rows as implementation work starts.
+6. Continue to read `LANGEXTtracker.md` at session start and append updates rather than rewriting prior history.
 
 ## Risks / Blockers
 

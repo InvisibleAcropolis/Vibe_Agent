@@ -89,7 +89,14 @@ export interface OrcVerificationError {
 }
 
 /**
- * Minimal snapshot shape for the orchestration control plane.
+ * Minimal reduced snapshot shape for the orchestration control plane.
+ *
+ * Ownership boundary notes for Phase 2 implementers:
+ * - Transport events are append-only facts emitted from the Python runner, transport adapter, or runtime.
+ * - `OrcControlPlaneState` is the reduced control-plane summary derived from those transport events.
+ * - Tracker snapshots are durable serializations of the reduced control-plane state plus handoff metadata.
+ * - Future TUI-facing view models should subscribe to canonical events and/or reduced state, but should not become
+ *   the source of truth for transport sequencing, replay, or checkpoint recovery.
  */
 export interface OrcControlPlaneState {
 	threadId: string;
