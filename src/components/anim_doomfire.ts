@@ -14,12 +14,19 @@ export interface DoomFireOptions {
 	saturation?: number;
 	lightness?: number;
 	renderMode?: "glyph" | "block";
+	glyphPalette?: "default" | "electric" | "lava" | "plasma" | "ember" | "shards" | "dense";
 	windStrength?: number;
 	windDirection?: -1 | 0 | 1;
 	seedInterval?: number;
 }
 
 const PAL_DEFAULT = ' .,:;+=ox#%@';
+const PAL_ELECTRIC = ' .━┄┅┃◤◢❖✦';
+const PAL_LAVA = ' .oO@#%&8%B@';
+const PAL_PLASMA = ' ░▒▓█◐◑◒◓';
+const PAL_EMBER = ' .`^":!iIYVXH';
+const PAL_SHARDS = ' .-_/\\|<>*#%';
+const PAL_DENSE = ' .:!lirxznuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$';
 const MODULE_ID = "anim_doomfire";
 
 interface GradientBias {
@@ -55,6 +62,25 @@ function hueStepToHex(step: number, saturation: number, lightness: number): stri
 	return hslToHex(hue, clampUnit(saturation), clampUnit(lightness));
 }
 
+function getGlyphPalette(glyphPalette: DoomFireOptions["glyphPalette"]): string {
+	switch (glyphPalette) {
+		case "electric":
+			return PAL_ELECTRIC;
+		case "lava":
+			return PAL_LAVA;
+		case "plasma":
+			return PAL_PLASMA;
+		case "ember":
+			return PAL_EMBER;
+		case "shards":
+			return PAL_SHARDS;
+		case "dense":
+			return PAL_DENSE;
+		default:
+			return PAL_DEFAULT;
+	}
+}
+
 export function createDoomFire(opts?: DoomFireOptions): (animState: AnimationState, theme: ThemeConfig) => string {
 	const W = requireNumberOption(opts?.width, MODULE_ID, "width");
 	const H = requireNumberOption(opts?.height, MODULE_ID, "height");
@@ -65,6 +91,7 @@ export function createDoomFire(opts?: DoomFireOptions): (animState: AnimationSta
 	const saturation = requireNumberOption(opts?.saturation, MODULE_ID, "saturation");
 	const lightness = requireNumberOption(opts?.lightness, MODULE_ID, "lightness");
 	const renderMode = requireStringOption(opts?.renderMode, MODULE_ID, "renderMode");
+	const glyphPalette = requireStringOption(opts?.glyphPalette, MODULE_ID, "glyphPalette");
 	const windStrength = requireNumberOption(opts?.windStrength, MODULE_ID, "windStrength");
 	const windDirection = requireNumberOption(opts?.windDirection, MODULE_ID, "windDirection");
 	const seedInterval = requireNumberOption(opts?.seedInterval, MODULE_ID, "seedInterval");
@@ -78,6 +105,7 @@ export function createDoomFire(opts?: DoomFireOptions): (animState: AnimationSta
 	const biasedLightness = clampUnit(lightness + gradientBias.lightnessOffset);
 	const bottomHex = hueStepToHex(bottomHueStep + gradientBias.bottomHueOffset, biasedSaturation, biasedLightness);
 	const topHex = hueStepToHex(topHueStep + gradientBias.topHueOffset, biasedSaturation, biasedLightness);
+	const palette = getGlyphPalette(glyphPalette);
 
 	return (_animState: AnimationState, _theme: ThemeConfig): string => {
 		tickCounter++;
@@ -131,8 +159,8 @@ export function createDoomFire(opts?: DoomFireOptions): (animState: AnimationSta
 			for (let x = 0; x < W; x++) {
 				const heat = buf[y * W + x]!;
 				const heatT = heat / 255;
-				const charIdx = Math.min(PAL_DEFAULT.length - 1, Math.floor(heatT * PAL_DEFAULT.length));
-				const char = PAL_DEFAULT[charIdx]!;
+				const charIdx = Math.min(palette.length - 1, Math.floor(heatT * palette.length));
+				const char = palette[charIdx]!;
 				const finalCellColor = lerpColor("#000000", rowGradientColor, heatT);
 				row += renderMode === "block"
 					? style({ bg: finalCellColor })(" ")

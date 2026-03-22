@@ -8,6 +8,7 @@
   "saturation": 1,
   "lightness": 0.5,
   "renderMode": "glyph",
+  "glyphPalette": "lava",
   "windStrength": 0.03,
   "windDirection": 0,
   "seedInterval": 2
