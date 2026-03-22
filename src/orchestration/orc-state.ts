@@ -57,7 +57,7 @@ export interface OrcActiveExecutionWave {
 	goal?: string;
 }
 
-export type OrcWorkerResultStatus = "pending" | "completed" | "failed" | "cancelled";
+export type OrcWorkerResultStatus = "pending" | "completed" | "failed" | "cancelled" | "partial" | "ambiguous";
 
 /**
  * Result summary for one worker participating in an orchestration wave.
@@ -73,6 +73,36 @@ export interface OrcParallelWorkerResult {
 	finishedAt?: string;
 	errorMessage?: string;
 	metadata?: Record<string, string | number | boolean | null>;
+}
+
+export interface OrcCheckpointMetadataSummary {
+	checkpointId?: string;
+	status: "idle" | "started" | "captured" | "restored" | "failed" | "stale";
+	threadId?: string;
+	waveId?: string;
+	storagePath?: string;
+	artifactBundleIds: string[];
+	rewindTargetIds: string[];
+	message?: string;
+	updatedAt?: string;
+}
+
+export interface OrcReducedTransportHealth {
+	status: "unknown" | "healthy" | "degraded" | "faulted" | "offline";
+	lastHeartbeatAt?: string;
+	lastWarningAt?: string;
+	lastFaultAt?: string;
+	lastMessage?: string;
+	consecutiveWarnings: number;
+	consecutiveFaults: number;
+}
+
+export interface OrcTerminalStateSummary {
+	status: "running" | "completed" | "failed" | "cancelled" | "ambiguous";
+	reason?: string;
+	resolvedAt?: string;
+	sourceEventId?: string;
+	ambiguityNotes: string[];
 }
 
 /**
@@ -117,5 +147,20 @@ export interface OrcControlPlaneState {
 	activeWave?: OrcActiveExecutionWave;
 	workerResults: OrcParallelWorkerResult[];
 	verificationErrors: OrcVerificationError[];
+	/**
+	 * Durable reduced checkpoint summary. Phase 3 resume boundaries depend on this metadata rather than
+	 * transient UI overlays because event-log offsets may replay from a checkpoint boundary.
+	 */
+	checkpointMetadata: OrcCheckpointMetadataSummary;
+	/**
+	 * Durable transport-health summary used by tracker/checkpoint consumers. Detailed diagnostics and overlays
+	 * must stay in transient reducer state so Phase 3 snapshot boundaries remain compact and replay-safe.
+	 */
+	transportHealth: OrcReducedTransportHealth;
+	/**
+	 * Explicit terminal-state reduction resolves normal completion vs cancellation/failure ambiguity at the
+	 * durable snapshot boundary. UI-only affordances should derive from this summary instead of persisting overlays.
+	 */
+	terminalState: OrcTerminalStateSummary;
 	lastUpdatedAt: string;
 }

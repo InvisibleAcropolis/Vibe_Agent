@@ -13,7 +13,13 @@ import type {
 } from "./orc-io.js";
 import { attachOrcDurableEventLogWriter, type OrcDurableEventLogWriter } from "./orc-event-log.js";
 import { createOrcEventBus, type OrcEventBus, type OrcEventBusSubscription } from "./orc-event-bus.js";
-import { normalizeOrcTransportEnvelope } from "./orc-events.js";
+import {
+	createInitialCheckpointMetadataSummary,
+	createInitialReducedTransportHealth,
+	createInitialTerminalStateSummary,
+	normalizeOrcTransportEnvelope,
+	reduceOrcControlPlaneEvent,
+} from "./orc-events.js";
 import {
 	NoopOrcCheckpointStore,
 	type OrcCheckpointMetadata,
@@ -80,6 +86,15 @@ interface OrcRuntimeLiveHandles {
 interface OrcRuntimeStorageHooks {
 	eventLogWriter?: OrcDurableEventLogWriter;
 	eventLogSubscription?: OrcEventBusSubscription;
+}
+
+function deriveTrackerPersistenceNeed(event: ReturnType<typeof normalizeOrcTransportEnvelope>): boolean {
+	return event.kind === "process.lifecycle"
+		|| event.kind === "graph.lifecycle"
+		|| event.kind === "worker.status"
+		|| event.kind === "tool.result"
+		|| event.kind === "stream.warning"
+		|| event.kind === "transport.fault";
 }
 
 interface OrcRuntimeThreadContext {
@@ -341,9 +356,9 @@ export class OrcRuntimeSkeleton implements OrcRuntime {
 			this.transportHealth.set(context.threadId, context.live.transport.getHealth());
 			const busEvent = normalizeOrcTransportEnvelope(envelope);
 			context.live.eventBus.publish(busEvent);
-			const nextCheckpointId = envelope.how.checkpointId ?? context.state.checkpointId;
-			if (busEvent.kind === "checkpoint.status") {
-				context.state = this.setStatePhase(context, busEvent.payload.status === "failed" ? "failed" : "checkpointed", busEvent.payload.checkpointId ?? nextCheckpointId);
+			context.state = reduceOrcControlPlaneEvent(context.state, busEvent);
+			context.session.updateState(context.state);
+			if (busEvent.kind === "checkpoint.status" || deriveTrackerPersistenceNeed(busEvent)) {
 				void this.persistTrackerState(context);
 			}
 		});
@@ -443,6 +458,9 @@ export class OrcRuntimeSkeleton implements OrcRuntime {
 			],
 			workerResults: [],
 			verificationErrors: [],
+			checkpointMetadata: createInitialCheckpointMetadataSummary(),
+			transportHealth: createInitialReducedTransportHealth(),
+			terminalState: createInitialTerminalStateSummary(),
 			lastUpdatedAt: now,
 		};
 	}
