@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import type { OrcControlPlaneState, OrcProjectContext } from "./orc-state.js";
-import type { OrcSecurityEvent, OrcSecurityPolicyOverrides } from "./orc-security.js";
+import type { OrcSecurityEvent, OrcSecurityPolicy, OrcSecurityPolicyOverrides } from "./orc-security.js";
 
 export interface LaunchOrcRequest {
 	project: OrcProjectContext;
@@ -12,6 +12,42 @@ export interface LaunchOrcRequest {
 	 * Later implementations should merge and enforce these values before any worker tools start.
 	 */
 	securityPolicyOverrides?: OrcSecurityPolicyOverrides;
+}
+
+export interface OrcRunnerResumeContext {
+	checkpointId?: string;
+	checkpointStoragePath?: string;
+	resumeToken?: string;
+	resumeCursor?: string;
+	activeWaveId?: string;
+	metadata?: Record<string, string | number | boolean | null>;
+}
+
+export interface OrcRunnerLaunchInput {
+	threadId: string;
+	projectRoot: string;
+	workspaceRoot: string;
+	phaseIntent: string;
+	securityPolicy: OrcSecurityPolicy;
+	resume: OrcRunnerResumeContext;
+	checkpointId?: string;
+	runCorrelationId?: OrcRunCorrelationId;
+	graphName?: string;
+	metadata?: Record<string, string | number | boolean | null>;
+}
+
+/**
+ * Stable child-process spawn contract for the Python bootstrap introduced in P2-003.
+ * TypeScript owns payload shaping and process supervision; Python owns only stdin decoding,
+ * JSONL stdout telemetry, and stderr diagnostics.
+ */
+export interface OrcPythonRunnerSpawnContract {
+	command: string;
+	args: string[];
+	cwd: string;
+	stdinPayload: OrcRunnerLaunchInput;
+	stdoutProtocol: "jsonl";
+	stderrProtocol: "diagnostic_text";
 }
 
 export interface LaunchOrcResponse {

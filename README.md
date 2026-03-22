@@ -724,12 +724,20 @@ The [styleguide.md](styleguide.md) is a **LIVING DOCUMENT** covering UI and anim
 
 Refer to styleguide.md for detailed animation development documentation.
 
+## Orc Python runner local execution assumptions
+
+- Stable runner package location: `src/orchestration/python/orc_runner/`, invoked locally as `python3 -m src.orchestration.python.orc_runner` from the repository root.
+- The TypeScript parent process must write a single JSON object to stdin containing the thread id, absolute project/workspace roots, merged security-policy snapshot, phase intent, and resume/checkpoint context.
+- Stdout is reserved for newline-delimited JSON telemetry only; any human-readable diagnostics, stack traces, or import/setup failures must go to stderr.
+- The bootstrap currently relies only on the Python 3 standard library so local static inspection works before LangGraph/DeepAgents dependencies are wired in. Future production packaging can layer extra dependencies onto the same module path without changing the TypeScript spawn contract.
+
 ---
 
 ## Changelog
 
 | Date | Version | Changes |
 |------|---------|---------|
+| 2026-03-22 | 1.0.4 | Added the stable Orc Python runner location, local execution assumptions, and stdin/stdout/stderr contract documentation for outside engineers |
 | 2026-03-22 | 1.0.2 | Added Phase 1 orchestration scaffold documentation for outside engineers and linked the README to the new Orc architecture guide |
 | 2026-03-22 | 1.0.3 | Added the Phase 2 execution-plan guide and linked the README to the new Orc worker-plane/task-planning documentation |
 | 2026-03-22 | 1.0.1 | Added the `~/Vibe_Agent` durable root, startup directory bootstrapping, Orc session relocation, and migration notes documenting which data still remains in pi-mono storage |
