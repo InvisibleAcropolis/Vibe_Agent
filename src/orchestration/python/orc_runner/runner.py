@@ -1,17 +1,40 @@
 from __future__ import annotations
 
+"""Strict JSONL telemetry emitter for the Orc Python orchestration runner.
+
+Stdout is reserved exclusively for newline-delimited JSON objects so the TypeScript
+transport can parse each line independently without pretty-printing, multiline payloads,
+or out-of-band text. Stderr remains the only channel for human-oriented diagnostics.
+
+Event contract summary for transport implementers:
+- each stdout write is exactly one compact JSON object followed by ``\n``;
+- every event carries a per-run ``origin.runCorrelationId`` and monotonic
+  ``origin.streamSequence``;
+- canonical ``who``/``what``/``how``/``when`` fields stay stable for reducers;
+- raw upstream material is preserved under ``rawPayload`` using the
+  ``orc.python_runner.upstream`` namespace;
+- oversized, multiline, or binary-like values are normalized into single-line,
+  size-bounded JSON-safe structures before emission.
+"""
+
+import base64
 import json
 import os
 import platform
 import sys
+import time
 import traceback
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
-RUNNER_VERSION = "0.1.0"
+RUNNER_VERSION = "0.2.0"
+_MAX_STRING_LENGTH = 400
+_MAX_COLLECTION_ITEMS = 20
+_MAX_DEPTH = 6
+_BINARY_SNIPPET_BYTES = 24
 
 
 @dataclass(slots=True)
@@ -89,27 +112,76 @@ class OrcRunnerLaunchInput:
         )
 
 
+@dataclass(slots=True)
+class TelemetryActor:
+    kind: str
+    id: str
+    label: str
+    worker_id: str | None = None
+
+
 class OrcRunnerTelemetryEmitter:
+    """Emit strict single-line JSONL telemetry for the TypeScript transport.
+
+    The emitter owns the stdout contract: each call serializes one compact JSON object,
+    appends a single trailing newline, and flushes immediately. Callers should pass raw
+    upstream metadata separately from canonical payload details so downstream reducers can
+    rely on canonical fields while debuggers retain provider-native context.
+    """
+
     def __init__(self, launch_input: OrcRunnerLaunchInput) -> None:
         self.launch_input = launch_input
         self.sequence = 0
+        self._monotonic_start = time.monotonic_ns()
 
-    def emit(self, *, category: str, name: str, status: str, severity: str = "info", payload: Mapping[str, Any] | None = None) -> None:
+    def emit(
+        self,
+        *,
+        category: str,
+        name: str,
+        status: str,
+        severity: str = "info",
+        who: TelemetryActor | None = None,
+        how: Mapping[str, Any] | None = None,
+        payload: Mapping[str, Any] | None = None,
+        raw_payload: Mapping[str, Any] | None = None,
+        raw_namespace: str = "orc.python_runner.upstream",
+        parent_event_id: str | None = None,
+        wave_id: str | None = None,
+        worker_id: str | None = None,
+    ) -> None:
         self.sequence += 1
+        emitted_at = _utc_now()
+        event_id = f"{self.launch_input.thread_id}:{self.sequence}"
+        actor = who or TelemetryActor(kind="system", id="orc-python-runner", label="Orc Python Runner")
+        transport_metadata = {
+            "channel": "stdout_jsonl",
+            "interactionTarget": "computer",
+            "environment": "transport",
+            "transport": "python_child_process",
+            "checkpointId": self.launch_input.resume.checkpoint_id or self.launch_input.checkpoint_id,
+        }
+        if how:
+            transport_metadata.update(dict(how))
         event = {
             "origin": {
                 "runCorrelationId": self.launch_input.run_correlation_id,
-                "eventId": f"{self.launch_input.thread_id}:{self.sequence}",
+                "eventId": event_id,
                 "streamSequence": self.sequence,
-                "emittedAt": _utc_now(),
+                "emittedAt": emitted_at,
                 "source": "python_runner",
                 "threadId": self.launch_input.thread_id,
                 "phase": self.launch_input.phase_intent,
+                "waveId": wave_id,
+                "workerId": worker_id or actor.worker_id,
+                "parentEventId": parent_event_id,
+                "monotonicNs": time.monotonic_ns() - self._monotonic_start,
             },
             "who": {
-                "kind": "system",
-                "id": "orc-python-runner",
-                "label": "Orc Python Runner",
+                "kind": actor.kind,
+                "id": actor.id,
+                "label": actor.label,
+                "workerId": actor.worker_id,
                 "runCorrelationId": self.launch_input.run_correlation_id,
             },
             "what": {
@@ -118,20 +190,16 @@ class OrcRunnerTelemetryEmitter:
                 "severity": severity,
                 "status": status,
             },
-            "how": {
-                "channel": "stdout_jsonl",
-                "interactionTarget": "computer",
-                "environment": "transport",
-                "transport": "python_child_process",
-                "checkpointId": self.launch_input.resume.checkpoint_id or self.launch_input.checkpoint_id,
-            },
-            "when": _utc_now(),
+            "how": transport_metadata,
+            "when": emitted_at,
+            "payload": _sanitize_for_json(payload or {}, path="payload"),
             "rawPayload": {
-                "namespace": "orc.python_runner",
-                "payload": dict(payload or {}),
+                "namespace": raw_namespace,
+                "payload": _sanitize_for_json(raw_payload or payload or {}, path="rawPayload"),
             },
         }
-        sys.stdout.write(json.dumps(event, separators=(",", ":"), sort_keys=False) + "\n")
+        serialized = json.dumps(_drop_none(event), separators=(",", ":"), sort_keys=False, ensure_ascii=False)
+        sys.stdout.write(serialized + "\n")
         sys.stdout.flush()
 
     def diagnostic(self, message: str) -> None:
@@ -149,49 +217,30 @@ def main(argv: list[str] | None = None) -> int:
         emitter.diagnostic(
             f"[orc-runner] boot thread={launch_input.thread_id} graph={launch_input.graph_name} cwd={os.getcwd()}"
         )
+        boot_event_id = _emit_bootstrap_sequence(emitter, launch_input, payload)
+        _emit_demo_graph_activity(emitter, launch_input, payload, boot_event_id)
         emitter.emit(
             category="lifecycle",
-            name="process_start",
-            status="started",
-            payload={
-                "runnerVersion": RUNNER_VERSION,
-                "pythonVersion": platform.python_version(),
-                "platform": platform.platform(),
-                "cwd": os.getcwd(),
-            },
-        )
-        emitter.emit(
-            category="lifecycle",
-            name="graph_initialization",
-            status="started",
-            payload={
-                "graphName": launch_input.graph_name,
-                "phaseIntent": launch_input.phase_intent,
-                "projectRoot": launch_input.project_root,
-                "workspaceRoot": launch_input.workspace_root,
-            },
-        )
-        emitter.emit(
-            category="checkpoint",
-            name="checkpoint_restore_attempt",
-            status="started",
-            payload={
-                "checkpointId": launch_input.resume.checkpoint_id or launch_input.checkpoint_id,
-                "resumeToken": launch_input.resume.resume_token,
-                "resumeCursor": launch_input.resume.resume_cursor,
-                "activeWaveId": launch_input.resume.active_wave_id,
-                "checkpointStoragePath": launch_input.resume.checkpoint_storage_path,
-                "resumeMetadata": launch_input.resume.metadata,
-            },
-        )
-        emitter.emit(
-            category="lifecycle",
-            name="graph_shutdown",
+            name="completion",
             status="succeeded",
             payload={
                 "graphName": launch_input.graph_name,
-                "reason": "bootstrap_complete",
+                "reason": "bootstrap_demo_complete",
+                "emittedCategories": sorted(
+                    {
+                        "lifecycle",
+                        "checkpoint",
+                        "tracker",
+                        "agent_message",
+                        "tool_call",
+                        "tool_result",
+                        "diagnostic",
+                    }
+                ),
             },
+            raw_payload={"completion": True, "graphName": launch_input.graph_name},
+            how={"interactionTarget": "user", "environment": "worker"},
+            who=TelemetryActor(kind="agent", id=launch_input.graph_name, label="Orc Graph"),
         )
         return 0
     except Exception as exc:  # noqa: BLE001
@@ -208,7 +257,7 @@ def main(argv: list[str] | None = None) -> int:
         emitter.diagnostic(traceback.format_exc())
         emitter.emit(
             category="diagnostic",
-            name="fatal_exception",
+            name="failure",
             status="failed",
             severity="critical",
             payload={
@@ -216,8 +265,225 @@ def main(argv: list[str] | None = None) -> int:
                 "message": str(exc),
                 "traceback": traceback.format_exc().splitlines(),
             },
+            raw_payload={
+                "exception": {
+                    "type": exc.__class__.__name__,
+                    "message": str(exc),
+                    "traceback": traceback.format_exc(),
+                }
+            },
         )
         return 1
+
+
+def _emit_bootstrap_sequence(
+    emitter: OrcRunnerTelemetryEmitter,
+    launch_input: OrcRunnerLaunchInput,
+    stdin_payload: Mapping[str, Any],
+) -> str:
+    emitter.emit(
+        category="lifecycle",
+        name="process_start",
+        status="started",
+        payload={
+            "runnerVersion": RUNNER_VERSION,
+            "pythonVersion": platform.python_version(),
+            "platform": platform.platform(),
+            "cwd": os.getcwd(),
+            "stdinKeys": sorted(str(key) for key in stdin_payload.keys()),
+        },
+        raw_payload={"stdin": stdin_payload},
+    )
+    emitter.emit(
+        category="lifecycle",
+        name="graph_initialization",
+        status="started",
+        payload={
+            "graphName": launch_input.graph_name,
+            "phaseIntent": launch_input.phase_intent,
+            "projectRoot": launch_input.project_root,
+            "workspaceRoot": launch_input.workspace_root,
+        },
+        raw_payload={"launchInput": stdin_payload},
+        who=TelemetryActor(kind="agent", id=launch_input.graph_name, label="Orc Graph"),
+        how={"environment": "worker"},
+    )
+    emitter.emit(
+        category="checkpoint",
+        name="checkpoint_restore_attempt",
+        status="started",
+        payload={
+            "checkpointId": launch_input.resume.checkpoint_id or launch_input.checkpoint_id,
+            "resumeToken": launch_input.resume.resume_token,
+            "resumeCursor": launch_input.resume.resume_cursor,
+            "activeWaveId": launch_input.resume.active_wave_id,
+            "checkpointStoragePath": launch_input.resume.checkpoint_storage_path,
+            "resumeMetadata": launch_input.resume.metadata,
+        },
+        raw_payload={"resume": launch_input.resume.metadata, "checkpointId": launch_input.checkpoint_id},
+    )
+    return f"{launch_input.thread_id}:1"
+
+
+def _emit_demo_graph_activity(
+    emitter: OrcRunnerTelemetryEmitter,
+    launch_input: OrcRunnerLaunchInput,
+    stdin_payload: Mapping[str, Any],
+    parent_event_id: str,
+) -> None:
+    graph_actor = TelemetryActor(kind="agent", id=launch_input.graph_name, label="Orc Graph")
+    subagent_actor = TelemetryActor(kind="agent", id="worker-planner", label="Planner Subagent", worker_id="worker-planner")
+    tool_actor = TelemetryActor(kind="tool", id="workspace_scan", label="workspace_scan", worker_id="worker-planner")
+    wave_id = launch_input.resume.active_wave_id or "wave-bootstrap"
+
+    emitter.emit(
+        category="tracker",
+        name="graph_node_transition",
+        status="started",
+        who=graph_actor,
+        how={"environment": "worker"},
+        payload={
+            "graphName": launch_input.graph_name,
+            "fromNode": "boot",
+            "toNode": "planner",
+            "routeKey": "bootstrap_to_planner",
+        },
+        raw_payload={"graph": {"node": "planner", "priorNode": "boot", "route": "bootstrap_to_planner"}},
+        parent_event_id=parent_event_id,
+        wave_id=wave_id,
+    )
+    emitter.emit(
+        category="tracker",
+        name="subagent_creation",
+        status="started",
+        who=subagent_actor,
+        how={"environment": "worker"},
+        payload={
+            "subagentId": subagent_actor.id,
+            "workerId": subagent_actor.worker_id,
+            "role": "planner",
+            "waveId": wave_id,
+        },
+        raw_payload={"subagent": {"id": subagent_actor.id, "role": "planner", "metadata": stdin_payload.get("metadata", {})}},
+        parent_event_id=parent_event_id,
+        wave_id=wave_id,
+        worker_id=subagent_actor.worker_id,
+    )
+    emitter.emit(
+        category="agent_message",
+        name="user_facing_message",
+        status="streaming",
+        who=subagent_actor,
+        how={"interactionTarget": "user", "environment": "worker"},
+        payload={
+            "messageId": "msg-plan-1",
+            "content": "Planning orchestration telemetry contract.\nEach stdout record remains strict JSONL.",
+            "audience": "operator",
+            "streamState": "final",
+        },
+        raw_payload={"sdk": {"role": "assistant", "text": "Planning orchestration telemetry contract.\nEach stdout record remains strict JSONL."}},
+        parent_event_id=parent_event_id,
+        wave_id=wave_id,
+        worker_id=subagent_actor.worker_id,
+    )
+    emitter.emit(
+        category="tool_call",
+        name="tool_call",
+        status="started",
+        who=tool_actor,
+        how={
+            "environment": "tool_runtime",
+            "toolName": "workspace_scan",
+            "toolCallId": "tool-call-1",
+            "interactionTarget": "computer",
+        },
+        payload={
+            "callId": "tool-call-1",
+            "toolName": "workspace_scan",
+            "arguments": {"paths": [launch_input.workspace_root], "binary": b"\x00\x01scan-bytes"},
+            "workingDirectory": launch_input.workspace_root,
+        },
+        raw_payload={"sdkToolCall": {"id": "tool-call-1", "name": "workspace_scan", "args": stdin_payload}},
+        parent_event_id=parent_event_id,
+        wave_id=wave_id,
+        worker_id=tool_actor.worker_id,
+    )
+    emitter.emit(
+        category="tool_result",
+        name="tool_result",
+        status="succeeded",
+        who=tool_actor,
+        how={
+            "environment": "tool_runtime",
+            "toolName": "workspace_scan",
+            "toolCallId": "tool-call-1",
+        },
+        payload={
+            "callId": "tool-call-1",
+            "toolName": "workspace_scan",
+            "status": "succeeded",
+            "result": {
+                "files": ["LANGEXTtracker.md", "src/orchestration/python/orc_runner/runner.py"],
+                "summary": "scanner completed without transport violations",
+            },
+            "stdout": "line one\nline two",
+        },
+        raw_payload={"sdkToolResult": {"id": "tool-call-1", "ok": True, "stdout": "line one\nline two"}},
+        parent_event_id=parent_event_id,
+        wave_id=wave_id,
+        worker_id=tool_actor.worker_id,
+    )
+    emitter.emit(
+        category="diagnostic",
+        name="retry",
+        status="started",
+        severity="warning",
+        who=subagent_actor,
+        how={"environment": "worker"},
+        payload={
+            "operation": "planner_model_request",
+            "attempt": 2,
+            "reason": "transient_provider_timeout",
+        },
+        raw_payload={"sdkRetry": {"attempt": 2, "error": "provider timeout", "retryInSeconds": 1}},
+        parent_event_id=parent_event_id,
+        wave_id=wave_id,
+        worker_id=subagent_actor.worker_id,
+    )
+    emitter.emit(
+        category="diagnostic",
+        name="interrupt",
+        status="waiting_on_input",
+        severity="notice",
+        who=subagent_actor,
+        how={"interactionTarget": "user", "environment": "worker"},
+        payload={
+            "interruptKind": "approval_required",
+            "detail": "Need operator confirmation before destructive tool use.",
+        },
+        raw_payload={"sdkInterrupt": {"kind": "approval_required", "detail": "Need operator confirmation before destructive tool use."}},
+        parent_event_id=parent_event_id,
+        wave_id=wave_id,
+        worker_id=subagent_actor.worker_id,
+    )
+    emitter.emit(
+        category="diagnostic",
+        name="failure",
+        status="failed",
+        severity="error",
+        who=subagent_actor,
+        how={"environment": "worker"},
+        payload={
+            "operation": "non_blocking_demo_validation",
+            "message": "Demonstration failure emitted to exercise downstream reducers.",
+            "recoverable": True,
+            "sampleBlob": b"\x00\xfffailure-demo",
+        },
+        raw_payload={"sdkFailure": {"message": "Demonstration failure emitted to exercise downstream reducers.", "recoverable": True}},
+        parent_event_id=parent_event_id,
+        wave_id=wave_id,
+        worker_id=subagent_actor.worker_id,
+    )
 
 
 def _read_launch_payload() -> Mapping[str, Any]:
@@ -237,6 +503,83 @@ def _validate_launch_input(launch_input: OrcRunnerLaunchInput) -> None:
     for root in (launch_input.project_root, launch_input.workspace_root):
         if not Path(root).is_absolute():
             raise ValueError(f"expected absolute path for root: {root}")
+
+
+def _sanitize_for_json(value: Any, *, path: str, depth: int = 0) -> Any:
+    """Normalize arbitrary upstream data into strict single-line JSON-safe values.
+
+    Policy:
+    - strings keep content but replace literal newlines with escaped ``\\n`` and truncate
+      values beyond ``_MAX_STRING_LENGTH`` characters;
+    - bytes / bytearray / memoryview are treated as binary-like payloads and summarized
+      with length plus a short base64 preview;
+    - mappings and sequences recurse up to ``_MAX_DEPTH`` and limit item counts to
+      ``_MAX_COLLECTION_ITEMS``;
+    - unsupported objects fall back to ``repr(value)`` and are then normalized as strings.
+    """
+    if depth >= _MAX_DEPTH:
+        return {"truncated": True, "reason": "max_depth", "path": path, "type": type(value).__name__}
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        single_line = value.replace("\r\n", "\n").replace("\r", "\n").replace("\n", r"\n")
+        if len(single_line) <= _MAX_STRING_LENGTH:
+            return single_line
+        return {
+            "truncated": True,
+            "type": "string",
+            "path": path,
+            "originalLength": len(single_line),
+            "preview": single_line[:_MAX_STRING_LENGTH],
+        }
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        raw_bytes = bytes(value)
+        return {
+            "truncated": True,
+            "type": "binary",
+            "path": path,
+            "byteLength": len(raw_bytes),
+            "base64Preview": base64.b64encode(raw_bytes[:_BINARY_SNIPPET_BYTES]).decode("ascii"),
+        }
+    if isinstance(value, Mapping):
+        items = list(value.items())
+        sanitized: dict[str, Any] = {}
+        for key, nested_value in items[:_MAX_COLLECTION_ITEMS]:
+            sanitized[str(key)] = _sanitize_for_json(nested_value, path=f"{path}.{key}", depth=depth + 1)
+        if len(items) > _MAX_COLLECTION_ITEMS:
+            sanitized["__truncated__"] = {
+                "reason": "max_items",
+                "kept": _MAX_COLLECTION_ITEMS,
+                "total": len(items),
+                "path": path,
+            }
+        return sanitized
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray, memoryview)):
+        items = list(value)
+        sanitized_items = [
+            _sanitize_for_json(item, path=f"{path}[{index}]", depth=depth + 1)
+            for index, item in enumerate(items[:_MAX_COLLECTION_ITEMS])
+        ]
+        if len(items) > _MAX_COLLECTION_ITEMS:
+            sanitized_items.append(
+                {
+                    "truncated": True,
+                    "reason": "max_items",
+                    "kept": _MAX_COLLECTION_ITEMS,
+                    "total": len(items),
+                    "path": path,
+                }
+            )
+        return sanitized_items
+    return _sanitize_for_json(repr(value), path=path, depth=depth + 1)
+
+
+def _drop_none(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _drop_none(nested) for key, nested in value.items() if nested is not None}
+    if isinstance(value, list):
+        return [_drop_none(item) for item in value]
+    return value
 
 
 def _string_list(value: Any) -> list[str]:
