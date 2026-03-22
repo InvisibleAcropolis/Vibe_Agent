@@ -5,6 +5,8 @@ import type {
 	LaunchOrcResponse,
 	LoadOrcTrackerStateRequest,
 	LoadOrcTrackerStateResponse,
+	OrcPythonRunnerSpawnContract,
+	OrcRunnerLaunchInput,
 	ResumeOrcThreadRequest,
 	ResumeOrcThreadResponse,
 } from "./orc-io.js";
@@ -19,6 +21,13 @@ import { OrcSessionHandle, type OrcSession } from "./orc-session.js";
 export interface OrcRuntimeAdapters {
 	createLangGraph?: () => Promise<unknown> | unknown;
 	initializeDeepAgents?: () => Promise<unknown> | unknown;
+	/**
+	 * Phase 2 spawn boundary: the runtime should eventually translate launch/resume requests into
+	 * this stable contract and spawn `python -m src.orchestration.python.orc_runner` (or an equivalent
+	 * packaged module path) with the JSON payload written to stdin. Runtime code must stay decoupled
+	 * from Python implementation details beyond this process boundary and the JSONL/stderr protocols.
+	 */
+	buildPythonRunnerSpawnContract?: (input: OrcRunnerLaunchInput) => OrcPythonRunnerSpawnContract;
 }
 
 /**
