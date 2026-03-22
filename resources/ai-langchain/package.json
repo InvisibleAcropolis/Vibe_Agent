@@ -1,0 +1,62 @@
+{
+  "name": "@auth0/ai-langchain",
+  "version": "0.0.0",
+  "description": "Auth0 AI for LangChain",
+  "types": "dist/esm/index.d.ts",
+  "main": "dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "scripts": {
+    "build": "npm run clean && npm run build:esm && npm run build:cjs",
+    "build:watch": "run-p 'build:esm -- --watch' 'build:cjs -- -watch'",
+    "build:esm": "tsc --project ./tsconfig.build.json --outDir ./dist/esm",
+    "build:cjs": "tsc --project ./tsconfig.build.json --module nodenext --moduleResolution nodenext --declaration false --declarationMap false --outDir ./dist/cjs",
+    "clean": "rm -rf dist",
+    "lint": "eslint .",
+    "semantic-release": "npx --no semantic-release",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "files": [
+    "dist/**/*.{*js,*js.map,d.ts}"
+  ],
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "types": "./dist/esm/index.d.ts",
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js"
+    },
+    "./RAG": {
+      "types": "./dist/esm/RAG/index.d.ts",
+      "import": "./dist/esm/RAG/index.js",
+      "require": "./dist/cjs/RAG/index.js"
+    }
+  },
+  "author": {
+    "name": "Auth0 Inc.",
+    "url": "https://auth0.com"
+  },
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@auth0/ai": "*",
+    "langchain": "^0.3.11"
+  },
+  "peerDependencies": {
+    "@langchain/core": "^0.3.72",
+    "@langchain/langgraph": "^0.4.4",
+    "@langchain/langgraph-sdk": "^0.0.109",
+    "@openfga/sdk": "0.8.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@eslint/compat": "^1.2.7",
+    "@types/node": "^22.10.6",
+    "eslint": "^9.22.0",
+    "typedoc": "^0.27.6",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.9"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

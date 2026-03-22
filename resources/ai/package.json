@@ -1,0 +1,93 @@
+{
+  "name": "@auth0/ai",
+  "version": "0.0.0",
+  "description": "Auth0AI SDK for JavaScript",
+  "types": "dist/esm/index.d.ts",
+  "main": "dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "scripts": {
+    "build": "npm run clean && npm run build:esm && npm run build:cjs",
+    "build:esm": "tsc --project ./tsconfig.build.json --outDir ./dist/esm",
+    "build:cjs": "tsc --project ./tsconfig.build.json --module nodenext --moduleResolution nodenext --declaration false --declarationMap false --outDir ./dist/cjs",
+    "build:watch": "run-p 'build:esm -- --watch' 'build:cjs -- -watch'",
+    "clean": "rm -rf dist",
+    "lint": "eslint \"./**/*.ts*\"",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:debug": "vitest --inspect-brk --no-file-parallelism run",
+    "semantic-release": "npx --no semantic-release"
+  },
+  "author": {
+    "name": "Auth0 Inc.",
+    "url": "https://auth0.com"
+  },
+  "files": [
+    "dist/**/*.{*js,*js.map,d.ts}"
+  ],
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "types": "./dist/esm/index.d.ts",
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js"
+    },
+    "./interrupts": {
+      "types": "./dist/esm/interrupts/index.d.ts",
+      "import": "./dist/esm/interrupts/index.js",
+      "require": "./dist/cjs/interrupts/index.js"
+    },
+    "./stores": {
+      "types": "./dist/esm/stores/index.d.ts",
+      "import": "./dist/esm/stores/index.js",
+      "require": "./dist/cjs/stores/index.js"
+    },
+    "./authorizers": {
+      "types": "./dist/esm/authorizers/index.d.ts",
+      "import": "./dist/esm/authorizers/index.js",
+      "require": "./dist/cjs/authorizers/index.js"
+    },
+    "./TokenVault": {
+      "types": "./dist/esm/authorizers/token-vault/index.d.ts",
+      "import": "./dist/esm/authorizers/token-vault/index.js",
+      "require": "./dist/cjs/authorizers/token-vault/index.js"
+    },
+    "./Device": {
+      "types": "./dist/esm/authorizers/device-authorizer/index.d.ts",
+      "import": "./dist/esm/authorizers/device-authorizer/index.js",
+      "require": "./dist/cjs/authorizers/device-authorizer/index.js"
+    },
+    "./AsyncAuthorization": {
+      "types": "./dist/esm/authorizers/async-authorization/index.d.ts",
+      "import": "./dist/esm/authorizers/async-authorization/index.js",
+      "require": "./dist/cjs/authorizers/async-authorization/index.js"
+    },
+    "./FGA": {
+      "types": "./dist/esm/authorizers/fga/index.d.ts",
+      "import": "./dist/esm/authorizers/fga/index.js",
+      "require": "./dist/cjs/authorizers/fga/index.js"
+    }
+  },
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "@types/node": "^22.10.6",
+    "eslint": "^9",
+    "globals": "^15.11.0",
+    "typedoc": "^0.27.6",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.20.0",
+    "vitest": "^3.0.9"
+  },
+  "dependencies": {
+    "@openfga/sdk": "^0.8.0",
+    "auth0": "^4.30.0",
+    "jose": "^5.9.6",
+    "openid-client": "^6.1.7",
+    "stable-hash": "^0.0.5",
+    "tempbox": "^1.1.1",
+    "zod": "^3.25.76"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

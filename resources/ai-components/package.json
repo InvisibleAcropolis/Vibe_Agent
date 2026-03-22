@@ -1,0 +1,32 @@
+{
+  "name": "@auth0/ai-components",
+  "version": "0.0.0",
+  "description": "Auth0 AI Components",
+  "bin": "./bin/cli.js",
+  "files": [
+    "dist/**/*.{*js,*js.map,d.ts}",
+    "bin/**/*",
+    "templates/**/*"
+  ],
+  "type": "module",
+  "scripts": {
+    "semantic-release": "npx --no semantic-release"
+  },
+  "author": {
+    "name": "Auth0 Inc.",
+    "url": "https://auth0.com"
+  },
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@types/node": "^22.10.6",
+    "@types/react": "^19.2.7",
+    "clsx": "^2.1.1",
+    "react": "^19.2.1",
+    "react-device-detect": "^2.2.3",
+    "tailwind-merge": "^3.0.2",
+    "typescript": "^5.7.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
