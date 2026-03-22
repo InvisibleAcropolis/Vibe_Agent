@@ -14,6 +14,8 @@ import { MemoryStoreService } from "../src/durable/memory/memory-store-service.j
 import { WorkbenchInventoryService } from "../src/durable/workbench-inventory-service.js";
 import { ensureVibeDurableStorage, getVibeArtifactCatalogPath, getVibeConfigPath, getVibeLogCatalogPath, getVibeMemoryCatalogPath, getVibeTrackerCatalogPath } from "../src/durable/durable-paths.js";
 import { LocalFileOrcCheckpointStore } from "../src/orchestration/orc-checkpoints.js";
+import { OrcAsyncEventBus } from "../src/orchestration/orc-event-bus.js";
+import type { OrcBusEvent } from "../src/orchestration/orc-events.js";
 import { createDefaultOrcSecurityPolicy, ORC_SECURITY_STATUS_TEXT } from "../src/orchestration/orc-security.js";
 import { OrcRuntimeSkeleton } from "../src/orchestration/orc-runtime.js";
 import { FileSystemOrcTracker } from "../src/orchestration/orc-tracker.js";
@@ -628,4 +630,111 @@ test("Orc runtime threads merged security policy and UI status text through the 
 	assert.deepStrictEqual(sessionSecurity.allowedWorkingDirectories, ["/workspace/Vibe_Agent", "/tmp/vibe-durable"]);
 	assert.strictEqual(ORC_SECURITY_STATUS_TEXT["approval-required"], "Approval required");
 	assert.strictEqual(ORC_SECURITY_STATUS_TEXT["blocked-command"], "Blocked command");
+});
+
+
+function createBusEvent(index: number, runCorrelationId = "run-1"): OrcBusEvent {
+	const emittedAt = new Date(2026, 2, 22, 0, 0, index).toISOString();
+	return {
+		kind: "agent.message",
+		envelope: {
+			origin: {
+				runCorrelationId,
+				eventId: `event-${index}`,
+				streamSequence: index,
+				emittedAt,
+				source: "orc_runtime",
+				threadId: "thread-1",
+			},
+			who: { kind: "agent", id: "agent-1", label: "Agent 1" },
+			what: {
+				category: "agent_message",
+				name: "agent_message",
+				description: `message-${index}`,
+				severity: "info",
+				status: "streaming",
+			},
+			how: {
+				channel: "event_bus",
+				interactionTarget: "user",
+				environment: "transport",
+				transport: "in_process",
+			},
+			when: emittedAt,
+		},
+		payload: {
+			messageId: `message-${index}`,
+			content: `message-${index}`,
+			agentId: "agent-1",
+			streamState: "final",
+		},
+		interaction: {
+			target: "user",
+			lane: "agent_interacting_with_user",
+			isUserFacing: true,
+			isComputerFacing: false,
+		},
+		debug: {
+			normalizedFrom: "test:createBusEvent",
+		},
+	};
+}
+
+test("OrcAsyncEventBus preserves publish ordering independently per subscriber", async () => {
+	const bus = new OrcAsyncEventBus({ component: "test" });
+	const fast: number[] = [];
+	const slow: number[] = [];
+
+	bus.subscribe(async (event) => {
+		fast.push(event.envelope.origin.streamSequence);
+	}, { label: "fast-subscriber", handlerKind: "test-fast" });
+
+	bus.subscribe(async (event) => {
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		slow.push(event.envelope.origin.streamSequence);
+	}, { label: "slow-subscriber", handlerKind: "test-slow" });
+
+	for (const index of [1, 2, 3]) {
+		bus.publish(createBusEvent(index));
+	}
+
+	await new Promise((resolve) => setTimeout(resolve, 50));
+	assert.deepStrictEqual(fast, [1, 2, 3]);
+	assert.deepStrictEqual(slow, [1, 2, 3]);
+	bus.dispose();
+});
+
+test("OrcAsyncEventBus bounds slow subscriber queues and surfaces overflow warnings", async () => {
+	const bus = new OrcAsyncEventBus({ component: "test" });
+	const receivedKinds: string[] = [];
+	const receivedSequences: number[] = [];
+
+	bus.subscribe(async (event) => {
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		receivedKinds.push(event.kind);
+		if (event.kind === "agent.message") {
+			receivedSequences.push(event.envelope.origin.streamSequence);
+		}
+	}, { label: "bounded-subscriber", handlerKind: "test-bounded", maxQueueSize: 2 });
+
+	for (const index of [1, 2, 3, 4, 5]) {
+		bus.publish(createBusEvent(index));
+	}
+
+	await new Promise((resolve) => setTimeout(resolve, 120));
+	assert.ok(receivedKinds.includes("stream.warning"));
+	assert.deepStrictEqual(receivedSequences, [4, 5]);
+	assert.strictEqual(bus.getSnapshot().totalDroppedDeliveries >= 3, true);
+	bus.dispose();
+});
+
+test("OrcAsyncEventBus enforces run ownership reset and disposal semantics", async () => {
+	const bus = new OrcAsyncEventBus({ component: "test" });
+	bus.publish(createBusEvent(1, "run-a"));
+	assert.throws(() => bus.publish(createBusEvent(2, "run-b")), /reset before publishing run run-b/);
+	bus.reset({ nextRunCorrelationId: "run-b", reason: "next run" });
+	assert.deepStrictEqual(bus.getReplayPolicy(), { available: false, reason: "post_reset" });
+	bus.publish(createBusEvent(3, "run-b"));
+	bus.dispose();
+	assert.throws(() => bus.publish(createBusEvent(4, "run-b")), /already been disposed/);
 });
