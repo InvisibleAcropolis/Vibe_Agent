@@ -6,13 +6,19 @@ import type { LogRecord } from "./logs/log-catalog-service.js";
 import { LogCatalogService } from "./logs/log-catalog-service.js";
 import type { MemoryStoreRecord } from "./memory/memory-store-service.js";
 import { MemoryStoreService } from "./memory/memory-store-service.js";
+import type { Artifact } from "../types.js";
 import type { DurableRecordMetadata } from "./record-metadata.js";
 
+export type OrchestrationDocumentType = "plan" | "roadmap" | "research" | "session" | "tracker" | "artifact-summary" | "manifest";
+
 export interface OrchestrationDocumentRecord extends DurableRecordMetadata {
-	documentType: "plan" | "artifact-summary";
+	documentType: OrchestrationDocumentType;
 	label: string;
 	content: string;
-	contentType: "markdown" | "text";
+	contentType: "markdown" | "text" | "json";
+	filePath?: string;
+	manifestPath?: string;
+	pairedPath?: string;
 	relatedRecordIds: string[];
 }
 
@@ -55,6 +61,20 @@ export class WorkbenchInventoryService {
 		return this.listArtifacts().map(toArtifactView);
 	}
 
+	listOrchestrationDocumentViews(documentTypes?: OrchestrationDocumentType[]): Artifact[] {
+		const allowed = documentTypes ? new Set(documentTypes) : undefined;
+		return this.listOrchestrationDocuments()
+			.filter((record) => !allowed || allowed.has(record.documentType))
+			.map((record) => ({
+				id: record.id,
+				type: record.contentType === "json" ? "code" : "text",
+				title: `[${record.documentType}] ${record.label}`,
+				content: record.content,
+				language: record.contentType === "json" ? "json" : record.contentType === "markdown" ? "markdown" : undefined,
+				filePath: record.filePath ?? record.sourcePath,
+			}));
+	}
+
 	listMemoryStores(): MemoryStoreRecord[] {
 		return this.memoryStoreService.list();
 	}
@@ -89,9 +109,12 @@ export class WorkbenchInventoryService {
 		];
 
 		for (const artifact of this.artifactCatalog.list()) {
-			if (artifact.language !== "markdown" && !artifact.tags.includes("plan")) {
+			const documentType = inferDocumentType(artifact);
+			if (!documentType) {
 				continue;
 			}
+			const filePath = artifact.filePath ?? artifact.sourcePath;
+			const manifestPath = filePath ? replaceExtension(filePath, ".json") : undefined;
 			this.upsertDocument({
 				id: `tracker:${artifact.id}`,
 				kind: "orchestration-document",
@@ -104,14 +127,43 @@ export class WorkbenchInventoryService {
 				createdAt: artifact.createdAt,
 				updatedAt: new Date().toISOString(),
 				status: artifact.status,
-				tags: [...new Set(["tracker", "orchestration", ...artifact.tags])],
+				tags: [...new Set(["tracker", "orchestration", documentType, ...artifact.tags])],
 				orchestration: artifact.orchestration,
-				documentType: "plan",
+				documentType,
 				label: artifact.title,
 				content: artifact.content,
-				contentType: "markdown",
+				contentType: artifact.language === "json" ? "json" : "markdown",
+				filePath,
+				manifestPath,
+				pairedPath: filePath && manifestPath ? (filePath.endsWith(".json") ? replaceExtension(filePath, ".md") : manifestPath) : undefined,
 				relatedRecordIds: [artifact.id],
 			});
+
+			if (artifact.language !== "json" && filePath) {
+				this.upsertDocument({
+					id: `tracker:manifest:${artifact.id}`,
+					kind: "orchestration-document",
+					ownerRuntimeId: artifact.ownerRuntimeId,
+					sessionId: artifact.sessionId,
+					threadId: artifact.threadId,
+					phase: artifact.phase,
+					waveNumber: artifact.waveNumber,
+					sourcePath: manifestPath,
+					createdAt: artifact.createdAt,
+					updatedAt: new Date().toISOString(),
+					status: artifact.status,
+					tags: [...new Set(["tracker", "manifest", "orchestration", documentType, ...artifact.tags])],
+					orchestration: artifact.orchestration,
+					documentType: "manifest",
+					label: `${artifact.title} manifest`,
+					content: JSON.stringify(renderDocumentManifest(documentType, artifact, filePath, manifestPath), null, 2),
+					contentType: "json",
+					filePath: manifestPath,
+					manifestPath,
+					pairedPath: filePath,
+					relatedRecordIds: [artifact.id],
+				});
+			}
 		}
 
 		for (const record of records.filter((entry) => Boolean(entry.threadId || entry.phase || entry.waveNumber !== undefined))) {
@@ -157,6 +209,17 @@ export class WorkbenchInventoryService {
 	}
 }
 
+function inferDocumentType(record: ArtifactRecord): OrchestrationDocumentType | undefined {
+	const filePath = record.filePath?.toLowerCase() ?? "";
+	if (filePath.includes("/roadmaps/") || filePath.startsWith("roadmaps/")) return "roadmap";
+	if (filePath.includes("/research/") || filePath.startsWith("research/")) return "research";
+	if (filePath.includes("/sessions/") || filePath.startsWith("sessions/")) return "session";
+	if (filePath.includes("/tracker/") || filePath.startsWith("tracker/")) return "tracker";
+	if (record.tags.includes("plan") || filePath.includes("/plans/") || filePath.startsWith("plans/")) return "plan";
+	if (record.language === "json") return "manifest";
+	return undefined;
+}
+
 function renderRecordSummary(record: DurableRecordMetadata): string {
 	return [
 		`# ${record.kind}`,
@@ -168,4 +231,23 @@ function renderRecordSummary(record: DurableRecordMetadata): string {
 		`- Source: ${record.sourcePath ?? "n/a"}`,
 		`- Status: ${record.status}`,
 	].join("\n");
+}
+
+function renderDocumentManifest(documentType: OrchestrationDocumentType, artifact: ArtifactRecord, filePath: string, manifestPath?: string) {
+	return {
+		version: 1,
+		documentType,
+		label: artifact.title,
+		filePath,
+		manifestPath,
+		threadId: artifact.threadId,
+		waveNumber: artifact.waveNumber,
+		phase: artifact.phase,
+		tags: artifact.tags,
+		createdAt: artifact.createdAt,
+	};
+}
+
+function replaceExtension(filePath: string, nextExtension: string): string {
+	return filePath.replace(/\.[^.]+$/, nextExtension);
 }
