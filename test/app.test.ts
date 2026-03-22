@@ -13,6 +13,8 @@ import { LogCatalogService } from "../src/durable/logs/log-catalog-service.js";
 import { MemoryStoreService } from "../src/durable/memory/memory-store-service.js";
 import { WorkbenchInventoryService } from "../src/durable/workbench-inventory-service.js";
 import { ensureVibeDurableStorage, getVibeArtifactCatalogPath, getVibeConfigPath, getVibeLogCatalogPath, getVibeMemoryCatalogPath, getVibeTrackerCatalogPath } from "../src/durable/durable-paths.js";
+import { LocalFileOrcCheckpointStore } from "../src/orchestration/orc-checkpoints.js";
+import { FileSystemOrcTracker } from "../src/orchestration/orc-tracker.js";
 import { getRuntimeSessionDir } from "../src/runtime/runtime-session-namespace.js";
 import type { AgentRuntime, RuntimeDescriptor } from "../src/runtime/agent-runtime.js";
 import { CompatAgentRuntime } from "../src/runtime/compat-agent-runtime.js";
@@ -484,4 +486,50 @@ test("VibeAgentApp starts registered coding, worker, and tool runtimes", async (
 
 	app.stop();
 	await flushAsyncWork();
+});
+
+
+test("Local Orc checkpoint store persists manifests and tracker snapshots by stable IDs", async () => {
+	const durableRoot = path.join(tempRoot, "orc-checkpoint-root");
+	const checkpoints = new LocalFileOrcCheckpointStore({ durableRoot });
+	const tracker = new FileSystemOrcTracker(checkpoints, { durableRoot });
+	const state = {
+		threadId: "thread:alpha",
+		checkpointId: "checkpoint:001",
+		phase: "checkpointed",
+		project: { projectId: "proj-1", projectRoot: "/workspace/demo", projectName: "Demo" },
+		messages: [],
+		workerResults: [],
+		verificationErrors: [],
+		lastUpdatedAt: "2026-03-22T00:00:00.000Z",
+	} satisfies import("../src/orchestration/orc-state.js").OrcControlPlaneState;
+
+	await tracker.save(state);
+	const manifest = await checkpoints.saveCheckpoint({
+		metadata: {
+			checkpointId: state.checkpointId,
+			thread: { threadId: state.threadId, projectId: state.project.projectId, runtimeId: "orc", sessionId: "session-42" },
+			sequenceNumber: 1,
+			phase: state.phase,
+			createdAt: state.lastUpdatedAt,
+			trackerStateId: `${state.threadId}:${state.checkpointId}`,
+			resumeData: { phase: state.phase, workerIds: [], instructions: "resume from checkpoint" },
+			stateSnapshot: {
+				snapshotId: "snapshot-1",
+				trackerStateId: `${state.threadId}:${state.checkpointId}`,
+				storageKey: "thread:alpha/checkpoint:001",
+				format: "control-plane-state",
+				capturedAt: state.lastUpdatedAt,
+			},
+			artifactBundleIds: ["bundle-1"],
+			rewindTargetIds: [state.checkpointId],
+		},
+	});
+
+	assert.strictEqual(manifest.latestCheckpointId, state.checkpointId);
+	assert.deepStrictEqual(manifest.checkpointHistory, [state.checkpointId]);
+	assert.deepStrictEqual(manifest.rewindTargetIds, [state.checkpointId]);
+	assert.deepStrictEqual(manifest.artifactBundleIds, ["bundle-1"]);
+	assert.strictEqual((await checkpoints.loadCheckpoint({ threadId: state.threadId }))?.stateSnapshot.storageKey, "thread:alpha/checkpoint:001");
+	assert.strictEqual((await tracker.load(state.threadId, state.checkpointId))?.threadId, state.threadId);
 });

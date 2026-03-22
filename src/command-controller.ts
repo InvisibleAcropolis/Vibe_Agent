@@ -41,6 +41,9 @@ const BUILTIN_COMMAND_META: Record<string, { category: string; order: number; de
 	compact: { category: "Session", order: 17, description: "Compact the current context window." },
 	clear: { category: "Session", order: 18, description: "Clear the chat display." },
 	"summon-orc": { category: "Session", order: 19, description: "Switch into the dedicated Orc orchestration chat." },
+	"orc-resume": { category: "Session", order: 20, description: "Placeholder action for resuming an Orc orchestration thread." },
+	"orc-checkpoints": { category: "Session", order: 21, description: "Placeholder action for inspecting Orc checkpoints." },
+	"orc-rewind": { category: "Session", order: 22, description: "Placeholder action for rewinding Orc state to a checkpoint." },
 	help: { category: "Help", order: 30, description: "Show keybindings and setup guidance." },
 	"debug-dump": { category: "Help", order: 31, description: "Write a debug snapshot bundle at the app root." },
 };
@@ -86,6 +89,9 @@ export interface CommandController {
 	openSessionsOverlay(): void;
 	openOrchestrationOverlay(): void;
 	summonOrc(): Promise<void>;
+	resumeOrcThread(): void;
+	inspectOrcCheckpoints(): void;
+	rewindOrcCheckpoint(): void;
 	returnToCodingChat(): Promise<void>;
 	openStatsOverlay(): void;
 	openArtifactViewer(): void;
@@ -153,6 +159,21 @@ export class DefaultCommandController implements CommandController {
 		if (text === "/summon-orc") {
 			this.editorController.setText("");
 			await this.summonOrc();
+			return true;
+		}
+		if (text === "/orc-resume") {
+			this.editorController.setText("");
+			this.resumeOrcThread();
+			return true;
+		}
+		if (text === "/orc-checkpoints") {
+			this.editorController.setText("");
+			this.inspectOrcCheckpoints();
+			return true;
+		}
+		if (text === "/orc-rewind") {
+			this.editorController.setText("");
+			this.rewindOrcCheckpoint();
 			return true;
 		}
 		if (text === "/help") {
@@ -402,6 +423,9 @@ export class DefaultCommandController implements CommandController {
 			items: [
 				{ kind: "action", id: "summon-orc", label: "Summon Orc", description: "Initialize the orchestration assistant shell.", onSelect: () => void this.summonOrc().catch((error) => this.handleError("summonOrc", error)) },
 				{ kind: "action", id: "coding-chat", label: "Coding Chat", description: "Return to the standard coding session transcript.", onSelect: () => void this.returnToCodingChat().catch((error) => this.handleError("returnToCodingChat", error)) },
+				{ kind: "action", id: "orc-resume", label: "Resume Thread", description: "Placeholder controller action for resuming an Orc thread.", onSelect: () => this.resumeOrcThread() },
+				{ kind: "action", id: "orc-checkpoints", label: "Inspect Checkpoints", description: "Placeholder controller action for viewing Orc checkpoints.", onSelect: () => this.inspectOrcCheckpoints() },
+				{ kind: "action", id: "orc-rewind", label: "Rewind Checkpoint", description: "Placeholder controller action for rewinding to a checkpoint.", onSelect: () => this.rewindOrcCheckpoint() },
 				{ kind: "action", id: "tracker", label: "Tracker", description: "Inspect orchestration progress and checkpoints.", onSelect: () => this.showPlaceholderStatus("Tracker is not implemented yet.") },
 				{ kind: "action", id: "artifacts", label: "Artifacts", description: "Browse orchestration artifacts and outputs.", onSelect: () => this.showPlaceholderStatus("Orc Artifacts is not implemented yet.") },
 				{ kind: "action", id: "logs", label: "Logs", description: "Review orchestration execution logs.", onSelect: () => this.showPlaceholderStatus("Orc Logs is not implemented yet.") },
@@ -414,6 +438,18 @@ export class DefaultCommandController implements CommandController {
 		await this.host.switchRuntime("orc");
 		this.onRuntimeActivated();
 		this.stateStore.setStatusMessage("Orc orchestration chat active. Phase 1 backend is running in its dedicated session namespace.");
+	}
+
+	resumeOrcThread(): void {
+		this.showPlaceholderStatus("Resume Orc thread is a Phase 1 placeholder until checkpoint-backed thread activation is wired.");
+	}
+
+	inspectOrcCheckpoints(): void {
+		this.showPlaceholderStatus("Inspect checkpoints is a Phase 1 placeholder until checkpoint manifests are surfaced in the UI.");
+	}
+
+	rewindOrcCheckpoint(): void {
+		this.showPlaceholderStatus("Rewind to checkpoint is a Phase 1 placeholder until checkpoint restoration is wired.");
 	}
 
 	async returnToCodingChat(): Promise<void> {
