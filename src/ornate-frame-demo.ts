@@ -22,3 +22,5 @@ for (const variant of VARIANTS) {
     process.stdout.write(line + "\n");
   }
 }
+
+console.log(`\n✓ All ${VARIANTS.length} variants rendered successfully.`);

@@ -43,7 +43,12 @@ export function registerTileSet(tiles: FrameTileSet): void {
 
 export function getTileSet(variant: OrnateFrameVariant): FrameTileSet {
   const tiles = TILE_REGISTRY.get(variant);
-  if (!tiles) throw new Error(`OrnateFrame: unknown variant "${variant}"`);
+  if (!tiles) {
+    const hint = TILE_REGISTRY.size === 0
+      ? " (registry is empty — did you forget to await loadAllTileSets()?)"
+      : "";
+    throw new Error(`OrnateFrame: unknown variant "${variant}"${hint}`);
+  }
   return tiles;
 }
 
