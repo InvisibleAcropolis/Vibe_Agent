@@ -1,11 +1,11 @@
 {
-  "cols": 84,
+  "cols": 100,
   "rows": 20,
-  "count": 32,
-  "speed": 0.015,
-  "cometTail": true,
-  "tailLength": 2,
-  "depthOfField": true,
-  "starColors": [],
-  "colorVariety": 0.52
+  "count": 106,
+  "speed": 0.035,
+  "streaks": 0.71,
+  "trails": 0.35,
+  "intensity": 2,
+  "brightness": 1,
+  "glyphRange": 1
 }

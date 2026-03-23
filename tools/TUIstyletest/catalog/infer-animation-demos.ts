@@ -10,6 +10,13 @@ import type {
 } from "../../../src/style-test-contract.js";
 import { createPlaceholderRuntime } from "../../../src/style-test-fixtures.js";
 import {
+	STARFIELD_DEFAULTS,
+	STARFIELD_NUMBER_OPTION_SPECS,
+	isStarfieldOptionsPresetValid,
+	normalizeStarfieldOptions,
+	type StarfieldOptions,
+} from "../../../src/components/anim_starfield.js";
+import {
 	WATER_RIPPLE_DEFAULTS,
 	WATER_RIPPLE_NUMBER_OPTION_SPECS,
 	isWaterRippleOptionsPresetValid,
@@ -257,6 +264,40 @@ const ADAPTERS: Record<string, AnimationAdapter> = {
 		saveStoredValues(presetStore, values, presetId) {
 			const normalized: Record<string, unknown> = {
 				...normalizeVortexOptions(values as VortexOptions),
+			};
+			return presetStore.save(normalized, presetId);
+		},
+	},
+	"src/components/anim_starfield.ts#createStarfield": {
+		customizeField(field) {
+			if (field.control.type === "number" && field.id in STARFIELD_NUMBER_OPTION_SPECS) {
+				const spec = STARFIELD_NUMBER_OPTION_SPECS[field.id as keyof typeof STARFIELD_NUMBER_OPTION_SPECS];
+				return {
+					...field,
+					defaultValue: spec.defaultValue,
+					control: {
+						...field.control,
+						defaultValue: spec.defaultValue,
+						min: spec.min,
+						max: spec.max,
+						step: spec.step,
+					},
+				};
+			}
+			return field;
+		},
+		loadStoredValues(presetStore, presetId) {
+			const stored = presetStore.load(presetId);
+			if (isStarfieldOptionsPresetValid(stored)) {
+				return stored;
+			}
+			const repaired: Record<string, unknown> = { ...STARFIELD_DEFAULTS };
+			presetStore.save(repaired, presetId);
+			return repaired;
+		},
+		saveStoredValues(presetStore, values, presetId) {
+			const normalized: Record<string, unknown> = {
+				...normalizeStarfieldOptions(values as StarfieldOptions),
 			};
 			return presetStore.save(normalized, presetId);
 		},

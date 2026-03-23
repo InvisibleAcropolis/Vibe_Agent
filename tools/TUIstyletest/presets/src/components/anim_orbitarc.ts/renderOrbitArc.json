@@ -1,7 +1,7 @@
 {
-  "orbitType": "circular",
-  "reverse": false,
-  "speedMultiplier": 1.0,
-  "trailLength": 6,
-  "trailStyle": "dots"
+  "trailLength": 1,
+  "trailStyle": "dots",
+  "speedMultiplier": 1.04,
+  "reverse": true,
+  "orbitType": "figure8"
 }
