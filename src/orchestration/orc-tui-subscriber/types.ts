@@ -8,6 +8,8 @@ import type {
 import type { OrcTrackerDashboardViewModel } from "../orc-tracker.js";
 import type { OrcControlPlaneState, OrcProjectContext } from "../orc-state.js";
 import type { OrcEventBus, OrcEventBusSubscription } from "../orc-event-bus.js";
+import type { OrcTuiInteractionState } from "./interaction-state.js";
+import type { OrcTuiTelemetryReductionState } from "./telemetry-reduction.js";
 
 export interface OrcTuiEventLogTailEntry {
 	eventId: string;
@@ -106,9 +108,7 @@ export interface OrcSubagentSurfaceStore {
 }
 
 export interface OrcTuiInternalState {
-	reducerState: OrcEventReducerState;
-	controlPlane: OrcControlPlaneState;
-	surfaceStore: OrcSubagentSurfaceStore;
+	telemetry: OrcTuiTelemetryReductionState;
+	interaction: OrcTuiInteractionState;
 	viewState: OrcTuiTelemetryState;
-	hiddenOverlayIds: string[];
 }
