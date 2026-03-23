@@ -5,7 +5,7 @@ import type { MouseEvent, Rect } from "../mouse.js";
 import { pointInRect } from "../mouse.js";
 import { createOverlayPreviewRuntime, sampleShellMenuDefinition } from "../style-test-fixtures.js";
 import { defineStyleTestDemos } from "../style-test-contract.js";
-import type { MouseAwareOverlay } from "../types.js";
+import type { HostedSizeRequirements, HostedViewportDimensions, MouseAwareOverlay } from "../types.js";
 
 export interface ShellMenuActionItem {
 	kind: "action";
@@ -61,12 +61,14 @@ export class ShellMenuOverlay implements MouseAwareOverlay, Focusable {
 	private readonly renderedLayouts: FrameLayout[] = [];
 	private _focused = false;
 	private lastRenderWidth = 0;
+	private assignedViewport: HostedViewportDimensions;
 
 	constructor(
 		private readonly definition: ShellMenuDefinition,
 		private readonly viewportRows: number,
 		private readonly onClose: () => void,
 	) {
+		this.assignedViewport = { width: definition.width ?? 38, height: viewportRows };
 		this.stack = [{
 			title: definition.title,
 			subtitle: definition.subtitle,
@@ -86,6 +88,24 @@ export class ShellMenuOverlay implements MouseAwareOverlay, Focusable {
 	}
 
 	invalidate(): void {}
+
+	getHostedSizeRequirements(): HostedSizeRequirements {
+		const widths = this.stack.map((frame, index) => index === 0 ? frame.width : Math.max(frame.width, this.definition.childWidth ?? frame.width));
+		const preferredWidth = Math.max(...widths, this.definition.width ?? 38);
+		const visibleItems = Math.max(1, Math.min(this.definition.maxVisibleItems ?? MAX_VISIBLE_ITEMS, this.getActiveFrame()?.items.length ?? this.definition.items.length));
+		return {
+			minWidth: Math.min(preferredWidth, Math.max(28, this.definition.width ?? 38)),
+			minHeight: Math.min(this.viewportRows, 7),
+			preferredWidth: Math.min(this.assignedViewport.width || preferredWidth, preferredWidth),
+			preferredHeight: Math.min(this.viewportRows, 6 + visibleItems),
+			maxWidth: this.assignedViewport.width || preferredWidth,
+			maxHeight: this.viewportRows,
+		};
+	}
+
+	setHostedViewportSize(viewport: HostedViewportDimensions): void {
+		this.assignedViewport = viewport;
+	}
 
 	render(width: number): string[] {
 		this.lastRenderWidth = width;
