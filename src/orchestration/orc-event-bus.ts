@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
-import type { OrcBusEvent, OrcBusEventKind } from "./orc-events.js";
+import type { OrcBusEvent, OrcBusEventKind } from "./orc-events/index.js";
 import type { OrcCanonicalEventEnvelope } from "./orc-io.js";
 
 /**

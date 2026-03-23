@@ -23,7 +23,7 @@ import {
 	reduceOrcControlPlaneEvent,
 	type OrcBusEvent,
 	type OrcTransportFaultCode,
-} from "./orc-events.js";
+} from "./orc-events/index.js";
 import {
 	NoopOrcCheckpointStore,
 	type OrcCheckpointMetadata,

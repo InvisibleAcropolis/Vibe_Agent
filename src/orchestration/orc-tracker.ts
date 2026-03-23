@@ -5,7 +5,7 @@ import {
 	createInitialCheckpointMetadataSummary,
 	createInitialReducedTransportHealth,
 	createInitialTerminalStateSummary,
-} from "./orc-events.js";
+} from "./orc-events/index.js";
 import { presentOrcTrackerSummary } from "./orc-presentation.js";
 import type { OrcControlPlaneState } from "./orc-state.js";
 

@@ -7,8 +7,8 @@ import {
 	type OrcEventReducerState,
 	type OrcLatestActivityRecord,
 	type OrcReducedErrorEntry,
-} from "./orc-events.js";
-import { createInitialCheckpointMetadataSummary, createInitialReducedTransportHealth, createInitialTerminalStateSummary, reduceOrcControlPlaneEvent } from "./orc-events.js";
+} from "./orc-events/index.js";
+import { createInitialCheckpointMetadataSummary, createInitialReducedTransportHealth, createInitialTerminalStateSummary, reduceOrcControlPlaneEvent } from "./orc-events/index.js";
 import { createOrcTrackerDashboardViewModel, type OrcTrackerDashboardViewModel } from "./orc-tracker.js";
 import type { OrcControlPlaneState, OrcProjectContext } from "./orc-state.js";
 

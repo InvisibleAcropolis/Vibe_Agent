@@ -7,7 +7,7 @@ import {
 	classifyOrcTransportIssue,
 	type OrcTransportFaultCode,
 	type OrcTransportWarningCode,
-} from "./orc-events.js";
+} from "./orc-events/index.js";
 import type { OrcDebugArtifactsWriter } from "./orc-debug.js";
 import type { OrcCanonicalEventEnvelope, OrcPythonRunnerSpawnContract, OrcRunnerLaunchInput } from "./orc-io.js";
 
