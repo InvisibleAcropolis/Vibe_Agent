@@ -1,13 +1,15 @@
-export { createOrcTuiTelemetrySubscriber } from "./orc-tui-subscriber/index.js";
+export { createOrcTuiTelemetrySubscriber } from "./create-subscriber.js";
 export type {
 	OrcSubagentIdentity,
 	OrcSubagentSurfaceEntry,
 	OrcSubagentSurfaceLifecycle,
 	OrcSubagentSurfaceRetention,
+	OrcSubagentSurfaceStore,
 	OrcTuiEventLogTailEntry,
+	OrcTuiInternalState,
 	OrcTuiOverlayState,
 	OrcTuiSubagentSurfaceState,
 	OrcTuiTelemetryState,
 	OrcTuiTelemetrySubscriber,
 	OrcTuiTelemetrySubscriberOptions,
-} from "./orc-tui-subscriber/index.js";
+} from "./types.js";
