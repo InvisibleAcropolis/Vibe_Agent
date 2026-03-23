@@ -15,6 +15,14 @@ export interface ThemeConfig {
 	hueLightness: number;
 	breathBaseColor: string;
 	breathPeakColor: string;
+	ornateFrame?: OrnateFrameColors; // optional; renderer falls back to border/borderActive interpolation
+}
+
+export interface OrnateFrameColors {
+  shade1: string; // hex — ░ characters: shadow/darkest
+  shade2: string; // hex — ▒ characters: mid-shadow
+  shade3: string; // hex — ▓ characters: mid-highlight
+  shade4: string; // hex — █ characters: brightest/foreground
 }
 
 export interface DynamicTheme {
@@ -86,4 +94,18 @@ export function createDynamicTheme(config: ThemeConfig, animState: AnimationStat
 		borderAnimated: style({ fg: animatedBorderColor }),
 		borderBreath: style({ fg: breathColor }),
 	};
+}
+
+export function resolveOrnateFrameColors(
+  config: ThemeConfig,
+  borderColor: string,
+  borderActiveColor: string,
+): OrnateFrameColors {
+  if (config.ornateFrame) return config.ornateFrame;
+  return {
+    shade1: lerpColor(borderColor, borderActiveColor, 0),
+    shade2: lerpColor(borderColor, borderActiveColor, 0.33),
+    shade3: lerpColor(borderColor, borderActiveColor, 0.66),
+    shade4: lerpColor(borderColor, borderActiveColor, 1),
+  };
 }
