@@ -1,3 +1,7 @@
+/**
+ * State projection boundary: reduce normalized bus events into orchestrator control-plane state and durable summaries.
+ * Keep transport parsing at the ingress layer; this reducer should rely on normalized fault metadata already present on events.
+ */
 import {
 	getOrcSecurityTelemetryDisposition,
 	isBlockingOrcSecurityEvent,

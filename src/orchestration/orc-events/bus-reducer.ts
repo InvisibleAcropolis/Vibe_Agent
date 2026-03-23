@@ -1,3 +1,7 @@
+/**
+ * State projection boundary: reduce normalized bus events into UI-friendly activity, overlay, wave, and error state.
+ * This layer must consume normalized event fields instead of reaching back into transport envelope parsing helpers.
+ */
 import { isBlockingOrcSecurityEvent } from "../orc-security.js";
 import { mapOrcSecurityEventToCanonicalSeverity } from "./security-events.js";
 import { summarizeOrcEvent } from "./summary.js";

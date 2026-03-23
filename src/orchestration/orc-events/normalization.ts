@@ -1,8 +1,9 @@
+/**
+ * Ingress boundary: convert canonical transport envelopes into normalized orchestration bus events.
+ * This layer may read raw payload fields and attach derived metadata before reducers or UI summaries consume the event.
+ */
 import type { OrcCanonicalEventEnvelope, OrcEventLifecycleStatus } from "../orc-io.js";
 import type { OrcSecurityEvent } from "../orc-security.js";
-import {
-	eventNameAsSummary,
-} from "./summary.js";
 import type {
 	OrcBaseBusEvent,
 	OrcBusEvent,
@@ -39,6 +40,10 @@ export function isUserFacingOrcEvent(event: OrcBusEvent): boolean {
 
 export function isComputerFacingOrcEvent(event: OrcBusEvent): boolean {
 	return event.interaction.isComputerFacing;
+}
+
+function fallbackEnvelopeSummary(envelope: Pick<OrcCanonicalEventEnvelope, "what">): string {
+	return envelope.what.description ?? envelope.what.name;
 }
 
 export function normalizeOrcTransportEnvelope<TRawPayload extends Record<string, unknown> = Record<string, unknown>>(
@@ -140,7 +145,7 @@ export function normalizeOrcTransportEnvelope<TRawPayload extends Record<string,
 					status: readStringUnion(envelope, ["status", "workerStatus"], ["idle", "queued", "running", "waiting_on_input", "completed", "failed", "cancelled"], mapStatusToWorkerStatus(envelope.what.status)),
 					waveId: readString(envelope, ["waveId"]) ?? envelope.origin.waveId ?? envelope.origin.threadId,
 					taskId: readString(envelope, ["taskId"]),
-					summary: readString(envelope, ["summary", "message"], envelope.what.description ?? eventNameAsSummary(envelope)),
+					summary: readString(envelope, ["summary", "message"], fallbackEnvelopeSummary(envelope)),
 					startedAt: readString(envelope, ["startedAt"]),
 					finishedAt: readString(envelope, ["finishedAt"]),
 				},

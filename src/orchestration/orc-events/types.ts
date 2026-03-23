@@ -1,3 +1,7 @@
+/**
+ * Domain layer: shared normalized orchestration event types and reducer-facing state contracts only.
+ * Import this module when you need stable event shapes without crossing into normalization, policy, or UI summary layers.
+ */
 import type {
 	OrcCanonicalEventEnvelope,
 	OrcEventLifecycleStatus,
