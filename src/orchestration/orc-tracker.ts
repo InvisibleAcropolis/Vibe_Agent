@@ -151,6 +151,8 @@ export function createTrackerSnapshot(state: OrcControlPlaneState): OrcControlPl
 			...checkpointMetadata,
 			artifactBundleIds: [...checkpointMetadata.artifactBundleIds],
 			rewindTargetIds: [...checkpointMetadata.rewindTargetIds],
+			latestDurableEventOffset: checkpointMetadata.latestDurableEventOffset ? { ...checkpointMetadata.latestDurableEventOffset } : undefined,
+			checkpointBoundary: checkpointMetadata.checkpointBoundary ? { ...checkpointMetadata.checkpointBoundary } : undefined,
 		},
 		transportHealth: { ...transportHealth },
 		terminalState: { ...terminalState, ambiguityNotes: [...terminalState.ambiguityNotes] },
@@ -169,7 +171,15 @@ function hydrateTrackerSnapshot(snapshot: Partial<OrcControlPlaneState>): OrcCon
 		activeWave: snapshot.activeWave,
 		workerResults: snapshot.workerResults ?? [],
 		verificationErrors: snapshot.verificationErrors ?? [],
-		checkpointMetadata: snapshot.checkpointMetadata ?? createInitialCheckpointMetadataSummary(),
+		checkpointMetadata: snapshot.checkpointMetadata
+			? {
+				...snapshot.checkpointMetadata,
+				artifactBundleIds: [...(snapshot.checkpointMetadata.artifactBundleIds ?? [])],
+				rewindTargetIds: [...(snapshot.checkpointMetadata.rewindTargetIds ?? [])],
+				latestDurableEventOffset: snapshot.checkpointMetadata.latestDurableEventOffset ? { ...snapshot.checkpointMetadata.latestDurableEventOffset } : undefined,
+				checkpointBoundary: snapshot.checkpointMetadata.checkpointBoundary ? { ...snapshot.checkpointMetadata.checkpointBoundary } : undefined,
+			}
+			: createInitialCheckpointMetadataSummary(),
 		transportHealth: snapshot.transportHealth ?? createInitialReducedTransportHealth(),
 		terminalState: snapshot.terminalState ?? createInitialTerminalStateSummary(),
 		lastUpdatedAt: snapshot.lastUpdatedAt ?? new Date(0).toISOString(),

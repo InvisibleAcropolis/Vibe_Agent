@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ensureParentDir, getVibeCheckpointsDir, type VibeDurablePathOptions } from "../durable/durable-paths.js";
-import type { OrcControlPlaneState } from "./orc-state.js";
+import type { OrcCheckpointBoundarySummary, OrcControlPlaneState, OrcDurableEventOffset } from "./orc-state.js";
 
 export interface OrcThreadIdentity {
 	threadId: string;
@@ -26,6 +26,9 @@ export interface OrcPhaseResumeData {
 	activeWaveId?: string;
 	workerIds: string[];
 	instructions?: string;
+	transportRunCorrelationId?: string;
+	latestDurableEventOffset?: OrcDurableEventOffset;
+	checkpointBoundary?: OrcCheckpointBoundarySummary;
 	metadata?: Record<string, string | number | boolean | null>;
 }
 
@@ -39,6 +42,9 @@ export interface OrcCheckpointMetadata {
 	createdAt: string;
 	createdBy?: string;
 	trackerStateId?: string;
+	transportRunCorrelationId?: string;
+	latestDurableEventOffset?: OrcDurableEventOffset;
+	checkpointBoundary?: OrcCheckpointBoundarySummary;
 	resumeData?: OrcPhaseResumeData;
 	stateSnapshot: OrcStateSnapshotRef;
 	artifactBundleIds: string[];

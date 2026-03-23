@@ -75,6 +75,25 @@ export interface OrcParallelWorkerResult {
 	metadata?: Record<string, string | number | boolean | null>;
 }
 
+export interface OrcDurableEventOffset {
+	eventId?: string;
+	runCorrelationId?: string;
+	streamSequence?: number;
+	eventLogGlobalIndex?: number;
+	recordedAt?: string;
+}
+
+export interface OrcCheckpointBoundarySummary {
+	eventId?: string;
+	eventKind?: string;
+	status?: string;
+	threadId?: string;
+	runCorrelationId?: string;
+	waveId?: string;
+	workerId?: string;
+	recordedAt?: string;
+}
+
 export interface OrcCheckpointMetadataSummary {
 	checkpointId?: string;
 	status: "idle" | "started" | "captured" | "restored" | "failed" | "stale";
@@ -83,6 +102,9 @@ export interface OrcCheckpointMetadataSummary {
 	storagePath?: string;
 	artifactBundleIds: string[];
 	rewindTargetIds: string[];
+	transportRunCorrelationId?: string;
+	latestDurableEventOffset?: OrcDurableEventOffset;
+	checkpointBoundary?: OrcCheckpointBoundarySummary;
 	message?: string;
 	updatedAt?: string;
 }
