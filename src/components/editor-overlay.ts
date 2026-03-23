@@ -3,7 +3,7 @@ import { CustomEditor, getEditorTheme, type KeybindingsManager } from "../local-
 import { createOverlayPreviewRuntime } from "../style-test-fixtures.js";
 import { defineStyleTestDemos } from "../style-test-contract.js";
 import { agentTheme } from "../theme.js";
-import type { MouseAwareOverlay } from "../types.js";
+import type { HostedSizeRequirements, MouseAwareOverlay } from "../types.js";
 
 export class EditorOverlay extends Container implements MouseAwareOverlay, Focusable {
 	private readonly editor: CustomEditor;
@@ -44,6 +44,15 @@ export class EditorOverlay extends Container implements MouseAwareOverlay, Focus
 
 	getEditor(): CustomEditor {
 		return this.editor;
+	}
+
+	getHostedSizeRequirements(): HostedSizeRequirements {
+		return {
+			minWidth: 48,
+			minHeight: 8,
+			preferredWidth: 88,
+			preferredHeight: 20,
+		};
 	}
 }
 

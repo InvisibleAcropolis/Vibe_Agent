@@ -5,7 +5,7 @@ import { pointInRect } from "../mouse.js";
 import { createOverlayPreviewRuntime } from "../style-test-fixtures.js";
 import { defineStyleTestDemos } from "../style-test-contract.js";
 import { agentTheme } from "../theme.js";
-import type { MouseAwareOverlay } from "../types.js";
+import type { HostedSizeRequirements, MouseAwareOverlay } from "../types.js";
 
 export interface OverlaySelectItem<T> {
 	value: T;
@@ -114,6 +114,18 @@ export class FilterSelectOverlay<T> implements MouseAwareOverlay, Focusable {
 		);
 		const end = Math.min(start + FilterSelectOverlay.MAX_VISIBLE_ITEMS, this.filteredItems.length);
 		return { start, end };
+	}
+
+	getHostedSizeRequirements(): HostedSizeRequirements {
+		const longestLabel = this.listItems.reduce((max, item) => Math.max(max, item.label.length, item.description?.length ?? 0), 0);
+		const visibleItems = Math.max(1, Math.min(FilterSelectOverlay.MAX_VISIBLE_ITEMS, this.filteredItems.length || this.listItems.length));
+		return {
+			minWidth: 44,
+			minHeight: 10,
+			preferredWidth: Math.max(52, Math.min(88, longestLabel + 14)),
+			preferredHeight: 9 + visibleItems,
+			maxHeight: 9 + FilterSelectOverlay.MAX_VISIBLE_ITEMS,
+		};
 	}
 
 	render(width: number): string[] {

@@ -1,6 +1,7 @@
 import { type Component, type OverlayHandle, type OverlayOptions, type TUI } from "@mariozechner/pi-tui";
 import type { PiMonoAppDebugger } from "./app-debugger.js";
 import type { AppStateStore } from "./app-state-store.js";
+import { FloatWindow, adaptHostedComponent } from "./components/float_window.js";
 import { EditorOverlay } from "./components/editor-overlay.js";
 import { FilterSelectOverlay, type OverlaySelectItem } from "./components/filter-select-overlay.js";
 import { ShellMenuOverlay, type ShellMenuDefinition } from "./components/shell-menu-overlay.js";
@@ -9,7 +10,21 @@ import type { KeybindingsManager } from "./local-coding-agent.js";
 import type { MouseEvent, Rect } from "./mouse.js";
 import { pointInRect } from "./mouse.js";
 import { resolveOverlayRect } from "./overlay-layout.js";
-import type { OverlayRecord } from "./types.js";
+import type { OverlayMousePolicy, OverlayOutsideClickPolicy, OverlayRecord } from "./types.js";
+
+interface FloatingOverlayGeometry {
+	row: number;
+	col: number;
+	width: number;
+	height: number;
+	active: boolean;
+}
+
+type OverlayOptionsWithMousePolicy = OverlayOptions & {
+	minHeight?: number;
+	maxWidth?: number;
+	mousePolicy?: OverlayMousePolicy;
+};
 
 export interface OverlayController {
 	openSelectOverlay<T>(
@@ -29,16 +44,17 @@ export interface OverlayController {
 	): void;
 	openEditorPrompt(title: string, prefill: string, onSubmit: (value: string) => void, onCancel: () => void): void;
 	openMenuOverlay(id: string, definition: ShellMenuDefinition): void;
-	showCustomOverlay(id: string, component: Component, options: OverlayOptions): OverlayHandle;
+	showCustomOverlay(id: string, component: Component, options: OverlayOptionsWithMousePolicy): OverlayHandle;
 	closeTopOverlay(): void;
 	closeOverlay(id: string): void;
 	closeAllOverlays(): void;
-	dispatchMouse(event: MouseEvent): void;
+	dispatchMouse(event: MouseEvent): boolean;
 	getOverlayDepth(): number;
 }
 
 export class DefaultOverlayController implements OverlayController {
 	private readonly overlays: OverlayRecord[] = [];
+	private readonly floatingGeometry = new Map<string, FloatingOverlayGeometry>();
 
 	constructor(
 		private readonly tui: TUI,
@@ -146,8 +162,8 @@ export class DefaultOverlayController implements OverlayController {
 		);
 	}
 
-	showCustomOverlay(id: string, component: Component, options: OverlayOptions): OverlayHandle {
-		return this.showOverlay(id, component, options);
+	showCustomOverlay(id: string, component: Component, options: OverlayOptionsWithMousePolicy): OverlayHandle {
+		return this.showOverlay(id, component, options, { floating: true, title: id });
 	}
 
 	closeTopOverlay(): void {
@@ -155,6 +171,7 @@ export class DefaultOverlayController implements OverlayController {
 		if (!overlay) {
 			return;
 		}
+		this.captureFloatingGeometry(overlay);
 		this.debuggerSink.log("overlay.hide", { id: overlay.id, mode: "top" });
 		overlay.hide();
 		this.stateStore.removeOverlay(overlay.id);
@@ -167,6 +184,7 @@ export class DefaultOverlayController implements OverlayController {
 			return;
 		}
 		const [overlay] = this.overlays.splice(index, 1);
+		this.captureFloatingGeometry(overlay);
 		this.debuggerSink.log("overlay.hide", { id, mode: "specific" });
 		overlay.hide();
 		this.stateStore.removeOverlay(id);
@@ -179,38 +197,169 @@ export class DefaultOverlayController implements OverlayController {
 			if (!overlay) {
 				continue;
 			}
+			this.captureFloatingGeometry(overlay);
 			this.debuggerSink.log("overlay.hide", { id: overlay.id, mode: "all" });
 			overlay.hide();
 		}
 		this.stateStore.clearOverlays();
 	}
 
-	dispatchMouse(event: MouseEvent): void {
+	dispatchMouse(event: MouseEvent): boolean {
 		for (let index = this.overlays.length - 1; index >= 0; index--) {
-			const overlay = this.overlays[index];
+			let overlay = this.overlays[index];
+			if (overlay.window) {
+				overlay.window.setViewportSize({ width: this.tui.terminal.columns, height: this.tui.terminal.rows });
+			}
 			const rect = resolveOverlayRect(overlay.component, overlay.options, this.tui.terminal.columns, this.tui.terminal.rows);
 			if (!pointInRect(event, rect)) {
-				return;
+				continue;
 			}
-			(overlay.component as { handleMouse?: (evt: MouseEvent, rect: Rect) => boolean }).handleMouse?.(event, rect);
-			return;
+			if (this.shouldBringToFront(overlay, event)) {
+				overlay = this.bringOverlayToFront(index);
+			}
+			this.activateOverlay(this.overlays.indexOf(overlay));
+			const handled = (overlay.component as { handleMouse?: (evt: MouseEvent, rect: Rect) => boolean }).handleMouse?.(event, rect) ?? true;
+			this.tui.requestRender();
+			return handled;
 		}
+		const outsideResult = this.applyOutsideClickPolicy(event);
+		if (outsideResult !== "ignored") {
+			this.tui.requestRender();
+		}
+		return outsideResult === "consumed";
 	}
 
 	getOverlayDepth(): number {
 		return this.overlays.length;
 	}
 
-	private showOverlay(id: string, component: Component, options: OverlayOptions): OverlayHandle {
-		this.closeOverlay(id);
-		this.debuggerSink.log("overlay.show", { id });
-		const handle = this.tui.showOverlay(component, options);
-		this.overlays.push({
-			id,
-			component,
-			options,
-			hide: () => handle.hide(),
+	private activateOverlay(activeIndex: number): void {
+		for (let index = 0; index < this.overlays.length; index++) {
+			const entry = this.overlays[index];
+			if (!entry.window) {
+				continue;
+			}
+			entry.window.model.active = index === activeIndex;
+			entry.window.model.zIndex = index;
+			if (index === activeIndex) {
+				this.captureFloatingGeometry(entry);
+			}
+		}
+	}
+
+	private shouldBringToFront(overlay: OverlayRecord, event: MouseEvent): boolean {
+		return !!overlay.window && (overlay.mousePolicy?.activateOnLeftClick ?? true) && event.action === "down" && event.button === "left";
+	}
+
+	private bringOverlayToFront(index: number): OverlayRecord {
+		const [overlay] = this.overlays.splice(index, 1);
+		this.overlays.push(overlay);
+		return overlay;
+	}
+
+	private applyOutsideClickPolicy(event: MouseEvent): "consumed" | "focus-cleared" | "ignored" {
+		if (event.action !== "down" || event.button !== "left") {
+			return "ignored";
+		}
+		for (let index = this.overlays.length - 1; index >= 0; index--) {
+			const overlay = this.overlays[index];
+			const policy = overlay.mousePolicy?.outsideClick ?? this.getDefaultOutsideClickPolicy(overlay);
+			if (policy === "noop") {
+				continue;
+			}
+			if (policy === "close") {
+				this.closeOverlay(overlay.id);
+				return "consumed";
+			}
+			this.setFocus(this.getFocusRestoreTarget(), `overlay.outside:${overlay.id}`);
+			this.activateOverlay(-1);
+			return "focus-cleared";
+		}
+		return "ignored";
+	}
+
+	private getDefaultOutsideClickPolicy(overlay: OverlayRecord): OverlayOutsideClickPolicy {
+		return overlay.window ? "clear-focus" : "noop";
+	}
+
+	private captureFloatingGeometry(overlay: OverlayRecord): void {
+		if (!overlay.window) {
+			return;
+		}
+		this.floatingGeometry.set(overlay.id, {
+			row: overlay.window.model.row,
+			col: overlay.window.model.col,
+			width: overlay.window.model.width,
+			height: overlay.window.model.height,
+			active: overlay.window.model.active,
 		});
+	}
+
+	private showOverlay(
+		id: string,
+		component: Component,
+		options: OverlayOptionsWithMousePolicy,
+		config?: { floating?: boolean; title?: string },
+	): OverlayHandle {
+		this.closeOverlay(id);
+		this.debuggerSink.log("overlay.show", { id, floating: config?.floating ?? false });
+
+		let renderedComponent = component;
+		const renderedOptions: OverlayOptions = { ...options };
+		let window: FloatWindow | undefined;
+
+		if (config?.floating) {
+			const initialRect = this.floatingGeometry.get(id) ?? resolveOverlayRect(component, renderedOptions, this.tui.terminal.columns, this.tui.terminal.rows);
+			window = new FloatWindow({
+				title: config.title ?? id,
+				content: adaptHostedComponent(component),
+				initialState: {
+					row: initialRect.row,
+					col: initialRect.col,
+					width: initialRect.width,
+					height: initialRect.height,
+					active: true,
+					zIndex: this.overlays.length,
+				},
+				minWidth: options.minWidth,
+				minHeight: typeof options.minHeight === "number" ? options.minHeight : undefined,
+				maxWidth: typeof options.maxWidth === "number" ? options.maxWidth : undefined,
+				maxHeight: typeof options.maxHeight === "number" ? options.maxHeight : undefined,
+				onStateChange: (model) => {
+					renderedOptions.row = model.row;
+					renderedOptions.col = model.col;
+					renderedOptions.width = model.width;
+					renderedOptions.maxHeight = model.height;
+					this.floatingGeometry.set(id, {
+						row: model.row,
+						col: model.col,
+						width: model.width,
+						height: model.height,
+						active: model.active,
+					});
+					this.tui.requestRender();
+				},
+			});
+			window.setViewportSize({ width: this.tui.terminal.columns, height: this.tui.terminal.rows });
+			renderedComponent = window;
+			renderedOptions.anchor = "top-left";
+			renderedOptions.row = window.model.row;
+			renderedOptions.col = window.model.col;
+			renderedOptions.width = window.model.width;
+			renderedOptions.maxHeight = window.model.height;
+		}
+
+		const handle = this.tui.showOverlay(renderedComponent, renderedOptions);
+		const record: OverlayRecord = {
+			id,
+			component: renderedComponent,
+			options: renderedOptions,
+			handle,
+			window,
+			mousePolicy: options.mousePolicy,
+			hide: () => handle.hide(),
+		};
+		this.overlays.push(record);
 		this.stateStore.pushOverlay(id);
 		this.setFocus(component, `overlay:${id}`);
 		return {

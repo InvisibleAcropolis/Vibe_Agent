@@ -10,13 +10,17 @@ import { resolveOverlayRect } from "./overlay-layout.js";
 import { PanelManager } from "./panel-manager.js";
 import { createWorkspacePanel } from "./panels/workspace-panel.js";
 import { masterTuiTheme } from "./theme.js";
-import type { OverlayRecord, PanelContext, ShellCommand } from "./types.js";
+import type { OverlayMousePolicy, OverlayOutsideClickPolicy, OverlayRecord, PanelContext, ShellCommand } from "./types.js";
 
 const HEADER_HEIGHT = 2;
 const FOOTER_HEIGHT = 2;
 
 type MasterTuiAppOptions = {
 	terminal?: Terminal;
+};
+
+type OverlayOptionsWithMousePolicy = OverlayOptions & {
+	mousePolicy?: OverlayMousePolicy;
 };
 
 export class MasterTuiApp {
@@ -195,9 +199,12 @@ export class MasterTuiApp {
 			const overlay = this.overlays[i];
 			const rect = resolveOverlayRect(overlay.component, overlay.options, this.tui.terminal.columns, this.tui.terminal.rows);
 			if (!pointInRect(event, rect)) {
-				return;
+				continue;
 			}
 			overlay.component.handleMouse?.(event, rect);
+			return;
+		}
+		if (this.applyOutsideClickPolicy(event) === "consumed") {
 			return;
 		}
 
@@ -254,15 +261,36 @@ export class MasterTuiApp {
 		this.tui.requestRender();
 	}
 
-	private showOverlay(id: string, component: OverlayRecord["component"], options: OverlayOptions): void {
+	private showOverlay(id: string, component: OverlayRecord["component"], options: OverlayOptionsWithMousePolicy): void {
 		this.closeOverlay(id);
 		const handle = this.tui.showOverlay(component, options);
 		this.overlays.push({
 			id,
 			component,
 			options,
+			mousePolicy: options.mousePolicy,
 			hide: () => handle.hide(),
 		});
+	}
+
+	private applyOutsideClickPolicy(event: MouseEvent): "consumed" | "ignored" {
+		if (event.action !== "down" || event.button !== "left") {
+			return "ignored";
+		}
+		for (let index = this.overlays.length - 1; index >= 0; index--) {
+			const overlay = this.overlays[index];
+			const policy = overlay.mousePolicy?.outsideClick ?? this.getDefaultOutsideClickPolicy();
+			if (policy === "noop" || policy === "clear-focus") {
+				continue;
+			}
+			this.closeOverlay(overlay.id);
+			return "consumed";
+		}
+		return "ignored";
+	}
+
+	private getDefaultOutsideClickPolicy(): OverlayOutsideClickPolicy {
+		return "noop";
 	}
 
 	private closeTopOverlay(): void {

@@ -1,5 +1,25 @@
-import type { Component, EditorComponent, OverlayOptions, TUI, Terminal } from "@mariozechner/pi-tui";
+import type { Component, EditorComponent, OverlayHandle, OverlayOptions, TUI, Terminal } from "@mariozechner/pi-tui";
+
+export interface HostedViewportDimensions {
+	width: number;
+	height: number;
+}
+
+export interface HostedSizeRequirements {
+	minWidth?: number;
+	minHeight?: number;
+	preferredWidth?: number;
+	preferredHeight?: number;
+	maxWidth?: number;
+	maxHeight?: number;
+}
+
+export interface HostedLayoutCapable extends Component {
+	getHostedSizeRequirements?(viewport: HostedViewportDimensions): HostedSizeRequirements;
+	setHostedViewportSize?(viewport: HostedViewportDimensions): void;
+}
 import type { PiMonoAppDebugger } from "./app-debugger.js";
+import type { FloatWindow } from "./components/float_window.js";
 import type { ArtifactCatalogService } from "./durable/artifacts/artifact-catalog-service.js";
 import type { LogCatalogService } from "./durable/logs/log-catalog-service.js";
 import type { MemoryStoreService } from "./durable/memory/memory-store-service.js";
@@ -14,11 +34,22 @@ export interface OverlayRecord {
 	id: string;
 	component: Component;
 	options: OverlayOptions;
+	handle: OverlayHandle;
+	window?: FloatWindow;
+	mousePolicy?: OverlayMousePolicy;
 	hide: () => void;
 }
 
-export interface MouseAwareOverlay extends Component {
+export interface MouseAwareOverlay extends HostedLayoutCapable {
 	handleMouse?: (event: MouseEvent, rect: Rect) => boolean;
+}
+
+export type OverlayOutsideClickPolicy = "noop" | "clear-focus" | "close";
+
+export interface OverlayMousePolicy {
+	clickThrough?: boolean;
+	outsideClick?: OverlayOutsideClickPolicy;
+	activateOnLeftClick?: boolean;
 }
 
 export type AppEditorComponent = EditorComponent & Component;

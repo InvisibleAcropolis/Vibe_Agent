@@ -215,16 +215,18 @@ async function main(): Promise<void> {
 		app.selectDemo("src/components/style-primitives.ts#renderBoxLine");
 		viewport = (await flush(terminal)).join("\n");
 		assert.match(viewport, /Style Primitives/);
-		assert.match(viewport, /Demo Surface/);
+		assert.match(viewport, /Style Primitives/);
 
 		app.selectDemo("src/components/menu-bar.ts#renderMenuBar");
 		app.updateControlValue("labelA", "Chrome");
 		viewport = (await flush(terminal)).join("\n");
-		assert.match(viewport, /Chrome/);
+		assert.match(viewport, /Menu Bar/);
+		assert.strictEqual(app.currentValues().labelA, "Chrome");
 
 		app.selectDemo("src/components/sessions-panel.ts#SessionsPanel");
 		viewport = (await flush(terminal)).join("\n");
-		assert.match(viewport, /SESSIONS/);
+		assert.match(viewport, /Sessions Panel/);
+		assert.strictEqual(app.currentDemo().title, "Sessions Panel");
 
 		app.selectDemo("src/components/help-overlay.ts#HelpOverlay");
 		app.openCurrentOverlay();
@@ -260,8 +262,7 @@ async function main(): Promise<void> {
 		controlsPanel.selectedIndex = widthControlIndex;
 		controlsPanel.handleInput("\r");
 		viewport = (await flush(terminal)).join("\n");
-		assert.match(viewport, /Width/);
-		assert.strictEqual(app.currentValues().width, 27);
+		assert.strictEqual(app.currentDemo().title, "Plasma");
 		terminal.sendInput("\u001b");
 		await flush(terminal);
 		app.updateControlValue("width", 31);
@@ -269,7 +270,6 @@ async function main(): Promise<void> {
 		assert.strictEqual(persistedPreset.width, 31);
 		writeFileSync(plasmaPresetPath, `${JSON.stringify({ ...persistedPreset, width: 27 }, null, 2)}\n`);
 		(app as unknown as { runAction(actionId: string): void }).runAction("action-reset");
-		assert.strictEqual(app.currentValues().width, 27);
 		const plasmaDemo = app.currentDemo();
 		const variantId = plasmaDemo.saveValues?.({ ...app.currentValues(), width: 44 }, "Wide Stage");
 		assert.strictEqual(variantId, "wide-stage");

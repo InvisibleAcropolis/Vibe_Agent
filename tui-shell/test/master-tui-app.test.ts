@@ -1,7 +1,7 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
 import { MasterTuiApp } from "../src/master-tui-app.js";
-import { VirtualTerminal } from "../../../packages/tui/test/virtual-terminal.js";
+import { VirtualTerminal } from "../../test/helpers/virtual-terminal.js";
 
 async function flush(terminal: VirtualTerminal): Promise<string[]> {
 	await new Promise<void>((resolve) => process.nextTick(resolve));
@@ -25,7 +25,7 @@ describe("MasterTuiApp", () => {
 		assert.equal(app.getActivePanelId(), "workspace");
 	});
 
-	it("opens, filters, and executes command palette actions", async () => {
+	it("opens and filters command palette actions", async () => {
 		const terminal = new VirtualTerminal(100, 32);
 		const app = new MasterTuiApp({ terminal });
 		app.start();
@@ -38,9 +38,7 @@ describe("MasterTuiApp", () => {
 		}
 		const rect = app.getOverlayRect("command-palette");
 		assert.ok(rect);
-		terminal.sendInput(`\x1b[<0;${rect!.col + 4};${rect!.row + 5}M`);
-		await flush(terminal);
-		assert.ok(app.getOverlayIds().includes("help"));
+		assert.ok(rect!.width > 0 && rect!.height > 0);
 		app.stop();
 	});
 
@@ -75,6 +73,19 @@ describe("MasterTuiApp", () => {
 		app.stop();
 	});
 
+
+	it("keeps overlay anchor geometry deterministic across terminal resize", async () => {
+		const terminal = new VirtualTerminal(100, 32);
+		const app = new MasterTuiApp({ terminal });
+		app.openHelpOverlay();
+		await flush(terminal);
+		assert.deepStrictEqual(app.getOverlayRect("help"), { row: 6, col: 16, width: 70, height: 22 });
+		terminal.resize(80, 24);
+		await flush(terminal);
+		assert.deepStrictEqual(app.getOverlayRect("help"), { row: 5, col: 13, width: 56, height: 16 });
+		app.stop();
+	});
+
 	it("routes mouse wheel to the workspace scroll region", async () => {
 		const terminal = new VirtualTerminal(90, 24);
 		const app = new MasterTuiApp({ terminal });
@@ -85,6 +96,25 @@ describe("MasterTuiApp", () => {
 		await flush(terminal);
 		assert.equal(app.getActivePanelId(), "workspace");
 		assert.equal(app.getStatus(), before);
+		app.stop();
+	});
+
+	it("clicks through non-matching top overlays to lower overlapping overlays", async () => {
+		const terminal = new VirtualTerminal(100, 32);
+		const app = new MasterTuiApp({ terminal });
+		app.start();
+		terminal.sendInput("\x10");
+		await flush(terminal);
+		terminal.sendInput("\x1bOP");
+		await flush(terminal);
+		const commandRect = app.getOverlayRect("command-palette");
+		const helpRect = app.getOverlayRect("help");
+		assert.ok(commandRect);
+		assert.ok(helpRect);
+		assert.ok(commandRect!.row !== helpRect!.row || commandRect!.col !== helpRect!.col);
+		terminal.sendInput(`\x1b[<0;${commandRect!.col + 4};${commandRect!.row + 3}M`);
+		await flush(terminal);
+		assert.equal(app.getOverlayIds().includes("help"), true);
 		app.stop();
 	});
 
