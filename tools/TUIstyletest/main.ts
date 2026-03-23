@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { TUIStyleTestApp } from "./app.js";
+import { TUIStyleTestApp } from "./app/index.js";
 
 const app = new TUIStyleTestApp();
 
