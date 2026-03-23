@@ -9,16 +9,17 @@ import {
 import { createOrcTrackerDashboardViewModel } from "../orc-tracker.js";
 import type { OrcControlPlaneState, OrcProjectContext } from "../orc-state.js";
 import { getOrderedSurfaceEntries } from "./subagent-surfaces.js";
-import type { OrcSubagentSurfaceStore, OrcTuiEventLogTailEntry, OrcTuiTelemetryState } from "./types.js";
+import type { OrcTuiInteractionState } from "./interaction-state.js";
+import type { OrcTuiTelemetryReductionState } from "./telemetry-reduction.js";
+import type { OrcTuiEventLogTailEntry, OrcTuiTelemetryState } from "./types.js";
 
 export function createViewState(
-	controlPlane: OrcControlPlaneState,
-	reducerState: OrcEventReducerState,
-	surfaceStore: OrcSubagentSurfaceStore,
+	telemetryState: OrcTuiTelemetryReductionState,
+	interactionState: OrcTuiInteractionState,
 	eventLogTail: OrcTuiEventLogTailEntry[],
-	hiddenOverlayIds: string[] = [],
-	focusedOverlayId?: string,
 ): OrcTuiTelemetryState {
+	const { controlPlane, reducerState } = telemetryState;
+	const { surfaceStore, hiddenOverlayIds, focusedOverlayId } = interactionState;
 	const subagentEntries = getOrderedSurfaceEntries(surfaceStore);
 	const summaryRowKeys = subagentEntries
 		.filter((entry) => entry.retention === "collapsed-summary")

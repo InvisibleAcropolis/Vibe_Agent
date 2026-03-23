@@ -1,21 +1,17 @@
 import type { OrcEventBusSubscription } from "../orc-event-bus.js";
-import { ORC_EVENT_REDUCER_INITIAL_STATE, reduceOrcBusEvent, reduceOrcControlPlaneEvent } from "../orc-events/index.js";
 import { createOrcTuiEventBuffer } from "./event-buffer.js";
 import {
 	closeSubagentSurface,
-	createEmptySurfaceStore,
-	focusOverlayInSurfaceStore,
+	createInteractionState,
+	focusOverlay,
 	focusSubagentSurface,
-	reduceSubagentSurfaceStore,
-} from "./subagent-surfaces.js";
+	hideOverlay,
+	reduceInteractionTelemetryEvent,
+	showOverlay,
+} from "./interaction-state.js";
 import type { OrcTuiTelemetryState, OrcTuiTelemetrySubscriber, OrcTuiTelemetrySubscriberOptions } from "./types.js";
-import {
-	cloneControlPlaneState,
-	cloneReducerState,
-	createEmptyControlPlaneState,
-	createViewState,
-	uniqueStringValues,
-} from "./view-state.js";
+import { createTelemetryReductionState, mergeEventLogTail, reduceTelemetryState } from "./telemetry-reduction.js";
+import { createViewState } from "./view-state.js";
 
 const DEFAULT_MAX_EVENT_LOG_ENTRIES = 40;
 const DEFAULT_BATCH_WINDOW_MS = 16;
@@ -44,11 +40,9 @@ export function createOrcTuiTelemetrySubscriber(options: OrcTuiTelemetrySubscrib
 	const listeners = new Set<(state: OrcTuiTelemetryState) => void>();
 	const maxEventLogEntries = Math.max(1, options.maxEventLogEntries ?? DEFAULT_MAX_EVENT_LOG_ENTRIES);
 	const batchWindowMs = Math.max(0, options.batchWindowMs ?? DEFAULT_BATCH_WINDOW_MS);
-	let reducerState = cloneReducerState(ORC_EVENT_REDUCER_INITIAL_STATE);
-	let controlPlane = cloneControlPlaneState(options.initialState ?? createEmptyControlPlaneState(options.threadId, options.project));
-	let surfaceStore = createEmptySurfaceStore();
-	let state = createViewState(controlPlane, reducerState, surfaceStore, []);
-	let hiddenOverlayIds: string[] = [];
+	let telemetryState = createTelemetryReductionState(options);
+	let interactionState = createInteractionState();
+	let state = createViewState(telemetryState, interactionState, []);
 	let busSubscription: OrcEventBusSubscription | undefined;
 
 	const notify = () => {
@@ -57,31 +51,30 @@ export function createOrcTuiTelemetrySubscriber(options: OrcTuiTelemetrySubscrib
 		}
 	};
 
-	const rebuildState = (eventLogTail = state.eventLogTail, focusedOverlayId = state.overlays.focusedOverlayId) => {
-		state = createViewState(controlPlane, reducerState, surfaceStore, eventLogTail, hiddenOverlayIds, focusedOverlayId);
+	const rebuildState = (eventLogTail = state.eventLogTail) => {
+		state = createViewState(telemetryState, interactionState, eventLogTail);
 	};
 
 	const eventBuffer = createOrcTuiEventBuffer({
 		maxEventLogEntries,
 		batchWindowMs,
 		onFlush(pendingTail) {
-			const mergedTail = [...pendingTail, ...state.eventLogTail].slice(0, maxEventLogEntries);
+			const mergedTail = mergeEventLogTail(state.eventLogTail, pendingTail, maxEventLogEntries);
 			rebuildState(mergedTail);
 			notify();
 		},
 	});
 
-	const handleEvent = (event: Parameters<typeof reduceOrcBusEvent>[1]) => {
+	const handleEvent = (event: Parameters<typeof reduceTelemetryState>[1]) => {
 		if (!eventBuffer.handleEvent(event)) {
 			return;
 		}
-		reducerState = reduceOrcBusEvent(reducerState, event);
-		controlPlane = reduceOrcControlPlaneEvent(controlPlane, event);
-		surfaceStore = reduceSubagentSurfaceStore(surfaceStore, event);
+		telemetryState = reduceTelemetryState(telemetryState, event);
+		interactionState = reduceInteractionTelemetryEvent(interactionState, event);
 	};
 
-	const emitImmediate = (focusedOverlayId = state.overlays.focusedOverlayId) => {
-		rebuildState(eventBuffer.flushNow(state.eventLogTail), focusedOverlayId);
+	const emitImmediate = () => {
+		rebuildState(mergeEventLogTail(state.eventLogTail, eventBuffer.flushNow([]), maxEventLogEntries));
 		notify();
 	};
 
@@ -107,34 +100,31 @@ export function createOrcTuiTelemetrySubscriber(options: OrcTuiTelemetrySubscrib
 			return state;
 		},
 		switchThread(threadId, initialState) {
-			controlPlane = cloneControlPlaneState(initialState ?? createEmptyControlPlaneState(threadId, options.project));
-			reducerState = cloneReducerState(ORC_EVENT_REDUCER_INITIAL_STATE);
-			surfaceStore = createEmptySurfaceStore();
-			hiddenOverlayIds = [];
+			telemetryState = createTelemetryReductionState({ threadId, initialState, project: options.project });
+			interactionState = createInteractionState();
 			eventBuffer.reset();
-			rebuildState([], undefined);
+			rebuildState([]);
 			notify();
 		},
 		closeSubagentSurface(surfaceKey) {
-			surfaceStore = closeSubagentSurface(surfaceStore, surfaceKey);
+			interactionState = closeSubagentSurface(interactionState, surfaceKey);
 			emitImmediate();
 		},
 		focusSubagentSurface(surfaceKey) {
-			surfaceStore = focusSubagentSurface(surfaceStore, surfaceKey);
+			interactionState = focusSubagentSurface(interactionState, surfaceKey);
 			emitImmediate();
 		},
 		hideOverlay(overlayId) {
-			hiddenOverlayIds = uniqueStringValues([overlayId, ...hiddenOverlayIds]);
+			interactionState = hideOverlay(interactionState, overlayId);
 			emitImmediate();
 		},
 		showOverlay(overlayId) {
-			hiddenOverlayIds = hiddenOverlayIds.filter((id) => id !== overlayId);
+			interactionState = showOverlay(interactionState, overlayId);
 			emitImmediate();
 		},
 		focusOverlay(overlayId) {
-			hiddenOverlayIds = hiddenOverlayIds.filter((id) => id !== overlayId);
-			surfaceStore = focusOverlayInSurfaceStore(surfaceStore, overlayId);
-			emitImmediate(overlayId);
+			interactionState = focusOverlay(interactionState, overlayId);
+			emitImmediate();
 		},
 		dispose() {
 			busSubscription?.unsubscribe();

@@ -1,4 +1,6 @@
 export { createOrcTuiTelemetrySubscriber } from "./create-subscriber.js";
+export type { OrcTuiInteractionState } from "./interaction-state.js";
+export type { OrcTuiTelemetryReductionState } from "./telemetry-reduction.js";
 export type {
 	OrcSubagentIdentity,
 	OrcSubagentSurfaceEntry,
