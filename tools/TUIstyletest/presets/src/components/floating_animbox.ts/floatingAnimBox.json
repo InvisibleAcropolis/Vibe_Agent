@@ -2,8 +2,8 @@
   "sourceFile": "src/components/anim_plasma.ts",
   "exportName": "renderPlasma",
   "animationPresetId": "default",
-  "cols": 86,
-  "rows": 16,
-  "x": 10,
-  "y": 5
+  "cols": 50,
+  "rows": 9,
+  "x": 78,
+  "y": 22
 }
