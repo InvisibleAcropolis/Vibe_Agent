@@ -33,7 +33,11 @@ import type {
 	OrcPythonTransportLifecycleEvent,
 } from "../src/orchestration/orc-python-transport.js";
 import { OrcPythonChildProcessTransport } from "../src/orchestration/orc-python-transport.js";
-import { createDefaultOrcSecurityPolicy, ORC_SECURITY_STATUS_TEXT } from "../src/orchestration/orc-security.js";
+import {
+	createDefaultOrcSecurityPolicy,
+	mapCommandInterceptorResultToOrcSecurityEvent,
+	ORC_SECURITY_STATUS_TEXT,
+} from "../src/orchestration/orc-security.js";
 import { OrcRuntimeSkeleton } from "../src/orchestration/orc-runtime.js";
 import { OrcSessionHandle } from "../src/orchestration/orc-session.js";
 import { presentOrcEventSummary, presentOrcTrackerSummary } from "../src/orchestration/orc-presentation.js";
@@ -1176,7 +1180,7 @@ test("presentation helpers generate concise summaries and degrade gracefully whe
 		phase: "checkpointed",
 		project: { projectId: "proj-1", projectRoot: "/tmp/project", projectName: "Project One" },
 		messages: [],
-		securityEvents: [{ kind: "approval-required", statusText: "Approval required", detail: "Need approval for deploy", createdAt: "2026-03-22T01:00:05.000Z" }],
+		securityEvents: [{ kind: "approval-required", statusText: "Approval required", detail: "Need approval for deploy", createdAt: "2026-03-22T01:00:05.000Z", telemetryDisposition: "approval-required", requiresOperatorAction: true, blocksExecution: true }],
 		activeWave: { waveId: "wave-4", phase: "executing", startedAt: "2026-03-22T01:00:00.000Z", workerCount: 1, workerIds: [], goal: "Verify patch" },
 		workerResults: [
 			{ workerId: "worker-1", waveId: "wave-4", status: "completed", artifactIds: [], logIds: [] },
@@ -1416,4 +1420,67 @@ test("failure disposition matrix records Phase 2 retryability decisions for term
 	assert.equal(ORC_FAILURE_DISPOSITIONS.transport_user_cancellation.retryability, "phase_2_retryable");
 	assert.equal(ORC_FAILURE_DISPOSITIONS.transport_ambiguous_terminal_state.retryability, "phase_3_recovery");
 	assert.match(ORC_FAILURE_DISPOSITIONS.transport_broken_pipe.remediationHint, /pipe/i);
+});
+
+
+test("security telemetry distinguishes informational notices from approval and blocked policy states", () => {
+	const notice = mapCommandInterceptorResultToOrcSecurityEvent({
+		decision: "allow_with_notice",
+		message: "Command is allowed but leaves the workspace sandbox.",
+		command: "git status",
+		workerId: "worker-sec",
+		createdAt: "2026-03-23T01:00:00.000Z",
+	});
+	const approval = mapCommandInterceptorResultToOrcSecurityEvent({
+		decision: "require_approval",
+		message: "Approval is required before running npm publish.",
+		command: "npm publish",
+		workerId: "worker-sec",
+		createdAt: "2026-03-23T01:00:01.000Z",
+	});
+	const blocked = mapCommandInterceptorResultToOrcSecurityEvent({
+		decision: "block",
+		message: "Blocked rm -rf / by policy.",
+		command: "rm -rf /",
+		workerId: "worker-sec",
+		createdAt: "2026-03-23T01:00:02.000Z",
+	});
+
+	assert.equal(notice.kind, "informational-notice");
+	assert.equal(notice.blocksExecution, false);
+	assert.equal(approval.kind, "approval-required");
+	assert.equal(approval.blocksExecution, true);
+	assert.equal(blocked.kind, "blocked-command");
+	assert.equal(blocked.telemetryDisposition, "blocked");
+
+	const state: OrcControlPlaneState = {
+		threadId: "thread-sec",
+		phase: "executing",
+		project: { projectId: "proj-sec", projectRoot: "/tmp/project-sec" },
+		messages: [],
+		securityEvents: [notice, approval, blocked],
+		workerResults: [],
+		verificationErrors: [],
+		checkpointMetadata: createInitialCheckpointMetadataSummary(),
+		transportHealth: createInitialReducedTransportHealth(),
+		terminalState: createInitialTerminalStateSummary(),
+		lastUpdatedAt: "2026-03-23T01:00:03.000Z",
+	};
+	const summary = presentOrcTrackerSummary(state);
+	assert.equal(summary.blockedTasks.label, "2");
+	assert.equal(summary.signOff.label, "Blocked");
+	assert.equal(summary.phase.label, "Blocked By Policy");
+	assert.match(presentOrcEventSummary({
+		kind: "security.approval",
+		payload: { event: notice },
+		envelope: {
+			origin: { eventId: "notice-1", emittedAt: notice.createdAt, threadId: "thread-sec", runCorrelationId: "run-sec", streamSequence: 1, source: "future_replay" },
+			who: { id: "agent-sec", kind: "agent", label: "Security Agent", workerId: "worker-sec" },
+			what: { category: "security", name: "security_notice", status: "succeeded", severity: "notice" },
+			how: { channel: "event_bus", interactionTarget: "computer", environment: "worker" },
+			when: notice.createdAt,
+		},
+		interaction: { target: "computer", lane: "agent_interacting_with_computer", isUserFacing: false, isComputerFacing: true },
+		debug: { normalizedFrom: "test" },
+	} as OrcBusEvent).label, /Security notice/);
 });
