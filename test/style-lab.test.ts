@@ -31,6 +31,7 @@ function createRuntimeContext(): StyleTestRuntimeContext {
 		}),
 		getTheme: () => getActiveTheme(),
 		getThemeName: () => getActiveTheme().name,
+		resolveStyleDemo: () => undefined,
 		openSelectOverlay: () => undefined,
 		openTextPrompt: () => undefined,
 		openEditorPrompt: () => undefined,

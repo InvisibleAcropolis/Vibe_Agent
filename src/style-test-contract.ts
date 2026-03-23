@@ -69,6 +69,7 @@ export interface StyleTestRuntimeContext {
 	getAnimationState(): AnimationState;
 	getTheme(): ThemeConfig;
 	getThemeName(): ThemeName;
+	resolveStyleDemo(sourceFile: string, exportName: string): StyleTestDemoDefinition | undefined;
 	openSelectOverlay(id: string, title: string, description: string): void;
 	openTextPrompt(title: string, description: string, initialValue: string): void;
 	openEditorPrompt(title: string, prefill: string): void;

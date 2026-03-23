@@ -10,6 +10,7 @@ import { parseMouseEvent, pointInRect } from "../../src/mouse.js";
 import { DefaultOverlayController } from "../../src/overlay-controller.js";
 import { SideBySideContainer } from "../../src/components/side-by-side-container.js";
 import { renderMenuBar, type MenuBarItem } from "../../src/components/menu-bar.js";
+import { animPreloadService } from "../../src/components/animpreload-service.js";
 import { agentTheme, createDynamicTheme } from "../../src/theme.js";
 import type {
 	StyleTestControl,
@@ -422,6 +423,7 @@ export class TUIStyleTestApp {
 		this.running = false;
 		this.runtime?.dispose?.();
 		this.animationEngine.stop();
+		animPreloadService.disposeAll();
 		this.overlayController.closeAllOverlays();
 		this.tui.stop();
 	}
@@ -639,6 +641,8 @@ export class TUIStyleTestApp {
 			getAnimationState: () => this.animationEngine.getState(),
 			getTheme: () => getActiveTheme(),
 			getThemeName: () => this.getThemeName(),
+			resolveStyleDemo: (sourceFile, exportName) =>
+				this.demos.find((demo) => demo.sourceFile === sourceFile && demo.id === `${sourceFile}#${exportName}`),
 			openSelectOverlay: (id, title, description) =>
 				this.overlayController.openSelectOverlay(
 					id,
