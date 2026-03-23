@@ -8,7 +8,7 @@ import type { OrcCanonicalEventEnvelope, OrcPythonRunnerSpawnContract, OrcRunner
 import { defaultBuildPythonRunnerSpawnContract } from "./spawn-contract.js";
 import { drainTerminatedLines, flushResidualStream, guardBuffer } from "./line-assembler.js";
 import { extractObservedSequenceHint, handleStdoutLine, previewLine } from "./protocol-parser.js";
-import type { OrcTransportEmissionRequest, OrcTransportPolicyAction } from "./policy-results.js";
+import type { OrcTransportPolicyAction, OrcTransportPolicyResult, OrcTransportTimeoutHealthMarks } from "./policy-results.js";
 import { OrcPythonTransportHealthStore } from "./health-store.js";
 import { evaluateTransportTimeouts, startMonitors, stopMonitors } from "./timeout-monitor.js";
 import {
@@ -366,20 +366,24 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 		if (!policy) {
 			return;
 		}
-		if (policy.readyTimedOut) {
-			this.health.timeouts.lastReadyTimeoutAt = policy.nowIso;
-		}
-		if (policy.stallTimedOut) {
-			this.health.timeouts.lastStallFaultAt = policy.nowIso;
-		}
-		if (policy.idleWarningDue) {
-			this.health.timeouts.lastIdleWarningAt = policy.nowIso;
-		}
+		this.applyTimeoutHealthMarks(policy.healthMarks);
 		this.applyPolicyResult(policy);
 	}
 
 
-	private applyPolicyResult(policy: { emissions: OrcTransportEmissionRequest[]; action: OrcTransportPolicyAction }): void {
+	private applyTimeoutHealthMarks(healthMarks: OrcTransportTimeoutHealthMarks): void {
+		if (healthMarks.lastReadyTimeoutAt) {
+			this.health.timeouts.lastReadyTimeoutAt = healthMarks.lastReadyTimeoutAt;
+		}
+		if (healthMarks.lastStallFaultAt) {
+			this.health.timeouts.lastStallFaultAt = healthMarks.lastStallFaultAt;
+		}
+		if (healthMarks.lastIdleWarningAt) {
+			this.health.timeouts.lastIdleWarningAt = healthMarks.lastIdleWarningAt;
+		}
+	}
+
+	private applyPolicyResult(policy: OrcTransportPolicyResult): void {
 		for (const emission of policy.emissions) {
 			if (emission.kind === "warning") {
 				this.emitTransportWarning(emission.code, emission.message, emission.payload);
