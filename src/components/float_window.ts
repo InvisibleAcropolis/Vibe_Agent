@@ -157,9 +157,11 @@ function composite(baseLines: string[], childLines: string[], row: number, col: 
 
 export function adaptHostedComponent(component: Component): FloatWindowHostedElement {
 	const hosted = component as HostedLayoutCapable;
+	const mouseAware = component as FloatWindowHostedElement;
 	return {
 		render: (width) => component.render(width),
 		handleInput: component.handleInput?.bind(component),
+		handleMouse: mouseAware.handleMouse?.bind(component),
 		invalidate: () => component.invalidate(),
 		wantsKeyRelease: component.wantsKeyRelease,
 		getHostedSizeRequirements: hosted.getHostedSizeRequirements?.bind(component),
@@ -391,7 +393,6 @@ export class FloatWindow implements FloatWindowHostedElement {
 		if (top && right) return "top-right";
 		if (bottom && left) return "bottom-left";
 		if (bottom && right) return "bottom-right";
-		if (top) return "top";
 		if (bottom) return "bottom";
 		if (left) return "left";
 		if (right) return "right";
