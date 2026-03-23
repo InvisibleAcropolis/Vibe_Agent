@@ -724,6 +724,58 @@ The [styleguide.md](styleguide.md) is a **LIVING DOCUMENT** covering UI and anim
 
 Refer to styleguide.md for detailed animation development documentation.
 
+
+## Orc debugging and diagnostics
+
+The new Orc debug mode is **opt-in**. It is intended for outside engineers diagnosing transport, parser, or Python-runner problems and is intentionally kept out of the default operator-friendly dashboard surfaces.
+
+### Debug toggle
+
+- Config shape: `orchestration.debug.enabled` in `~/Vibe_Agent/config/vibe-agent-config.json`.
+- Runtime hook: pass `debugMode: { enabled: true }` into `OrcRuntimeSkeleton` adapters when embedding the runtime directly.
+- Current caveat: the config schema is normalized and documented now, but the main app still needs follow-on wiring to automatically thread that toggle into the live Orc runtime constructor.
+
+Example config snippet:
+
+```json
+{
+  "orchestration": {
+    "debug": {
+      "enabled": true
+    }
+  }
+}
+```
+
+### Where debug artifacts live
+
+All Orc durable data still roots at `~/Vibe_Agent/`. When debug mode is enabled for a run, engineers should expect these locations:
+
+| Artifact | Location | Notes |
+|---|---|---|
+| Python stderr | `~/Vibe_Agent/logs/orchestration/debug/threads/<thread>/runs/<run>/python-stderr.jsonl` | Raw stderr lines plus truncation metadata. |
+| Raw event mirror | `~/Vibe_Agent/logs/orchestration/debug/threads/<thread>/runs/<run>/raw-event-mirror.jsonl` | Canonical stdout envelopes mirrored before reducer/UI summarization. |
+| Parser warnings | `~/Vibe_Agent/logs/orchestration/debug/threads/<thread>/runs/<run>/parser-warnings.jsonl` | Recoverable parse noise plus fatal corruption threshold context. |
+| Transport diagnostics | `~/Vibe_Agent/logs/orchestration/debug/threads/<thread>/runs/<run>/transport-diagnostics.jsonl` | Lifecycle snapshots, warnings, faults, and health metadata. |
+| Runtime metadata | `~/Vibe_Agent/logs/orchestration/debug/threads/<thread>/runs/<run>/runtime-metadata.json` | Run/thread ids, transport command info, artifact paths, and safety caveats. |
+| Durable event log | `~/Vibe_Agent/logs/orchestration/event-log/threads/<thread>/runs/<run>/` | Normalized bus events for replay/postmortem analysis. |
+| Tracker snapshots | `~/Vibe_Agent/tracker/<thread>--<checkpoint>.json` | Reduced durable state for resume/handoff, not raw debug detail. |
+| Tracker export snapshot | `~/Vibe_Agent/tracker/LANGEXTtracker.md` | Reserved markdown export location for tracker snapshots and handoffs. |
+
+### Practical troubleshooting workflow
+
+1. **Runner will not start**: inspect `runtime-metadata.json` and `transport-diagnostics.jsonl` first to confirm the spawn command/cwd and whether startup failed before the ready envelope.
+2. **Malformed JSONL**: inspect `parser-warnings.jsonl` for `transport_parse_noise` or `transport_corrupt_stream`, then compare the same run in `raw-event-mirror.jsonl` and `python-stderr.jsonl`.
+3. **Missing Python runner entry point**: confirm the runtime is still launching `python3 -m src.orchestration.python.orc_runner` from the repository root and that stderr captured the import/module failure.
+4. **Stalled stream**: check `transport-diagnostics.jsonl` for `transport_idle_timeout`, `transport_stall_timeout`, or `transport_ready_timeout`; correlate timestamps with event-log gaps.
+5. **Transport startup failure**: inspect `transport-diagnostics.jsonl` + `python-stderr.jsonl`, then compare against the latest tracker snapshot to see whether the run ever crossed into a durable checkpoint boundary.
+
+### Safety caveats
+
+- Leave debug mode **off by default**; it records low-level payload mirrors and transport detail that are too noisy for the default Orc UI.
+- Debug files are durable and may include provider/tool payload fragments, command previews, or stderr text that should be reviewed before sharing outside the engineering team.
+- Tracker snapshots stay intentionally slim even when debug mode is enabled; use debug artifacts + event logs together for forensics.
+
 ## Orc Python runner local execution assumptions
 
 - Stable runner package location: `src/orchestration/python/orc_runner/`, invoked locally as `python3 -m src.orchestration.python.orc_runner` from the repository root.
@@ -737,6 +789,7 @@ Refer to styleguide.md for detailed animation development documentation.
 
 | Date | Version | Changes |
 |------|---------|---------|
+| 2026-03-23 | 1.0.5 | Added opt-in Orc debug-mode documentation, durable artifact locations, and troubleshooting guidance for transport/parser failures |
 | 2026-03-22 | 1.0.4 | Added the stable Orc Python runner location, local execution assumptions, and stdin/stdout/stderr contract documentation for outside engineers |
 | 2026-03-22 | 1.0.2 | Added Phase 1 orchestration scaffold documentation for outside engineers and linked the README to the new Orc architecture guide |
 | 2026-03-22 | 1.0.3 | Added the Phase 2 execution-plan guide and linked the README to the new Orc worker-plane/task-planning documentation |

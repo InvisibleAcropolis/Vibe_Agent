@@ -23,6 +23,9 @@ export type AppConfig = {
 			writeAllowedPaths?: string[];
 			blockedCommandPatterns?: string[];
 		};
+		debug?: {
+			enabled?: boolean;
+		};
 	};
 };
 
@@ -85,6 +88,13 @@ function normalizeOrchestrationConfig(config: AppConfig["orchestration"] | undef
 					blockedCommandPatterns: normalizeStringList(config.workerSandbox.blockedCommandPatterns),
 				}
 			: undefined,
+		...(config.debug
+			? {
+					debug: {
+						enabled: typeof config.debug.enabled === "boolean" ? config.debug.enabled : undefined,
+					},
+				}
+			: {}),
 	};
 }
 

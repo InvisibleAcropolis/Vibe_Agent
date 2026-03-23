@@ -14,6 +14,7 @@ import { MemoryStoreService } from "../src/durable/memory/memory-store-service.j
 import { WorkbenchInventoryService } from "../src/durable/workbench-inventory-service.js";
 import { ensureVibeDurableStorage, getVibeArtifactCatalogPath, getVibeConfigPath, getVibeLogCatalogPath, getVibeMemoryCatalogPath, getVibeTrackerCatalogPath } from "../src/durable/durable-paths.js";
 import { LocalFileOrcCheckpointStore } from "../src/orchestration/orc-checkpoints.js";
+import { OrcDebugArtifactsWriter } from "../src/orchestration/orc-debug.js";
 import { OrcAsyncEventBus } from "../src/orchestration/orc-event-bus.js";
 import { attachOrcDurableEventLogWriter, getOrcEventLogLocation } from "../src/orchestration/orc-event-log.js";
 import {
@@ -31,6 +32,7 @@ import type {
 	OrcPythonTransportHealth,
 	OrcPythonTransportLifecycleEvent,
 } from "../src/orchestration/orc-python-transport.js";
+import { OrcPythonChildProcessTransport } from "../src/orchestration/orc-python-transport.js";
 import { createDefaultOrcSecurityPolicy, ORC_SECURITY_STATUS_TEXT } from "../src/orchestration/orc-security.js";
 import { OrcRuntimeSkeleton } from "../src/orchestration/orc-runtime.js";
 import { OrcSessionHandle } from "../src/orchestration/orc-session.js";
@@ -971,6 +973,81 @@ test("attachOrcDurableEventLogWriter keeps persistence failures non-fatal to the
 	assert.match(writer.getSnapshot().lastFailure?.message ?? "", /no such file|ENOENT/i);
 	assert.strictEqual(bus.getSnapshot().publishedEvents, 1);
 	bus.dispose();
+});
+
+test("OrcPythonChildProcessTransport writes opt-in debug artifacts for stderr, raw-event mirrors, parser warnings, and transport diagnostics", async () => {
+	const durableRoot = mkdtempSync(path.join(tempRoot, "orc-debug-"));
+	const threadId = "thread-debug";
+	const runCorrelationId = "run-debug";
+	const debugWriter = new OrcDebugArtifactsWriter(threadId, runCorrelationId, { durableRoot });
+	const transport = new OrcPythonChildProcessTransport({
+		debugArtifactsWriter: debugWriter,
+		buildSpawnContract: (input) => ({
+			command: "node",
+			args: [
+				"--input-type=module",
+				"--eval",
+				[
+					"import process from 'node:process';",
+					"let stdin='';",
+					"process.stdin.setEncoding('utf8');",
+					"process.stdin.on('data', (chunk) => { stdin += chunk; });",
+					"process.stdin.on('end', () => {",
+					"  const payload = JSON.parse(stdin.trim());",
+					"  process.stdout.write('not-json\\n');",
+					"  process.stderr.write('runner stderr line\\n');",
+					"  process.stdout.write(JSON.stringify({",
+					"    origin: { runCorrelationId: payload.runCorrelationId, eventId: 'evt-1', streamSequence: 1, emittedAt: '2026-03-23T00:00:00.000Z', source: 'python_runner', threadId: payload.threadId },",
+					"    who: { kind: 'agent', id: 'orc-runner', label: 'Orc Runner' },",
+					"    what: { category: 'lifecycle', name: 'graph_ready', severity: 'info', status: 'started' },",
+					"    how: { channel: 'stdout_jsonl', interactionTarget: 'computer', environment: 'transport', transport: 'python_child_process' },",
+					"    when: '2026-03-23T00:00:00.000Z'",
+					"  }) + '\\n');",
+					"});",
+				].join(""),
+			],
+			cwd: input.workspaceRoot,
+			stdinPayload: input,
+			stdoutProtocol: "jsonl",
+			stderrProtocol: "diagnostic_text",
+		}),
+	});
+	const lifecycleStages: string[] = [];
+	transport.onLifecycle((event) => lifecycleStages.push(event.stage));
+	const exitSeen = new Promise<void>((resolve) => {
+		transport.onLifecycle((event) => {
+			if (event.stage === "exit") {
+				resolve();
+			}
+		});
+	});
+
+	await transport.launch({
+		threadId,
+		projectRoot: durableRoot,
+		workspaceRoot: durableRoot,
+		phaseIntent: "debug-test",
+		securityPolicy: createDefaultOrcSecurityPolicy(),
+		resume: {},
+		runCorrelationId,
+	});
+	await exitSeen;
+
+	const parserWarnings = readFileSync(debugWriter.location.parserWarningsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+	const stderrLines = readFileSync(debugWriter.location.pythonStderrPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+	const rawMirrors = readFileSync(debugWriter.location.rawEventMirrorPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+	const transportDiagnostics = readFileSync(debugWriter.location.transportDiagnosticsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+
+	assert.ok(lifecycleStages.includes("spawned"));
+	assert.ok(lifecycleStages.includes("ready"));
+	assert.ok(lifecycleStages.includes("exit"));
+	assert.strictEqual(parserWarnings[0]?.code, "transport_parse_noise");
+	assert.match(stderrLines[0]?.line ?? "", /runner stderr line/);
+	assert.strictEqual(rawMirrors[0]?.origin?.eventId, "evt-1");
+	assert.ok(transportDiagnostics.some((entry) => entry.type === "warning"));
+	assert.ok(transportDiagnostics.some((entry) => entry.type === "lifecycle"));
+
+	await transport.dispose();
 });
 
 

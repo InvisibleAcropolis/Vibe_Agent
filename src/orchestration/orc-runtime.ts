@@ -13,6 +13,7 @@ import type {
 } from "./orc-io.js";
 import { attachOrcDurableEventLogWriter, type OrcDurableEventLogWriter } from "./orc-event-log.js";
 import { createOrcEventBus, type OrcEventBus, type OrcEventBusSubscription } from "./orc-event-bus.js";
+import { OrcDebugArtifactsWriter, type OrcDebugModeOptions } from "./orc-debug.js";
 import {
 	ORC_FAILURE_DISPOSITIONS,
 	createInitialCheckpointMetadataSummary,
@@ -60,6 +61,7 @@ export interface OrcRuntimeAdapters {
 	createTracker?: () => OrcTracker;
 	createCheckpointStore?: () => OrcCheckpointStore;
 	createStorage?: () => OrcStorage;
+	debugMode?: OrcDebugModeOptions;
 }
 
 export interface OrcSessionFactoryInput {
@@ -85,6 +87,7 @@ interface OrcRuntimeLiveHandles {
 	tracker: OrcTracker;
 	checkpointStore: OrcCheckpointStore;
 	storage: OrcStorage;
+	debugArtifactsWriter?: OrcDebugArtifactsWriter;
 }
 
 interface OrcRuntimeStorageHooks {
@@ -280,13 +283,21 @@ export class OrcRuntimeSkeleton implements OrcRuntime {
 			component: "orc-runtime",
 			description: `Live Orc event bus for thread ${input.threadId}`,
 		}) ?? createOrcEventBus({ component: "orc-runtime", description: `Live Orc event bus for thread ${input.threadId}` });
-		const transport = this.createPythonTransport();
+		const debugArtifactsWriter = this.adapters.debugMode?.enabled
+			? new OrcDebugArtifactsWriter(input.threadId, input.runCorrelationId, this.adapters.debugMode)
+			: undefined;
+		const transport = this.adapters.createPythonTransport?.() ??
+			new OrcPythonChildProcessTransport({
+				buildSpawnContract: this.adapters.buildPythonRunnerSpawnContract,
+				debugArtifactsWriter,
+			});
 		const live: OrcRuntimeLiveHandles = {
 			transport,
 			eventBus,
 			tracker: this.tracker,
 			checkpointStore: this.checkpoints,
 			storage: this.storage,
+			debugArtifactsWriter,
 		};
 		const { writer, subscription } = attachOrcDurableEventLogWriter(eventBus, {
 			threadId: input.threadId,
@@ -314,6 +325,43 @@ export class OrcRuntimeSkeleton implements OrcRuntime {
 			publishedTerminalKeys: new Set(),
 		};
 		this.bindTransport(context);
+		debugArtifactsWriter?.writeRuntimeMetadata({
+			threadId: input.threadId,
+			runCorrelationId: input.runCorrelationId,
+			createdAt: new Date().toISOString(),
+			debugMode: "opt_in",
+			artifacts: {
+				runtimeMetadata: debugArtifactsWriter.location.runtimeMetadataPath,
+				pythonStderr: debugArtifactsWriter.location.pythonStderrPath,
+				rawEventMirror: debugArtifactsWriter.location.rawEventMirrorPath,
+				parserWarnings: debugArtifactsWriter.location.parserWarningsPath,
+				transportDiagnostics: debugArtifactsWriter.location.transportDiagnosticsPath,
+				eventLogManifest: writer.getSnapshot().manifestPath,
+			},
+			project: {
+				projectId: input.state.project.projectId,
+				projectRoot: input.state.project.projectRoot,
+			},
+			transport: {
+				command: transport.getHealth().command,
+				args: transport.getHealth().args,
+				cwd: transport.getHealth().cwd,
+				pid: transport.getHealth().pid,
+			},
+			state: {
+				checkpointId: input.state.checkpointId,
+				phase: input.state.phase,
+				lastUpdatedAt: input.state.lastUpdatedAt,
+			},
+			safety: {
+				operatorUiSurface: "default_dashboard_unchanged",
+				caveats: [
+					"Debug artifacts are opt-in and remain separate from default operator-facing Orc dashboard surfaces.",
+					"Python stderr and raw-event mirrors may contain noisy provider/tool payloads unsuitable for the default UI.",
+					"Use debug mode for transport/parser troubleshooting, then disable it for routine runs.",
+				],
+			},
+		});
 		session.attachRuntimeHooks(this.createSessionHooks(context));
 		session.updateState(input.state);
 		this.activeThreads.set(input.threadId, context);
