@@ -10,6 +10,13 @@ import type {
 } from "../../../src/style-test-contract.js";
 import { createPlaceholderRuntime } from "../../../src/style-test-fixtures.js";
 import {
+	PLASMA_DEFAULTS,
+	PLASMA_NUMBER_OPTION_SPECS,
+	isPlasmaOptionsPresetValid,
+	normalizePlasmaOptions,
+	type PlasmaOptions,
+} from "../../../src/components/anim_plasma.js";
+import {
 	STARFIELD_DEFAULTS,
 	STARFIELD_NUMBER_OPTION_SPECS,
 	isStarfieldOptionsPresetValid,
@@ -153,6 +160,66 @@ const ADAPTERS: Record<string, AnimationAdapter> = {
 			"stereoFlipHueShift",
 			"stereoFlipGlyphOrder",
 		],
+	},
+	"src/components/anim_plasma.ts#renderPlasma": {
+		customizeField(field) {
+			if (field.control.type === "number" && field.id in PLASMA_NUMBER_OPTION_SPECS) {
+				const spec = PLASMA_NUMBER_OPTION_SPECS[field.id as keyof typeof PLASMA_NUMBER_OPTION_SPECS];
+				return {
+					...field,
+					defaultValue: spec.defaultValue,
+					control: {
+						...field.control,
+						defaultValue: spec.defaultValue,
+						min: spec.min,
+						max: spec.max,
+						step: spec.step,
+					},
+				};
+			}
+			if (field.control.type === "boolean" && field.id in PLASMA_DEFAULTS) {
+				const defaultValue = PLASMA_DEFAULTS[field.id as keyof typeof PLASMA_DEFAULTS];
+				if (typeof defaultValue === "boolean") {
+					return {
+						...field,
+						defaultValue,
+						control: {
+							...field.control,
+							defaultValue,
+						},
+					};
+				}
+			}
+			if (field.control.type === "enum" && field.id in PLASMA_DEFAULTS) {
+				const defaultValue = PLASMA_DEFAULTS[field.id as keyof typeof PLASMA_DEFAULTS];
+				if (typeof defaultValue === "string" && field.control.options.includes(defaultValue)) {
+					return {
+						...field,
+						defaultValue,
+						control: {
+							...field.control,
+							defaultValue,
+						},
+					};
+				}
+			}
+			return field;
+		},
+		loadStoredValues(presetStore, presetId) {
+			const stored = presetStore.load(presetId);
+			if (isPlasmaOptionsPresetValid(stored)) {
+				return stored;
+			}
+			const repaired: Record<string, unknown> = { ...PLASMA_DEFAULTS };
+			presetStore.save(repaired, presetId);
+			return repaired;
+		},
+		saveStoredValues(presetStore, values, presetId) {
+			const normalized: Record<string, unknown> = {
+				...normalizePlasmaOptions(values as PlasmaOptions),
+			};
+			return presetStore.save(normalized, presetId);
+		},
 	},
 	"src/components/anim_synthgrid.ts#renderSynthgridWide": {
 		omitOptionFields: ["cols", "rows", "numVLines"],
