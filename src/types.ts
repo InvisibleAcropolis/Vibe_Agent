@@ -17,11 +17,20 @@ export interface OverlayRecord {
 	options: OverlayOptions;
 	handle: OverlayHandle;
 	window?: FloatWindow;
+	mousePolicy?: OverlayMousePolicy;
 	hide: () => void;
 }
 
 export interface MouseAwareOverlay extends Component {
 	handleMouse?: (event: MouseEvent, rect: Rect) => boolean;
+}
+
+export type OverlayOutsideClickPolicy = "noop" | "clear-focus" | "close";
+
+export interface OverlayMousePolicy {
+	clickThrough?: boolean;
+	outsideClick?: OverlayOutsideClickPolicy;
+	activateOnLeftClick?: boolean;
 }
 
 export type AppEditorComponent = EditorComponent & Component;

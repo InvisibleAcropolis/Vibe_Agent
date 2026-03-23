@@ -47,7 +47,9 @@ export class DefaultInputController implements InputController {
 		if (mouseEvent) {
 			this.logMouse(mouseEvent);
 			if (this.overlayController.getOverlayDepth() > 0) {
-				this.overlayController.dispatchMouse(mouseEvent);
+				if (!this.overlayController.dispatchMouse(mouseEvent) && !this.shellView.dispatchMouse(mouseEvent)) {
+					return undefined;
+				}
 			} else if (!this.shellView.dispatchMouse(mouseEvent)) {
 				return undefined;
 			}

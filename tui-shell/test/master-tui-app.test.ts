@@ -88,6 +88,25 @@ describe("MasterTuiApp", () => {
 		app.stop();
 	});
 
+	it("clicks through non-matching top overlays to lower overlapping overlays", async () => {
+		const terminal = new VirtualTerminal(100, 32);
+		const app = new MasterTuiApp({ terminal });
+		app.start();
+		terminal.sendInput("\x10");
+		await flush(terminal);
+		terminal.sendInput("\x1bOP");
+		await flush(terminal);
+		const commandRect = app.getOverlayRect("command-palette");
+		const helpRect = app.getOverlayRect("help");
+		assert.ok(commandRect);
+		assert.ok(helpRect);
+		assert.ok(commandRect!.row > helpRect!.row);
+		terminal.sendInput(`\x1b[<0;${commandRect!.col + 4};${commandRect!.row + 3}M`);
+		await flush(terminal);
+		assert.equal(app.getOverlayIds().includes("help"), true);
+		app.stop();
+	});
+
 	it("stops cleanly from the global quit shortcut", async () => {
 		const terminal = new VirtualTerminal(90, 24);
 		const app = new MasterTuiApp({ terminal });

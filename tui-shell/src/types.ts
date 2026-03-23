@@ -42,9 +42,17 @@ export interface MouseAwareOverlay extends Component {
 	handleMouse?: (event: MouseEvent, rect: Rect) => boolean;
 }
 
+export type OverlayOutsideClickPolicy = "noop" | "clear-focus" | "close";
+
+export interface OverlayMousePolicy {
+	clickThrough?: boolean;
+	outsideClick?: OverlayOutsideClickPolicy;
+}
+
 export interface OverlayRecord {
 	id: string;
 	component: MouseAwareOverlay;
 	options: OverlayOptions;
+	mousePolicy?: OverlayMousePolicy;
 	hide: () => void;
 }
