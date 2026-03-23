@@ -14,8 +14,10 @@ import {
 } from "./orc-security.js";
 import type {
 	OrcActiveExecutionWave,
+	OrcCheckpointBoundarySummary,
 	OrcCheckpointMetadataSummary,
 	OrcControlPlaneState,
+	OrcDurableEventOffset,
 	OrcLifecyclePhase,
 	OrcOrchestratorMessage,
 	OrcParallelWorkerResult,
@@ -887,6 +889,7 @@ export function reduceOrcControlPlaneEvent(
 	applyReducedUserMessages(next, event, limits.maxMessages);
 	applyReducedSecurityEvents(next, event);
 	applyReducedCheckpointMetadata(next, event);
+	applyReducedResumeBridgeMetadata(next, event);
 	applyReducedTransportHealth(next, event);
 	applyReducedTerminalState(next, event);
 	trimReducedCollections(next, limits);
@@ -898,6 +901,64 @@ export function createInitialCheckpointMetadataSummary(): OrcCheckpointMetadataS
 		status: "idle",
 		artifactBundleIds: [],
 		rewindTargetIds: [],
+	};
+}
+
+/**
+ * Checkpoint-worthy transition rules for Phase 3 bridge planning:
+ * - `checkpoint.status` always marks an explicit durable boundary (`started`, `captured`, `restored`, `failed`, `stale`).
+ * - `graph.lifecycle` marks a boundary for `running`, `completed`, `failed`, and `cancelled` because resume logic must know the latest graph-wide durable stage.
+ * - `worker.status` marks a boundary for `waiting_on_input`, `completed`, `failed`, and `cancelled`; `queued`/`running` remain replayable but are not standalone checkpoint cut points.
+ * - `security.approval` marks a boundary only for blocking interventions because resume must preserve human-gated pauses.
+ * - `transport.fault` and `process.lifecycle` terminal stages are retained as boundary metadata so Phase 3 can distinguish clean exits from recovery-required stops.
+ */
+export function isCheckpointWorthyOrcEvent(event: OrcBusEvent): boolean {
+	switch (event.kind) {
+		case "checkpoint.status":
+			return true;
+		case "graph.lifecycle":
+			return ["running", "completed", "failed", "cancelled"].includes(event.payload.stage);
+		case "worker.status":
+			return ["waiting_on_input", "completed", "failed", "cancelled"].includes(event.payload.status);
+		case "security.approval":
+			return isBlockingOrcSecurityEvent(event.payload.event);
+		case "transport.fault":
+			return true;
+		case "process.lifecycle":
+			return ["exited", "terminated"].includes(event.payload.stage);
+		default:
+			return false;
+	}
+}
+
+export function deriveCheckpointBoundarySummary(event: OrcBusEvent): OrcCheckpointBoundarySummary | undefined {
+	if (!isCheckpointWorthyOrcEvent(event)) {
+		return undefined;
+	}
+	return {
+		eventId: event.envelope.origin.eventId,
+		eventKind: event.kind,
+		status: event.envelope.what.status,
+		threadId: event.envelope.origin.threadId,
+		runCorrelationId: event.envelope.origin.runCorrelationId,
+		waveId: readWaveId(event),
+		workerId: extractWorkerId(event),
+		recordedAt: event.envelope.when,
+	};
+}
+
+export function deriveDurableEventOffset(event: OrcBusEvent): OrcDurableEventOffset {
+	const rawPayload = event.envelope.rawPayload;
+	const sequence = rawPayload && typeof rawPayload === "object" && "sequence" in rawPayload ? rawPayload.sequence : undefined;
+	const eventLogGlobalIndex = sequence && typeof sequence === "object" && sequence !== null && "globalEventIndex" in sequence && typeof sequence.globalEventIndex === "number"
+		? sequence.globalEventIndex
+		: undefined;
+	return {
+		eventId: event.envelope.origin.eventId,
+		runCorrelationId: event.envelope.origin.runCorrelationId,
+		streamSequence: event.envelope.origin.streamSequence,
+		eventLogGlobalIndex,
+		recordedAt: event.envelope.when,
 	};
 }
 
@@ -1191,6 +1252,7 @@ function applyReducedCheckpointMetadata(state: OrcControlPlaneState, event: OrcB
 		return;
 	}
 	state.checkpointId = event.payload.checkpointId ?? state.checkpointId;
+	const checkpointBoundary = deriveCheckpointBoundarySummary(event) ?? state.checkpointMetadata.checkpointBoundary;
 	state.checkpointMetadata = {
 		...state.checkpointMetadata,
 		checkpointId: event.payload.checkpointId ?? state.checkpointMetadata.checkpointId,
@@ -1206,9 +1268,22 @@ function applyReducedCheckpointMetadata(state: OrcControlPlaneState, event: OrcB
 			...state.checkpointMetadata.rewindTargetIds,
 			...(event.payload.rewindTargetIds ?? []),
 		]),
+		transportRunCorrelationId: event.envelope.origin.runCorrelationId ?? state.checkpointMetadata.transportRunCorrelationId,
+		latestDurableEventOffset: deriveDurableEventOffset(event),
+		checkpointBoundary,
 		message: event.payload.message ?? state.checkpointMetadata.message,
 		updatedAt: event.envelope.when,
 	};
+}
+
+
+function applyReducedResumeBridgeMetadata(state: OrcControlPlaneState, event: OrcBusEvent): void {
+	state.checkpointMetadata.transportRunCorrelationId = event.envelope.origin.runCorrelationId ?? state.checkpointMetadata.transportRunCorrelationId;
+	state.checkpointMetadata.latestDurableEventOffset = deriveDurableEventOffset(event);
+	const boundary = deriveCheckpointBoundarySummary(event);
+	if (boundary) {
+		state.checkpointMetadata.checkpointBoundary = boundary;
+	}
 }
 
 function applyReducedTransportHealth(state: OrcControlPlaneState, event: OrcBusEvent): void {

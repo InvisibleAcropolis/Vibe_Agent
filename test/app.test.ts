@@ -22,6 +22,7 @@ import {
 	createInitialCheckpointMetadataSummary,
 	createInitialReducedTransportHealth,
 	createInitialTerminalStateSummary,
+	isCheckpointWorthyOrcEvent,
 	reduceOrcControlPlaneEvent,
 	type OrcBusEvent,
 } from "../src/orchestration/orc-events.js";
@@ -618,7 +619,12 @@ test("Local Orc checkpoint store persists manifests and tracker snapshots by sta
 		messages: [],
 		workerResults: [],
 		verificationErrors: [],
-		checkpointMetadata: createInitialCheckpointMetadataSummary(),
+		checkpointMetadata: {
+			...createInitialCheckpointMetadataSummary(),
+			transportRunCorrelationId: "run-cp-1",
+			latestDurableEventOffset: { eventId: "evt-0", runCorrelationId: "run-cp-1", streamSequence: 4, eventLogGlobalIndex: 4, recordedAt: "2026-03-22T00:00:00.000Z" },
+			checkpointBoundary: { eventId: "evt-0", eventKind: "checkpoint.status", status: "captured", threadId: "thread:alpha", runCorrelationId: "run-cp-1", recordedAt: "2026-03-22T00:00:00.000Z" },
+		},
 		transportHealth: createInitialReducedTransportHealth(),
 		terminalState: createInitialTerminalStateSummary(),
 		lastUpdatedAt: "2026-03-22T00:00:00.000Z",
@@ -633,7 +639,7 @@ test("Local Orc checkpoint store persists manifests and tracker snapshots by sta
 			phase: state.phase,
 			createdAt: state.lastUpdatedAt,
 			trackerStateId: `${state.threadId}:${state.checkpointId}`,
-			resumeData: { phase: state.phase, workerIds: [], instructions: "resume from checkpoint" },
+			resumeData: { phase: state.phase, workerIds: [], instructions: "resume from checkpoint", transportRunCorrelationId: "run-cp-1", latestDurableEventOffset: state.checkpointMetadata.latestDurableEventOffset, checkpointBoundary: state.checkpointMetadata.checkpointBoundary },
 			stateSnapshot: {
 				snapshotId: "snapshot-1",
 				trackerStateId: `${state.threadId}:${state.checkpointId}`,
@@ -643,6 +649,9 @@ test("Local Orc checkpoint store persists manifests and tracker snapshots by sta
 			},
 			artifactBundleIds: ["bundle-1"],
 			rewindTargetIds: [state.checkpointId!],
+			transportRunCorrelationId: "run-cp-1",
+			latestDurableEventOffset: state.checkpointMetadata.latestDurableEventOffset,
+			checkpointBoundary: state.checkpointMetadata.checkpointBoundary,
 		},
 	});
 
@@ -652,6 +661,8 @@ test("Local Orc checkpoint store persists manifests and tracker snapshots by sta
 	assert.deepStrictEqual(manifest.artifactBundleIds, ["bundle-1"]);
 	assert.strictEqual((await checkpoints.loadCheckpoint({ threadId: state.threadId }))?.stateSnapshot.storageKey, "thread:alpha/checkpoint:001");
 	assert.strictEqual((await tracker.load(state.threadId, state.checkpointId))?.threadId, state.threadId);
+	assert.strictEqual((await tracker.load(state.threadId, state.checkpointId))?.checkpointMetadata.transportRunCorrelationId, "run-cp-1");
+	assert.strictEqual((await checkpoints.loadCheckpoint({ threadId: state.threadId }))?.latestDurableEventOffset?.eventLogGlobalIndex, 4);
 });
 
 test("AppConfig persists orchestration security settings for main and worker Orc sessions", () => {
@@ -1093,6 +1104,10 @@ test("reduceOrcControlPlaneEvent folds durable summary state and keeps ambiguous
 	assert.equal(state.workerResults[0]?.status, "cancelled");
 	assert.equal(state.messages.at(-1)?.content, "Working");
 	assert.equal(state.checkpointMetadata.checkpointId, "cp-1");
+	assert.equal(state.checkpointMetadata.transportRunCorrelationId, "run-1");
+	assert.equal(state.checkpointMetadata.latestDurableEventOffset?.eventId, "graph-cancelled");
+	assert.equal(state.checkpointMetadata.checkpointBoundary?.eventId, "graph-cancelled");
+	assert.equal(isCheckpointWorthyOrcEvent(mkEvent({ kind: "worker.status", payload: { workerId: "worker-1", waveId: "wave-1", status: "queued", summary: "Queue worker" } }, "worker-queued-2", "2026-03-22T00:00:08.000Z")), false);
 	assert.equal(state.transportHealth.status, "healthy");
 	assert.equal(state.terminalState.status, "ambiguous");
 	assert.match(state.terminalState.reason ?? "", /Conflicting terminal signals/);
