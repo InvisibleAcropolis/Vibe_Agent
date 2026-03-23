@@ -17,6 +17,7 @@ import { LocalFileOrcCheckpointStore } from "../src/orchestration/orc-checkpoint
 import { OrcAsyncEventBus } from "../src/orchestration/orc-event-bus.js";
 import { attachOrcDurableEventLogWriter, getOrcEventLogLocation } from "../src/orchestration/orc-event-log.js";
 import {
+	ORC_FAILURE_DISPOSITIONS,
 	createInitialCheckpointMetadataSummary,
 	createInitialReducedTransportHealth,
 	createInitialTerminalStateSummary,
@@ -32,6 +33,7 @@ import type {
 } from "../src/orchestration/orc-python-transport.js";
 import { createDefaultOrcSecurityPolicy, ORC_SECURITY_STATUS_TEXT } from "../src/orchestration/orc-security.js";
 import { OrcRuntimeSkeleton } from "../src/orchestration/orc-runtime.js";
+import { OrcSessionHandle } from "../src/orchestration/orc-session.js";
 import { presentOrcEventSummary, presentOrcTrackerSummary } from "../src/orchestration/orc-presentation.js";
 import { FileSystemOrcTracker, createOrcTrackerDashboardViewModel } from "../src/orchestration/orc-tracker.js";
 import { createOrcTuiTelemetrySubscriber } from "../src/orchestration/orc-tui-subscriber.js";
@@ -350,10 +352,20 @@ class StubOrcPythonTransport implements OrcPythonTransport {
 
 	async dispose(): Promise<void> {}
 
-	private emitLifecycle(event: OrcPythonTransportLifecycleEvent): void {
+	emitLifecycleEvent(event: OrcPythonTransportLifecycleEvent): void {
 		for (const listener of this.lifecycleListeners) {
 			listener(event);
 		}
+	}
+
+	emitEnvelopeEvent(envelope: OrcCanonicalEventEnvelope): void {
+		for (const listener of this.envelopeListeners) {
+			listener(envelope);
+		}
+	}
+
+	private emitLifecycle(event: OrcPythonTransportLifecycleEvent): void {
+		this.emitLifecycleEvent(event);
 	}
 }
 
@@ -1276,4 +1288,55 @@ test("createOrcTuiTelemetrySubscriber resets transient overlays and tails when t
 
 	subscriber.dispose();
 	bus.dispose();
+});
+
+
+test("runtime publishes canonical terminal events once and keeps tracker state converged for cancellation/disconnect classes", async () => {
+	const transport = new StubOrcPythonTransport();
+	const runtime = new OrcRuntimeSkeleton({ createPythonTransport: () => transport });
+	const launched = await runtime.launch({
+		project: { projectId: "proj-runtime", projectRoot: "/tmp/project-runtime" },
+		prompt: "test convergence",
+	});
+	const session = runtime.getSession(launched.threadId) as OrcSessionHandle;
+	const busSnapshotBefore = session.getRuntimeHooks()?.getEventBusSnapshot();
+	assert.equal(busSnapshotBefore?.publishedEvents, 2);
+
+	transport.emitLifecycleEvent({
+		stage: "terminated",
+		at: "2026-03-22T06:00:00.000Z",
+		threadId: launched.threadId,
+		runCorrelationId: transport.health.runCorrelationId,
+		signal: "SIGTERM",
+		reason: "cancel_requested_by_user",
+	});
+	transport.emitLifecycleEvent({
+		stage: "terminated",
+		at: "2026-03-22T06:00:00.000Z",
+		threadId: launched.threadId,
+		runCorrelationId: transport.health.runCorrelationId,
+		signal: "SIGTERM",
+		reason: "cancel_requested_by_user",
+	});
+	await flushAsyncWork();
+
+	const finalState = session.getState();
+	assert.equal(finalState?.terminalState.status, "cancelled");
+	assert.equal(finalState?.terminalState.failureCode, "transport_user_cancellation");
+	assert.equal(finalState?.transportHealth.status, "healthy");
+	assert.equal(finalState?.terminalState.retryability, ORC_FAILURE_DISPOSITIONS.transport_user_cancellation.retryability);
+
+	const busSnapshotAfter = session.getRuntimeHooks()?.getEventBusSnapshot();
+	assert.equal(busSnapshotAfter?.publishedEvents, 3);
+
+	await runtime.dispose();
+});
+
+test("failure disposition matrix records Phase 2 retryability decisions for terminal fault classes", () => {
+	assert.equal(ORC_FAILURE_DISPOSITIONS.transport_startup_failure.retryability, "phase_2_retryable");
+	assert.equal(ORC_FAILURE_DISPOSITIONS.transport_disconnect.retryability, "phase_3_recovery");
+	assert.equal(ORC_FAILURE_DISPOSITIONS.transport_non_zero_exit.retryability, "phase_3_recovery");
+	assert.equal(ORC_FAILURE_DISPOSITIONS.transport_user_cancellation.retryability, "phase_2_retryable");
+	assert.equal(ORC_FAILURE_DISPOSITIONS.transport_ambiguous_terminal_state.retryability, "phase_3_recovery");
+	assert.match(ORC_FAILURE_DISPOSITIONS.transport_broken_pipe.remediationHint, /pipe/i);
 });

@@ -85,14 +85,14 @@ export function presentOrcEventSummary(event: OrcBusEvent): OrcPresentedSummary 
 			if (event.payload.status === "degraded") {
 				return {
 					label: "Transport degraded",
-					detail: event.payload.message || "Transport degraded.",
+					detail: [event.payload.message, event.payload.remediationHint].filter(Boolean).join(" ") || "Transport degraded.",
 					intent: "warning",
 					tone: "warning",
 				};
 			}
 			return {
 				label: event.payload.status === "offline" ? "Transport failed" : "Transport failed",
-				detail: event.payload.message || "Transport faulted.",
+				detail: [event.payload.message, event.payload.remediationHint].filter(Boolean).join(" ") || "Transport faulted.",
 				intent: "failed",
 				tone: "warning",
 			};
@@ -124,9 +124,9 @@ export function presentOrcEventSummary(event: OrcBusEvent): OrcPresentedSummary 
 			}
 			if (event.payload.stage === "terminated" || event.payload.stage === "exited") {
 				return {
-					label: event.payload.exitCode === 0 ? "Transport completed" : "Transport stopped",
-					detail: firstNonEmpty(event.payload.reason, processExitDetail(event.payload.exitCode, event.payload.signal)),
-					intent: event.payload.exitCode === 0 ? "success" : "failed",
+					label: event.payload.exitCode === 0 ? "Transport completed" : event.payload.failureCode === "transport_user_cancellation" ? "Run cancelled" : "Transport stopped",
+					detail: firstNonEmpty(event.payload.reason, event.payload.remediationHint, processExitDetail(event.payload.exitCode, event.payload.signal)),
+					intent: event.payload.failureCode === "transport_user_cancellation" ? "cancelled" : event.payload.exitCode === 0 ? "success" : "failed",
 					tone: event.payload.exitCode === 0 ? "success" : "warning",
 				};
 			}
@@ -241,7 +241,7 @@ function presentTransportHealthSummary(transportHealth?: OrcReducedTransportHeal
 	if (transportHealth.status === "degraded") {
 		return {
 			label: "Transport degraded",
-			detail: firstNonEmpty(transportHealth.lastMessage, "Transport is degraded but still receiving events."),
+			detail: firstNonEmpty(transportHealth.lastMessage, transportHealth.lastRemediationHint, "Transport is degraded but still receiving events."),
 			intent: "warning",
 			tone: "warning",
 		};
@@ -249,7 +249,7 @@ function presentTransportHealthSummary(transportHealth?: OrcReducedTransportHeal
 	if (transportHealth.status === "faulted" || transportHealth.status === "offline") {
 		return {
 			label: "Transport failed",
-			detail: firstNonEmpty(transportHealth.lastMessage, "Transport stopped delivering reliable telemetry."),
+			detail: firstNonEmpty(transportHealth.lastMessage, transportHealth.lastRemediationHint, "Transport stopped delivering reliable telemetry."),
 			intent: "failed",
 			tone: "warning",
 		};
@@ -310,6 +310,12 @@ function buildStateHighlights(
 	}
 	if (counts.blocked > 0) {
 		highlights.push(`${counts.blocked} blocked, cancelled, or failed item${counts.blocked === 1 ? "" : "s"} need attention.`);
+	}
+	if (state.transportHealth.retryability) {
+		highlights.push(`Retryability: ${humanizeOrcValue(state.transportHealth.retryability)}.`);
+	}
+	if (state.terminalState.remediationHint) {
+		highlights.push(`Remediation: ${state.terminalState.remediationHint}`);
 	}
 	if (signOffStatus === "ready") {
 		highlights.push("Tracker is checkpointed and ready for human review.");
