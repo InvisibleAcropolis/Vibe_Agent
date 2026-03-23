@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { classifyOrcFailureDisposition, classifyOrcTransportIssue, type OrcTransportFaultCode, type OrcTransportWarningCode } from "../orc-events/index.js";
+import { classifyOrcFailureDisposition } from "../orc-events/transport-policy.js";
+import { classifyOrcTransportIssue } from "../orc-events/transport-policy.js";
+import type { OrcTransportFaultCode, OrcTransportWarningCode } from "../orc-events/types.js";
 import type { OrcCanonicalEventEnvelope } from "../orc-io.js";
 import type { OrcPythonTransportHealth, OrcPythonTransportLifecycleStage, TransportStream } from "./types.js";
 

@@ -1,5 +1,5 @@
-import { normalizeOrcTransportEnvelope } from "../orc-events/index.js";
-import type { OrcBusEvent } from "../orc-events/index.js";
+import { normalizeOrcTransportEnvelope } from "../orc-events/normalization.js";
+import type { OrcBusEvent } from "../orc-events/types.js";
 import type { OrcRuntimeThreadContext } from "./types.js";
 
 export function deriveTrackerPersistenceNeed(event: ReturnType<typeof normalizeOrcTransportEnvelope>): boolean {

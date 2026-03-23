@@ -8,3 +8,4 @@ export * from "./timeout-policy.js";
 export * from "./timeout-monitor.js";
 export * from "./health-store.js";
 export * from "./orc-python-child-process-transport.js";
+export * from "./transport-supervisor.js";

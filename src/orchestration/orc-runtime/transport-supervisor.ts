@@ -1,5 +1,6 @@
-import { ORC_FAILURE_DISPOSITIONS, normalizeOrcTransportEnvelope } from "../orc-events/index.js";
-import { type OrcBusEvent, type OrcTransportFaultCode } from "../orc-events/index.js";
+import { normalizeOrcTransportEnvelope } from "../orc-events/normalization.js";
+import { ORC_FAILURE_DISPOSITIONS } from "../orc-events/transport-policy.js";
+import type { OrcBusEvent, OrcTransportFaultCode } from "../orc-events/types.js";
 import type { OrcPythonTransportHealth, OrcPythonTransportLifecycleEvent } from "../orc-python-transport.js";
 import type { OrcRunnerLaunchInput } from "../orc-io.js";
 import type { OrcRuntimeThreadContext } from "./types.js";

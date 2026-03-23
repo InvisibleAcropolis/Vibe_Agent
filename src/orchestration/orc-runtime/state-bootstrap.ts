@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { LaunchOrcRequest } from "../orc-io.js";
-import { createInitialCheckpointMetadataSummary, createInitialReducedTransportHealth, createInitialTerminalStateSummary } from "../orc-events/index.js";
+import {
+	createInitialCheckpointMetadataSummary,
+	createInitialReducedTransportHealth,
+	createInitialTerminalStateSummary,
+} from "../orc-events/control-plane-reducer.js";
 import type { OrcCheckpointMetadata } from "../orc-checkpoints.js";
 import type { OrcSecurityPolicy } from "../orc-security.js";
 import type { OrcControlPlaneState, OrcLifecyclePhase } from "../orc-state.js";

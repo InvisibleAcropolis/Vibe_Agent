@@ -1,4 +1,4 @@
-import type { OrcBusEvent } from "../orc-events/index.js";
+import type { OrcBusEvent } from "../orc-events/types.js";
 import {
 	closeSubagentSurface as closeSubagentSurfaceInStore,
 	createEmptySurfaceStore,
