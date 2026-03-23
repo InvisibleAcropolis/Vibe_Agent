@@ -42,7 +42,6 @@ class HostedProbeComponent implements Component {
 
 function createMouseEvent(overrides: Partial<MouseEvent>): MouseEvent {
 	return {
-		raw: "",
 		action: "down",
 		button: "left",
 		row: 1,
@@ -137,8 +136,8 @@ describe("DefaultOverlayController floating overlays", () => {
 		assert.equal(harness.focusLabels.at(-1), "overlay:upper");
 
 		const stack = harness.overlays.slice(-2);
-		const topWindow = stack.at(-1)?.component as { model: { zIndex: number; active: boolean } };
-		const lowerWindow = stack.at(-2)?.component as { model: { zIndex: number; active: boolean } };
+		const topWindow = stack.at(-1)?.component as unknown as { model: { zIndex: number; active: boolean } };
+		const lowerWindow = stack.at(-2)?.component as unknown as { model: { zIndex: number; active: boolean } };
 		assert.equal(topWindow.model.active, true);
 		assert.equal(topWindow.model.zIndex, 1);
 		assert.equal(lowerWindow.model.active, false);
@@ -152,7 +151,7 @@ describe("DefaultOverlayController floating overlays", () => {
 			{ minWidth: 18, minHeight: 4, preferredWidth: 24, preferredHeight: 9 },
 		);
 		harness.controller.showCustomOverlay("probe", hosted, { anchor: "top-left", row: 2, col: 4, width: 24, maxHeight: 9 });
-		const window = harness.overlays.at(-1)?.component as { model: { row: number; col: number; width: number; height: number } };
+		const window = harness.overlays.at(-1)?.component as unknown as { model: { row: number; col: number; width: number; height: number } };
 		const contentRect = { row: window.model.row + 1, col: window.model.col + 1, width: window.model.width - 2, height: window.model.height - 4 };
 
 		assert.equal(harness.controller.dispatchMouse(createMouseEvent({ row: contentRect.row + 1, col: contentRect.col + 1 })), true);
@@ -172,7 +171,7 @@ describe("DefaultOverlayController floating overlays", () => {
 		);
 		harness.controller.showCustomOverlay("resizable", hosted, { anchor: "top-left", row: 20, col: 55, width: 28, maxHeight: 10 });
 		const overlayRecord = harness.overlays.at(-1);
-		const window = overlayRecord?.component as { setViewportSize(viewport: HostedViewportDimensions): void; model: { row: number; col: number; width: number; height: number } };
+		const window = overlayRecord?.component as unknown as { setViewportSize(viewport: HostedViewportDimensions): void; model: { row: number; col: number; width: number; height: number } };
 		const before = hosted.viewportHistory.at(-1);
 		assert.deepStrictEqual(before, { width: 26, height: 5 });
 
