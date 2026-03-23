@@ -57,7 +57,7 @@ export interface OrcActiveExecutionWave {
 	goal?: string;
 }
 
-export type OrcWorkerResultStatus = "pending" | "completed" | "failed" | "cancelled";
+export type OrcWorkerResultStatus = "pending" | "completed" | "failed" | "cancelled" | "partial" | "ambiguous";
 
 /**
  * Result summary for one worker participating in an orchestration wave.
@@ -75,6 +75,64 @@ export interface OrcParallelWorkerResult {
 	metadata?: Record<string, string | number | boolean | null>;
 }
 
+export interface OrcDurableEventOffset {
+	eventId?: string;
+	runCorrelationId?: string;
+	streamSequence?: number;
+	eventLogGlobalIndex?: number;
+	recordedAt?: string;
+}
+
+export interface OrcCheckpointBoundarySummary {
+	eventId?: string;
+	eventKind?: string;
+	status?: string;
+	threadId?: string;
+	runCorrelationId?: string;
+	waveId?: string;
+	workerId?: string;
+	recordedAt?: string;
+}
+
+export interface OrcCheckpointMetadataSummary {
+	checkpointId?: string;
+	status: "idle" | "started" | "captured" | "restored" | "failed" | "stale";
+	threadId?: string;
+	waveId?: string;
+	storagePath?: string;
+	artifactBundleIds: string[];
+	rewindTargetIds: string[];
+	transportRunCorrelationId?: string;
+	latestDurableEventOffset?: OrcDurableEventOffset;
+	checkpointBoundary?: OrcCheckpointBoundarySummary;
+	message?: string;
+	updatedAt?: string;
+}
+
+export interface OrcReducedTransportHealth {
+	status: "unknown" | "healthy" | "degraded" | "faulted" | "offline";
+	lastHeartbeatAt?: string;
+	lastWarningAt?: string;
+	lastFaultAt?: string;
+	lastMessage?: string;
+	lastRemediationHint?: string;
+	lastFailureCode?: string;
+	retryability?: "phase_2_retryable" | "phase_3_recovery" | "not_retryable";
+	consecutiveWarnings: number;
+	consecutiveFaults: number;
+}
+
+export interface OrcTerminalStateSummary {
+	status: "running" | "completed" | "failed" | "cancelled" | "ambiguous";
+	reason?: string;
+	resolvedAt?: string;
+	sourceEventId?: string;
+	failureCode?: string;
+	remediationHint?: string;
+	retryability?: "phase_2_retryable" | "phase_3_recovery" | "not_retryable";
+	ambiguityNotes: string[];
+}
+
 /**
  * Verification issues recorded after execution completes.
  */
@@ -89,7 +147,14 @@ export interface OrcVerificationError {
 }
 
 /**
- * Minimal snapshot shape for the orchestration control plane.
+ * Minimal reduced snapshot shape for the orchestration control plane.
+ *
+ * Ownership boundary notes for Phase 2 implementers:
+ * - Transport events are append-only facts emitted from the Python runner, transport adapter, or runtime.
+ * - `OrcControlPlaneState` is the reduced control-plane summary derived from those transport events.
+ * - Tracker snapshots are durable serializations of the reduced control-plane state plus handoff metadata.
+ * - Future TUI-facing view models should subscribe to canonical events and/or reduced state, but should not become
+ *   the source of truth for transport sequencing, replay, or checkpoint recovery.
  */
 export interface OrcControlPlaneState {
 	threadId: string;
@@ -110,5 +175,20 @@ export interface OrcControlPlaneState {
 	activeWave?: OrcActiveExecutionWave;
 	workerResults: OrcParallelWorkerResult[];
 	verificationErrors: OrcVerificationError[];
+	/**
+	 * Durable reduced checkpoint summary. Phase 3 resume boundaries depend on this metadata rather than
+	 * transient UI overlays because event-log offsets may replay from a checkpoint boundary.
+	 */
+	checkpointMetadata: OrcCheckpointMetadataSummary;
+	/**
+	 * Durable transport-health summary used by tracker/checkpoint consumers. Detailed diagnostics and overlays
+	 * must stay in transient reducer state so Phase 3 snapshot boundaries remain compact and replay-safe.
+	 */
+	transportHealth: OrcReducedTransportHealth;
+	/**
+	 * Explicit terminal-state reduction resolves normal completion vs cancellation/failure ambiguity at the
+	 * durable snapshot boundary. UI-only affordances should derive from this summary instead of persisting overlays.
+	 */
+	terminalState: OrcTerminalStateSummary;
 	lastUpdatedAt: string;
 }

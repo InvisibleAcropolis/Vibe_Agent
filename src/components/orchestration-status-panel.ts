@@ -14,7 +14,7 @@ export class OrchestrationStatusPanel implements MouseAwareOverlay, Focusable {
 	private _focused = false;
 
 	constructor(
-		private readonly viewModel: OrcTrackerDashboardViewModel,
+		private readonly viewModel: OrcTrackerDashboardViewModel | (() => OrcTrackerDashboardViewModel),
 		private readonly onClose: () => void,
 	) {}
 
@@ -32,28 +32,29 @@ export class OrchestrationStatusPanel implements MouseAwareOverlay, Focusable {
 		const lines: string[] = [];
 		const bg = agentTheme.panelBgActive;
 		const safeWidth = Math.max(32, width);
+		const viewModel = this.resolveViewModel();
 		const top = agentTheme.dim("╭" + "─".repeat(Math.max(0, safeWidth - 2)) + "╮");
 		const bottom = agentTheme.dim("╰" + "─".repeat(Math.max(0, safeWidth - 2)) + "╯");
 
 		lines.push(paintLine(top, safeWidth, bg));
-		lines.push(paintLine(agentTheme.accentStrong(` ${this.viewModel.title}`), safeWidth, bg));
-		lines.push(paintLine(agentTheme.muted(` ${this.viewModel.subtitle}`), safeWidth, bg));
+		lines.push(paintLine(agentTheme.accentStrong(` ${viewModel.title}`), safeWidth, bg));
+		lines.push(paintLine(agentTheme.muted(` ${viewModel.subtitle}`), safeWidth, bg));
 		lines.push(paintLine(horizontalRule(safeWidth - 2, "─", agentTheme.dim), safeWidth, bg));
 
-		if (!this.viewModel.hasActiveGraph) {
-			lines.push(paintLine(agentTheme.warning(` ${this.viewModel.emptyStateTitle}`), safeWidth, bg));
-			lines.push(paintLine(` ${agentTheme.text(this.viewModel.emptyStateMessage)}`, safeWidth, bg));
+		if (!viewModel.hasActiveGraph) {
+			lines.push(paintLine(agentTheme.warning(` ${viewModel.emptyStateTitle}`), safeWidth, bg));
+			lines.push(paintLine(` ${agentTheme.text(viewModel.emptyStateMessage)}`, safeWidth, bg));
 			lines.push(paintLine("", safeWidth, bg));
 		}
 
-		lines.push(paintLine(agentTheme.accent(" Phase 1 telemetry"), safeWidth, bg));
-		for (const field of Object.values(this.viewModel.fields)) {
+		lines.push(paintLine(agentTheme.accent(" Orchestration telemetry"), safeWidth, bg));
+		for (const field of Object.values(viewModel.fields)) {
 			lines.push(this.renderField(field, safeWidth));
 		}
 
 		lines.push(paintLine("", safeWidth, bg));
 		lines.push(paintLine(agentTheme.accent(" Summary"), safeWidth, bg));
-		for (const highlight of this.viewModel.highlights) {
+		for (const highlight of viewModel.highlights) {
 			lines.push(paintLine(`   ${agentTheme.dim("•")} ${agentTheme.text(highlight)}`, safeWidth, bg));
 		}
 
@@ -69,6 +70,10 @@ export class OrchestrationStatusPanel implements MouseAwareOverlay, Focusable {
 		if (matchesKey(data, "escape") || matchesKey(data, "esc") || matchesKey(data, "enter")) {
 			this.onClose();
 		}
+	}
+
+	private resolveViewModel(): OrcTrackerDashboardViewModel {
+		return typeof this.viewModel === "function" ? this.viewModel() : this.viewModel;
 	}
 
 	private renderField(field: OrcTelemetryField, width: number): string {

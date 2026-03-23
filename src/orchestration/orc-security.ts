@@ -2,13 +2,16 @@ import type { AppConfig } from "../app-config.js";
 
 export type OrcSessionSecurityKind = "main-app" | "ephemeral-worker";
 export type OrcHumanEscalationReason = "filesystem-write" | "destructive-command" | "network-access" | "privileged-tool";
-export type OrcSecurityEventKind = "approval-required" | "blocked-command";
+export type OrcSecurityEventKind = "informational-notice" | "approval-required" | "blocked-command";
+export type OrcSecurityTelemetryDisposition = "informational" | "approval-required" | "blocked";
+export type OrcSecurityEventSource = "runtime-policy" | "command-interceptor" | "tool-runtime" | "future-enforcement";
 
 /**
  * Text shown in the UI when the orchestration runtime needs to stop for review.
  * Keep these strings stable so Phase 2/3 UIs can bind to them before enforcement lands.
  */
 export const ORC_SECURITY_STATUS_TEXT: Record<OrcSecurityEventKind, string> = {
+	"informational-notice": "Security notice",
 	"approval-required": "Approval required",
 	"blocked-command": "Blocked command",
 };
@@ -24,6 +27,12 @@ export interface OrcSecurityEvent {
 	command?: string;
 	workerId?: string;
 	createdAt: string;
+	telemetryDisposition?: OrcSecurityTelemetryDisposition;
+	requiresOperatorAction?: boolean;
+	blocksExecution?: boolean;
+	source?: OrcSecurityEventSource;
+	ruleId?: string;
+	reason?: string;
 }
 
 /**
@@ -113,5 +122,86 @@ export function mergeOrcSecurityPolicy(
 			blockedCommandPatterns: overrides.workerSandbox?.blockedCommandPatterns ?? base.workerSandbox.blockedCommandPatterns,
 		},
 		sessionKind: overrides.sessionKind ?? base.sessionKind,
+	};
+}
+
+
+export interface OrcCommandInterceptorResult {
+	decision: "allow_with_notice" | "require_approval" | "block";
+	message: string;
+	command?: string;
+	workerId?: string;
+	createdAt: string;
+	source?: OrcSecurityEventSource;
+	ruleId?: string;
+	reason?: string;
+}
+
+export function isBlockingOrcSecurityEvent(event: OrcSecurityEvent): boolean {
+	if (event.blocksExecution !== undefined) {
+		return event.blocksExecution;
+	}
+	return event.kind === "approval-required" || event.kind === "blocked-command";
+}
+
+export function getOrcSecurityTelemetryDisposition(event: OrcSecurityEvent): OrcSecurityTelemetryDisposition {
+	if (event.telemetryDisposition) {
+		return event.telemetryDisposition;
+	}
+	if (event.kind === "blocked-command") {
+		return "blocked";
+	}
+	if (event.kind === "approval-required") {
+		return "approval-required";
+	}
+	return "informational";
+}
+
+export function mapCommandInterceptorResultToOrcSecurityEvent(result: OrcCommandInterceptorResult): OrcSecurityEvent {
+	if (result.decision === "block") {
+		return {
+			kind: "blocked-command",
+			statusText: ORC_SECURITY_STATUS_TEXT["blocked-command"],
+			detail: result.message,
+			command: result.command,
+			workerId: result.workerId,
+			createdAt: result.createdAt,
+			telemetryDisposition: "blocked",
+			requiresOperatorAction: true,
+			blocksExecution: true,
+			source: result.source ?? "command-interceptor",
+			ruleId: result.ruleId,
+			reason: result.reason,
+		};
+	}
+	if (result.decision === "require_approval") {
+		return {
+			kind: "approval-required",
+			statusText: ORC_SECURITY_STATUS_TEXT["approval-required"],
+			detail: result.message,
+			command: result.command,
+			workerId: result.workerId,
+			createdAt: result.createdAt,
+			telemetryDisposition: "approval-required",
+			requiresOperatorAction: true,
+			blocksExecution: true,
+			source: result.source ?? "command-interceptor",
+			ruleId: result.ruleId,
+			reason: result.reason,
+		};
+	}
+	return {
+		kind: "informational-notice",
+		statusText: ORC_SECURITY_STATUS_TEXT["informational-notice"],
+		detail: result.message,
+		command: result.command,
+		workerId: result.workerId,
+		createdAt: result.createdAt,
+		telemetryDisposition: "informational",
+		requiresOperatorAction: false,
+		blocksExecution: false,
+		source: result.source ?? "command-interceptor",
+		ruleId: result.ruleId,
+		reason: result.reason,
 	};
 }
