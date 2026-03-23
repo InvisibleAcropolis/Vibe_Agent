@@ -1,3 +1,7 @@
+/**
+ * Transport policy boundary: classify transport warning/fault codes and retry dispositions.
+ * Normalization may attach this policy metadata, while reducers should prefer normalized fields already carried on events.
+ */
 import type {
 	OrcFailureDisposition,
 	OrcTransportFaultBoundaryRule,
