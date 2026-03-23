@@ -128,20 +128,18 @@ describe("DefaultOverlayController floating overlays", () => {
 		const upper = new HostedProbeComponent(() => ["upper"], { minWidth: 18, minHeight: 4, preferredWidth: 22, preferredHeight: 8 });
 		harness.controller.showCustomOverlay("lower", lower, { anchor: "top-left", row: 3, col: 5, width: 22, maxHeight: 8 });
 		harness.controller.showCustomOverlay("upper", upper, { anchor: "top-left", row: 4, col: 6, width: 22, maxHeight: 8 });
+		const lowerWindow = harness.overlays.at(-2)?.component as unknown as { model: { row: number; col: number; zIndex: number; active: boolean } };
+		const upperWindow = harness.overlays.at(-1)?.component as unknown as { model: { row: number; col: number; zIndex: number; active: boolean } };
 
 		assert.deepStrictEqual(harness.state.overlayIds, ["lower", "upper"]);
-		const consumed = harness.controller.dispatchMouse(createMouseEvent({ row: 3, col: 8 }));
+		const consumed = harness.controller.dispatchMouse(createMouseEvent({ row: lowerWindow.model.row, col: lowerWindow.model.col + 3 }));
 		assert.equal(consumed, true);
 		assert.deepStrictEqual(harness.state.overlayIds, ["lower", "upper"], "z-order changes without mutating state-store ids");
 		assert.equal(harness.focusLabels.at(-1), "overlay:upper");
-
-		const stack = harness.overlays.slice(-2);
-		const topWindow = stack.at(-1)?.component as unknown as { model: { zIndex: number; active: boolean } };
-		const lowerWindow = stack.at(-2)?.component as unknown as { model: { zIndex: number; active: boolean } };
-		assert.equal(topWindow.model.active, true);
-		assert.equal(topWindow.model.zIndex, 1);
-		assert.equal(lowerWindow.model.active, false);
-		assert.equal(lowerWindow.model.zIndex, 0);
+		assert.equal(lowerWindow.model.active, true);
+		assert.equal(lowerWindow.model.zIndex, 1);
+		assert.equal(upperWindow.model.active, false);
+		assert.equal(upperWindow.model.zIndex, 0);
 	});
 
 	it("routes clicks and scrolls to content area while keeping frame chrome separate", () => {
@@ -155,9 +153,9 @@ describe("DefaultOverlayController floating overlays", () => {
 		const contentRect = { row: window.model.row + 1, col: window.model.col + 1, width: window.model.width - 2, height: window.model.height - 4 };
 
 		assert.equal(harness.controller.dispatchMouse(createMouseEvent({ row: contentRect.row + 1, col: contentRect.col + 1 })), true);
-		assert.deepStrictEqual(hosted.mouseRects.at(-1), { row: 2, col: 2, width: 22, height: 4 });
+		assert.deepStrictEqual(hosted.mouseRects.at(-1), contentRect);
 		assert.equal(harness.controller.dispatchMouse(createMouseEvent({ action: "scroll", button: "wheelDown", row: contentRect.row + 1, col: contentRect.col + 1 })), true);
-		assert.deepStrictEqual(hosted.mouseRects.at(-1), { row: 2, col: 2, width: 22, height: 4 });
+		assert.deepStrictEqual(hosted.mouseRects.at(-1), contentRect);
 		const routedCount = hosted.mouseRects.length;
 		assert.equal(harness.controller.dispatchMouse(createMouseEvent({ row: window.model.row + window.model.height - 2, col: window.model.col + 3 })), true);
 		assert.equal(hosted.mouseRects.length, routedCount, "footer chrome should not be forwarded to hosted content");
@@ -177,9 +175,74 @@ describe("DefaultOverlayController floating overlays", () => {
 
 		(harness.tui.terminal as { columns: number; rows: number }).columns = 44;
 		(harness.tui.terminal as { columns: number; rows: number }).rows = 16;
-		assert.equal(harness.controller.dispatchMouse(createMouseEvent({ row: 1, col: 1 })), true);
+		assert.equal(harness.controller.dispatchMouse(createMouseEvent({ row: 1, col: 1 })), false);
 		assert.deepStrictEqual({ width: window.model.width, height: window.model.height }, { width: 28, height: 9 });
 		assert.ok(window.model.row >= 1 && window.model.col >= 1);
 		assert.deepStrictEqual(hosted.viewportHistory.at(-1), { width: 26, height: 5 });
+	});
+
+	it("keeps floating geometry stable on click and drags from the current position", () => {
+		const harness = createController(100, 40);
+		const hosted = new HostedProbeComponent(
+			(viewport) => Array.from({ length: viewport.height }, (_, index) => `row-${index}`),
+			{ minWidth: 18, minHeight: 6, preferredWidth: 24, preferredHeight: 10, maxWidth: 40, maxHeight: 16 },
+		);
+		harness.controller.showCustomOverlay("floating", hosted, { anchor: "top-left", row: 6, col: 12, width: 24, maxHeight: 10 });
+		const window = harness.overlays.at(-1)?.component as unknown as {
+			model: {
+				row: number;
+				col: number;
+				width: number;
+				height: number;
+				dragState: object | null;
+				resizeState: object | null;
+			};
+		};
+		const initial = {
+			row: window.model.row,
+			col: window.model.col,
+			width: window.model.width,
+			height: window.model.height,
+		};
+		const initialViewport = hosted.viewportHistory.at(-1);
+
+		assert.equal(
+			harness.controller.dispatchMouse(createMouseEvent({ row: initial.row + 2, col: initial.col + 4 })),
+			true,
+		);
+		assert.deepStrictEqual(
+			{
+				row: window.model.row,
+				col: window.model.col,
+				width: window.model.width,
+				height: window.model.height,
+			},
+			initial,
+		);
+		assert.equal(window.model.dragState, null);
+		assert.equal(window.model.resizeState, null);
+		assert.deepStrictEqual(hosted.viewportHistory.at(-1), initialViewport);
+
+		assert.equal(
+			harness.controller.dispatchMouse(createMouseEvent({ row: initial.row, col: initial.col + 6 })),
+			true,
+		);
+		assert.equal(window.model.row, initial.row);
+		assert.equal(window.model.col, initial.col);
+		assert.notEqual(window.model.dragState, null);
+		assert.equal(window.model.resizeState, null);
+
+		assert.equal(
+			harness.controller.dispatchMouse(createMouseEvent({ action: "drag", row: initial.row + 3, col: initial.col + 10 })),
+			true,
+		);
+		assert.equal(window.model.row, initial.row + 3);
+		assert.equal(window.model.col, initial.col + 4);
+		assert.equal(
+			harness.controller.dispatchMouse(createMouseEvent({ action: "up", row: initial.row + 3, col: initial.col + 10 })),
+			true,
+		);
+		assert.equal(window.model.dragState, null);
+		assert.equal(window.model.resizeState, null);
 	});
 });

@@ -245,7 +245,7 @@ export class DefaultOverlayController implements OverlayController {
 			if (overlay.window) {
 				overlay.window.setViewportSize({ width: this.tui.terminal.columns, height: this.tui.terminal.rows });
 			}
-			const rect = resolveOverlayRect(overlay.component, overlay.options, this.tui.terminal.columns, this.tui.terminal.rows);
+			const rect = this.getOverlayRect(overlay);
 			if (!pointInRect(event, rect)) {
 				continue;
 			}
@@ -315,6 +315,18 @@ export class DefaultOverlayController implements OverlayController {
 
 	private getDefaultOutsideClickPolicy(overlay: OverlayRecord): OverlayOutsideClickPolicy {
 		return overlay.window ? "clear-focus" : "noop";
+	}
+
+	private getOverlayRect(overlay: OverlayRecord): Rect {
+		if (overlay.window) {
+			return {
+				row: overlay.window.model.row,
+				col: overlay.window.model.col,
+				width: overlay.window.model.width,
+				height: overlay.window.model.height,
+			};
+		}
+		return resolveOverlayRect(overlay.component, overlay.options, this.tui.terminal.columns, this.tui.terminal.rows);
 	}
 
 	private captureFloatingGeometry(overlay: OverlayRecord): void {
