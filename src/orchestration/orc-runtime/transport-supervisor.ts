@@ -1,73 +1,86 @@
 import { ORC_FAILURE_DISPOSITIONS, normalizeOrcTransportEnvelope } from "../orc-events/index.js";
-import { reduceOrcControlPlaneEvent, type OrcBusEvent, type OrcTransportFaultCode } from "../orc-events/index.js";
+import { type OrcBusEvent, type OrcTransportFaultCode } from "../orc-events/index.js";
 import type { OrcPythonTransportHealth, OrcPythonTransportLifecycleEvent } from "../orc-python-transport.js";
 import type { OrcRunnerLaunchInput } from "../orc-io.js";
 import type { OrcRuntimeThreadContext } from "./types.js";
-import { shouldPersistAfterEvent } from "./persistence.js";
+
+export class OrcRuntimeTransportSupervisor {
+	bindTransport(input: {
+		context: OrcRuntimeThreadContext;
+		transportHealth: Map<string, OrcPythonTransportHealth>;
+		publishRuntimeEvent: (context: OrcRuntimeThreadContext, busEvent: OrcBusEvent) => void;
+		handleTerminalLifecycle: (context: OrcRuntimeThreadContext, event: OrcPythonTransportLifecycleEvent) => void;
+	}): void {
+		const { context, transportHealth, publishRuntimeEvent, handleTerminalLifecycle } = input;
+		if (context.listenersBound) {
+			return;
+		}
+		context.listenersBound = true;
+		context.live.transport.onLifecycle((event) => {
+			if (!event.threadId || event.threadId !== context.threadId || context.disposed) {
+				return;
+			}
+			transportHealth.set(context.threadId, context.live.transport.getHealth());
+			const synthetic = createLifecycleBusEvent(context, event);
+			if (synthetic) {
+				publishRuntimeEvent(context, synthetic);
+			}
+			if (event.stage === "exit" || event.stage === "terminated" || event.stage === "spawn_failed") {
+				handleTerminalLifecycle(context, event);
+			}
+		});
+		context.live.transport.onEnvelope((envelope) => {
+			if (envelope.origin.threadId !== context.threadId || context.disposed) {
+				return;
+			}
+			transportHealth.set(context.threadId, context.live.transport.getHealth());
+			publishRuntimeEvent(context, normalizeOrcTransportEnvelope(envelope));
+		});
+		context.live.transport.onDiagnostic((event) => {
+			if (event.threadId && event.threadId !== context.threadId) {
+				return;
+			}
+			transportHealth.set(context.threadId, context.live.transport.getHealth());
+		});
+	}
+
+	publishRuntimeEvent(input: {
+		context: OrcRuntimeThreadContext;
+		busEvent: OrcBusEvent;
+	}): boolean {
+		const { context, busEvent } = input;
+		if (context.disposed || context.publishedEventIds.has(busEvent.envelope.origin.eventId)) {
+			return false;
+		}
+		const terminalKey = getTerminalPublicationKey(busEvent);
+		if (terminalKey && context.publishedTerminalKeys.has(terminalKey)) {
+			return false;
+		}
+		context.publishedEventIds.add(busEvent.envelope.origin.eventId);
+		if (terminalKey) {
+			context.publishedTerminalKeys.add(terminalKey);
+		}
+		context.live.eventBus.publish(busEvent);
+		return true;
+	}
+}
 
 export function bindTransport(input: {
 	context: OrcRuntimeThreadContext;
 	transportHealth: Map<string, OrcPythonTransportHealth>;
 	publishRuntimeEvent: (context: OrcRuntimeThreadContext, busEvent: OrcBusEvent) => void;
-	persistTrackerState: (context: OrcRuntimeThreadContext) => Promise<void>;
-	cleanupThread: (context: OrcRuntimeThreadContext, reason: string) => Promise<void>;
+	handleTerminalLifecycle: (context: OrcRuntimeThreadContext, event: OrcPythonTransportLifecycleEvent) => void;
 }): void {
-	const { context, transportHealth, publishRuntimeEvent, persistTrackerState, cleanupThread } = input;
-	if (context.listenersBound) {
-		return;
-	}
-	context.listenersBound = true;
-	context.live.transport.onLifecycle((event) => {
-		if (!event.threadId || event.threadId !== context.threadId || context.disposed) {
-			return;
-		}
-		transportHealth.set(context.threadId, context.live.transport.getHealth());
-		const synthetic = createLifecycleBusEvent(context, event);
-		if (synthetic) {
-			publishRuntimeEvent(context, synthetic);
-		}
-		if (event.stage === "exit" || event.stage === "terminated" || event.stage === "spawn_failed") {
-			void persistTrackerState(context).finally(() => cleanupThread(context, `transport_${event.stage}`));
-		}
-	});
-	context.live.transport.onEnvelope((envelope) => {
-		if (envelope.origin.threadId !== context.threadId || context.disposed) {
-			return;
-		}
-		transportHealth.set(context.threadId, context.live.transport.getHealth());
-		publishRuntimeEvent(context, normalizeOrcTransportEnvelope(envelope));
-	});
-	context.live.transport.onDiagnostic((event) => {
-		if (event.threadId && event.threadId !== context.threadId) {
-			return;
-		}
-		transportHealth.set(context.threadId, context.live.transport.getHealth());
-	});
+	const supervisor = new OrcRuntimeTransportSupervisor();
+	supervisor.bindTransport(input);
 }
 
 export function publishRuntimeEvent(input: {
 	context: OrcRuntimeThreadContext;
 	busEvent: OrcBusEvent;
-	persistTrackerState: (context: OrcRuntimeThreadContext) => Promise<void>;
-}): void {
-	const { context, busEvent, persistTrackerState } = input;
-	if (context.disposed || context.publishedEventIds.has(busEvent.envelope.origin.eventId)) {
-		return;
-	}
-	const terminalKey = getTerminalPublicationKey(busEvent);
-	if (terminalKey && context.publishedTerminalKeys.has(terminalKey)) {
-		return;
-	}
-	context.publishedEventIds.add(busEvent.envelope.origin.eventId);
-	if (terminalKey) {
-		context.publishedTerminalKeys.add(terminalKey);
-	}
-	context.live.eventBus.publish(busEvent);
-	context.state = reduceOrcControlPlaneEvent(context.state, busEvent);
-	context.session.updateState(context.state);
-	if (shouldPersistAfterEvent(context, busEvent)) {
-		void persistTrackerState(context);
-	}
+}): boolean {
+	const supervisor = new OrcRuntimeTransportSupervisor();
+	return supervisor.publishRuntimeEvent(input);
 }
 
 export async function startTransport(context: OrcRuntimeThreadContext, input: OrcRunnerLaunchInput, mode: "launch" | "resume", transportHealth: Map<string, OrcPythonTransportHealth>): Promise<void> {

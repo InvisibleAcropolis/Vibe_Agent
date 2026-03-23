@@ -5,11 +5,9 @@ import { OrcPythonChildProcessTransport } from "../orc-python-transport.js";
 import type { LaunchOrcRequest } from "../orc-io.js";
 import type { OrcCheckpointStore } from "../orc-checkpoints.js";
 import type { OrcSecurityPolicy } from "../orc-security.js";
-import type { OrcSessionRuntimeHooks } from "../orc-session.js";
 import type { OrcControlPlaneState } from "../orc-state.js";
 import type { OrcStorage } from "../orc-storage.js";
 import type { OrcTracker } from "../orc-tracker.js";
-import { cleanupExistingThread } from "./cleanup.js";
 import type { OrcRuntimeAdapters, OrcRuntimeLiveHandles, OrcRuntimeThreadContext, OrcSessionFactory } from "./types.js";
 
 export async function createThreadContext(input: {
@@ -24,17 +22,7 @@ export async function createThreadContext(input: {
 	checkpointStore: OrcCheckpointStore;
 	storage: OrcStorage;
 	sessionFactory: OrcSessionFactory;
-	activeThreads: Map<string, OrcRuntimeThreadContext>;
-	cleanupThread: (context: OrcRuntimeThreadContext, reason: string) => Promise<void>;
-	createSessionHooks: (context: OrcRuntimeThreadContext) => OrcSessionRuntimeHooks;
-	transportHealth: Map<string, ReturnType<OrcRuntimeLiveHandles["transport"]["getHealth"]>>;
 }): Promise<OrcRuntimeThreadContext> {
-	await cleanupExistingThread({
-		threadId: input.threadId,
-		reason: "thread_replaced",
-		activeThreads: input.activeThreads,
-		cleanupThread: input.cleanupThread,
-	});
 	const eventBus = input.adapters.createEventBus?.({
 		component: "orc-runtime",
 		description: `Live Orc event bus for thread ${input.threadId}`,
@@ -117,9 +105,5 @@ export async function createThreadContext(input: {
 			],
 		},
 	});
-	session.attachRuntimeHooks(input.createSessionHooks(context));
-	session.updateState(input.state);
-	input.activeThreads.set(input.threadId, context);
-	input.transportHealth.set(input.threadId, transport.getHealth());
 	return context;
 }
