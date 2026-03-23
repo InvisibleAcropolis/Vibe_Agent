@@ -1,444 +1,235 @@
-# Orc orchestration Phase 2 execution plan
+# Orc orchestration Phase 2 orientation guide
+
+This document is now the stable Phase 2 reference for outside engineers. Phase 2 implementation has landed, so this guide no longer acts primarily as a backlog. Instead, it explains how the Orc worker-execution plane is assembled, what is durable vs transient, how to troubleshoot it, and which boundaries intentionally remain deferred to later phases.
 
-This document breaks Phase 2 into a concrete implementation backlog for engineers building the Orc worker-execution plane, Python↔TypeScript transport, async Global Event Bus (GEB), and TUI telemetry plumbing.
+Phase 2 assumes the Phase 1 scaffold documented in `docs/orchestration/phase-1-scaffold.md` and should be read alongside `LANGEXTtracker.md`, which remains the append-only process ledger and sign-off artifact for this feature line.
 
-Phase 2 assumes the Phase 1 scaffold documented in `docs/orchestration/phase-1-scaffold.md` already exists. It does **not** declare the phase complete; it is the task inventory and sequencing guide for getting from the current scaffold to a resilient execution plane.
+## What Phase 2 delivered
 
-## Phase 2 goal
+Phase 2 made the Orc execution plane operational in these ways:
 
-Flesh out the internals created in Phase 1 so Orc can:
+- supervised Python-runner launch and resume from the TypeScript runtime;
+- strict stdout JSONL telemetry with stderr kept separate for diagnostics;
+- canonical event normalization into a typed Global Event Bus (GEB);
+- durable event logging and reduced control-plane state snapshots;
+- TUI subscriber adapters for dashboards, subagent surfaces, overlays, and transport-health summaries; and
+- explicit transport, cancellation, security, and fault classification boundaries suitable for outside-engineer support work.
 
-- launch and supervise LangGraph/DeepAgents-backed worker execution from the TypeScript runtime;
-- stream strict single-line JSON telemetry from Python to TypeScript over stdout;
-- normalize that telemetry into a strongly typed, append-friendly Global Event Bus;
-- drive TUI overlays, panes, and future telemetry views without coupling UI components to child-process or LangGraph details; and
-- survive malformed events, partial failures, cancelled runs, broken streams, transport disconnects, and noisy parallel worker activity while still rendering friendly operator-facing summaries.
+Phase 2 is intentionally **not** the replay/recovery phase. Full in-flight resurrection, replay-aware resume, and durable super-step reconstruction remain Phase 3 work.
 
-## Mandatory process rule for every Phase 2 task
+## End-to-end architecture
 
-Every task below must explicitly touch `LANGEXTtracker.md`.
+```mermaid
+graph TD
+    A["Command controller / runtime owner"] --> B["Orc runtime lifecycle"]
+    B --> C["Python child-process transport"]
+    C --> D["python3 -m src.orchestration.python.orc_runner"]
+    D --> E["stdout JSONL telemetry"]
+    E --> F["Normalization into canonical Orc events"]
+    F --> G["Global Event Bus"]
+    G --> H["Durable reducers / tracker snapshots"]
+    G --> I["Durable event log writer"]
+    G --> J["TUI subscriber adapters"]
+    H --> K["Checkpoint bridge metadata"]
+    J --> L["Dashboard / overlays / panes"]
+```
 
-1. **Before implementation starts:** read `LANGEXTtracker.md` to confirm current process state, blockers, and carryover work.
-2. **During implementation:** update the relevant Phase 2 ledger row with files touched, status, validation notes, blocker notes, and follow-up TODOs.
-3. **Before closing the task:** append a session-log note, refresh risks/blockers if needed, and update the next-session handoff.
+## Component orientation
 
-## Recommended sequencing
+### 1. Python runner
 
-1. Contracts and schemas
-2. Python runner and JSONL transport
-3. TypeScript transport ingestion and GEB core
-4. State reduction and persistence/logging
-5. TUI subscribers and operator-facing rendering
-6. Failure handling, cancellation, and debug ergonomics
-7. Documentation and handoff polish
+**Role**
+- Acts as the Python-side execution entry point for LangGraph/DeepAgents-backed runs.
+- Accepts one structured JSON launch envelope from stdin.
+- Emits machine-readable JSONL to stdout and pushes diagnostics to stderr.
 
-## Task backlog
+**Stable contract**
+- Module path: `src/orchestration/python/orc_runner/`
+- Invocation shape: `python3 -m src.orchestration.python.orc_runner`
+- Input envelope responsibilities: thread id, project/workspace roots, merged security policy snapshot, phase intent, and resume/checkpoint context.
 
-### P2-001 — Freeze the Phase 2 control/data-plane contract
+**Why it matters**
+- It gives TypeScript one deterministic summon path regardless of later Python implementation changes.
+- It isolates Python dependency churn from the TUI-facing event vocabulary.
+
+### 2. JSONL transport
+
+**Role**
+- Owns process spawn, stdout assembly, stderr capture, cancellation/shutdown requests, and timeout/fault classification.
+- Converts broken lines, malformed payloads, and lifecycle disruptions into canonical events instead of runtime crashes.
 
-Define the full contract between the Orc TypeScript runtime, the Python LangGraph runner, and the TUI-facing event system. This task should convert the design narrative into stable interfaces before transport code is written.
+**Key expectations**
+- Stdout is newline-delimited JSON only.
+- Stderr remains available for human diagnostics.
+- Child-process details stay hidden behind runtime hooks; UI code should not work directly with `spawn()` handles.
 
-**Scope**
-- Extend `src/orchestration/orc-io.ts` with transport-facing request/response/event envelope types.
-- Introduce dedicated Phase 2 types for event ids, stream sequence numbers, origin metadata, event categories, severity, and lifecycle statuses.
-- Record the canonical event schema for the required `WHO did WHAT HOW at WHEN` shape plus raw payload passthrough fields.
-- Define the minimum metadata needed to distinguish agent→user events from agent→computer/tool events.
-- Document the state ownership boundary between `OrcControlPlaneState`, transport events, tracker snapshots, and future TUI view models.
+### 3. Event normalization
 
-**Primary files**
-- `src/orchestration/orc-io.ts`
-- `src/orchestration/orc-state.ts`
-- `docs/orchestration/phase-2-execution-plan.md`
-- `LANGEXTtracker.md`
+**Role**
+- Converts runner/transport payloads into a stable Orc event vocabulary.
+- Preserves raw upstream detail in namespaced passthrough fields for forensics.
+- Standardizes `who did what how at when` semantics so reducers and presentation helpers are decoupled from upstream callback quirks.
 
-**Done when**
-- TypeScript has a stable event-envelope vocabulary for all downstream tasks.
-- Design mandate mappings for DM-01, DM-04, and DM-08 can reference this task.
+**Canonical categories covered in Phase 2**
+- process lifecycle;
+- graph lifecycle;
+- worker/subagent activity;
+- user-facing messages;
+- tool calls/results;
+- checkpoint metadata;
+- security approval/blocking notices;
+- stream warnings; and
+- transport/runtime faults.
+
+### 4. Global Event Bus (GEB)
+
+**Role**
+- The GEB is the only supported fan-out path for orchestration telemetry.
+- Preserves per-run ordering and provides decoupled publication for reducers, log writers, and TUI subscribers.
+- Applies queue/backpressure safeguards so bursty worker telemetry does not directly destabilize consumers.
+
+**Why outside engineers should care**
+- If a new view, debug tool, or postmortem utility needs Orc telemetry, it should subscribe here rather than adding transport-level listeners.
+
+### 5. Durable event logging
+
+**Role**
+- Persists normalized events under `~/Vibe_Agent/logs/orchestration/event-log/threads/<thread>/runs/<run>/`.
+- Uses append-only JSONL segment files and a run manifest.
+- Separates forensics/replay data from TUI rendering and reduced tracker state.
 
-### P2-002 — Define the canonical Global Event Bus schema and reducers
+**Operational rule**
+- Event-log persistence failures are visible but non-fatal; they should not independently terminate a live run.
+
+### 6. Reduced control-plane state and tracker snapshots
+
+**Role**
+- Folds the canonical event stream into durable run summaries for lifecycle, active wave, worker results, checkpoint metadata, transport health, security blockers, and terminal state.
+- Produces slim, handoff-safe state snapshots for operators and future resume flows.
 
-Create the TypeScript-native event taxonomy, normalization rules, and reducer-friendly state slices that will power all live orchestration rendering.
-
-**Scope**
-- Add a new orchestration event module, e.g. `src/orchestration/orc-events.ts`, with strictly typed event unions.
-- Normalize raw transport payloads into canonical bus events such as process lifecycle, graph lifecycle, agent message, tool call, tool result, worker status, stream warning, transport fault, and checkpoint status.
-- Add helpers that classify events into `agent_interacting_with_user` vs `agent_interacting_with_computer` without losing low-level detail.
-- Define reducer outputs for operator-friendly summaries: latest activity per agent, active overlays, live wave counts, transport health, and recent errors.
-- Document which fields are required vs optional when upstream payloads are incomplete.
-
-**Primary files**
-- `src/orchestration/orc-events.ts` (new)
-- `src/orchestration/orc-state.ts`
-- `src/orchestration/orc-tracker.ts`
-- `LANGEXTtracker.md`
-
-**Done when**
-- The bus contract is strict enough for TUI subscribers and tolerant enough for partial/malformed upstream events.
-
-### P2-003 — Build the Python LangGraph runner bootstrap and execution envelope
-
-Implement the Python-side background entry point that LangGraph/DeepAgents executions will run through when summoned by the TUI.
-
-**Scope**
-- Add a dedicated Python package or script entry point under the orchestration integration area for booting LangGraph and DeepAgents.
-- Accept structured launch input from TypeScript (thread id, workspace, security policy, phase intent, checkpoint resume context).
-- Emit lifecycle events for process start, graph initialization, checkpoint restore attempt, graph shutdown, and fatal exceptions.
-- Ensure stdout is reserved for strict JSONL events and route non-JSON diagnostics to stderr.
-- Document the environment contract required for local and future production invocation.
-
-**Primary files**
-- New Python orchestration runner module under the Orc integration surface
-- `src/orchestration/orc-runtime.ts`
-- `docs/orchestration/phase-2-execution-plan.md`
-- `LANGEXTtracker.md`
-
-**Done when**
-- The Python runner can be spawned as a child process with a deterministic JSONL stdout contract.
-
-### P2-004 — Implement JSONL telemetry emission for LangGraph and DeepAgents activity
-
-Map Python-side graph and subagent activity into strict single-line JSON events that TypeScript can ingest in real time.
-
-**Scope**
-- Instrument the Python runner to emit events for graph node transitions, subagent creation, user-facing messages, tool calls, tool results, retries, interrupts, failures, and completion.
-- Preserve raw upstream metadata in a namespaced field while still emitting the canonical `who/what/how/when` shape.
-- Add transport sequence numbers and per-run correlation ids.
-- Guarantee newline-delimited JSON with no pretty-printing and no multiline blobs.
-- Define truncation/serialization policy for oversized payloads or binary-ish content.
-
-**Primary files**
-- Python runner telemetry module(s)
-- Shared event-schema docs
-- `LANGEXTtracker.md`
-
-**Done when**
-- TypeScript can depend on a strict JSONL telemetry stream even when subagents are active concurrently.
-
-### P2-005 — Add a TypeScript child-process transport adapter for Orc
-
-Create the TypeScript transport that spawns, supervises, and terminates the Python orchestration process.
-
-**Scope**
-- Add a dedicated transport adapter, e.g. `src/orchestration/orc-python-transport.ts`, using `child_process.spawn`.
-- Stream stdout line-by-line, isolate stderr, and surface process exit information as canonical events.
-- Support launch, cancel, shutdown, and resume semantics at the transport boundary.
-- Guard against double-spawn, orphaned processes, zombie listeners, and unbounded buffering.
-- Expose health metadata to the Orc runtime skeleton for future dashboard use.
-
-**Primary files**
-- `src/orchestration/orc-python-transport.ts` (new)
-- `src/orchestration/orc-runtime.ts`
-- `LANGEXTtracker.md`
-
-**Done when**
-- Orc has a reusable TS transport abstraction that can supervise the Python process without leaking process details into UI code.
-
-### P2-006 — Implement incremental JSONL parsing and malformed-stream recovery
-
-Make the transport resilient to chunked stdout delivery, broken lines, invalid JSON, and incomplete stream termination.
-
-**Scope**
-- Add an incremental line assembler that safely handles arbitrary chunk boundaries.
-- Parse events defensively and emit structured transport warnings for malformed lines rather than crashing the orchestration runtime.
-- Retain enough context for debugging (line preview, byte counts, sequence expectations, stderr correlation).
-- Distinguish recoverable parse noise from fatal transport corruption.
-- Add explicit timeout/idle policies for stalled streams.
-
-**Primary files**
-- `src/orchestration/orc-python-transport.ts`
-- `src/orchestration/orc-events.ts`
-- `LANGEXTtracker.md`
-
-**Done when**
-- Partial or malformed output produces observable fault events and graceful degradation instead of a hard crash.
-
-### P2-007 — Implement the asynchronous Global Event Bus core
-
-Create the decoupled event-dispatch layer that receives normalized transport events and fans them out to TUI subscribers and orchestration reducers.
-
-**Scope**
-- Add a typed bus implementation, likely on top of Node `EventEmitter`, with registration/unregistration helpers and fan-out safeguards.
-- Preserve event ordering guarantees per run while allowing multiple subscriber classes.
-- Separate canonical event publication from any specific TUI overlay or logging consumer.
-- Add backpressure-conscious buffering or queue semantics for bursts of subagent/tool activity.
-- Document bus lifecycle ownership: creation, reset, disposal, and replay expectations.
-
-**Primary files**
-- `src/orchestration/orc-event-bus.ts` (new)
-- `src/orchestration/orc-events.ts`
-- `LANGEXTtracker.md`
-
-**Done when**
-- TUI consumers can subscribe to orchestration events without depending on Python, JSONL parsing, or child-process APIs.
-
-### P2-008 — Add Orc event logging and durable event-history persistence
-
-Persist GEB activity into its own timestamped log so live telemetry remains decoupled from downstream rendering concerns.
-
-**Scope**
-- Extend orchestration storage to support append-only event-log files under `~/Vibe_Agent/logs/` or a dedicated Orc subdirectory.
-- Write normalized events with timestamps and correlation metadata.
-- Define log rotation, file naming, and recovery behavior for long-running sessions.
-- Ensure event-log persistence failures do not take down the live bus.
-- Document how future tooling can replay logs into the GEB for debugging or postmortem analysis.
-
-**Primary files**
-- `src/orchestration/orc-storage.ts`
-- `src/orchestration/orc-io.ts`
-- New event-log writer module
-- `LANGEXTtracker.md`
-
-**Done when**
-- Every published orchestration event can also be captured in a durable timestamped log without coupling storage to rendering.
-
-### P2-009 — Wire transport + GEB updates into Orc runtime lifecycle methods
-
-Replace the Phase 1 placeholders so `launch()` and `resumeThread()` supervise live transport and bus wiring rather than immediately throwing.
-
-**Scope**
-- Update `OrcRuntimeSkeleton` or replace it with a real runtime implementation that creates transport, tracker, checkpoint, and bus dependencies together.
-- Ensure `launch()` returns an initialized control-plane state plus live orchestration handles.
-- Ensure `resumeThread()` loads tracker/checkpoint context before reattaching transport listeners.
-- Guarantee deterministic cleanup on completion, failure, or user cancellation.
-- Surface stable runtime-facing hooks for the command controller and dashboards.
-
-**Primary files**
-- `src/orchestration/orc-runtime.ts`
-- `src/orchestration/orc-session.ts`
-- `src/orchestration/orc-tracker.ts`
-- `LANGEXTtracker.md`
-
-**Done when**
-- Orc launch/resume paths are real supervision flows rather than scaffolding-only placeholders.
-
-### P2-010 — Add event-driven control-plane state reduction
-
-Translate the live event stream into durable control-plane state updates for tracker snapshots, dashboards, and future resume logic.
-
-**Scope**
-- Define reducers that fold canonical events into `OrcControlPlaneState` updates.
-- Update wave state, worker results, latest checkpoint info, user-facing messages, and transport health fields from events instead of ad hoc mutation.
-- Ensure transient UI-only telemetry and durable orchestration truth remain intentionally separated.
-- Clarify how state reduction interacts with Phase 3 checkpoint persistence.
-- Add reduction rules for cancellations, retries, and ambiguous completion states.
-
-**Primary files**
-- `src/orchestration/orc-state.ts`
-- `src/orchestration/orc-tracker.ts`
-- `src/orchestration/orc-events.ts`
-- `LANGEXTtracker.md`
-
-**Done when**
-- Tracker snapshots become the reduced summary of the live event stream rather than manual placeholders.
-
-### P2-011 — Render friendly operator-facing summaries from raw agent telemetry
-
-Create summarization adapters that transform low-level LangGraph/subagent events into stable, human-readable strings and view models.
-
-**Scope**
-- Add presentation helpers for messages like “Agent_Mechanic performed web_search” or “Agent_Orc responded to the user”.
-- Preserve raw details for drill-down while presenting concise default labels in dashboards and overlays.
-- Standardize tone, severity, and wording for success, warning, blocked, and failed states.
-- Ensure summaries degrade gracefully when upstream metadata is incomplete.
-- Keep presentation logic separate from bus publication and transport parsing.
-
-**Primary files**
-- `src/orchestration/orc-tracker.ts`
-- New presentation helper module(s)
-- `LANGEXTtracker.md`
-
-**Done when**
-- The TUI can render human-friendly telemetry without embedding LangGraph-specific event semantics everywhere.
-
-### P2-012 — Introduce a TUI telemetry subscriber layer for dashboards, overlays, and panes
-
-Connect the GEB to the existing multi-pane/multi-overlay TUI architecture through dedicated subscriber adapters.
-
-**Scope**
-- Add subscriber glue that maps bus events into TUI state updates rather than letting view components subscribe directly to transport internals.
-- Reserve specific overlay/pane responsibilities: orchestration dashboard, subagent activity, transport health, and event log tail.
-- Ensure multiple overlays can open/close independently without losing the underlying event stream.
-- Prevent rendering churn from noisy event bursts by batching or coalescing updates where appropriate.
-- Document view lifecycle behavior when a run completes or the user switches runtimes.
-
-**Primary files**
-- TUI orchestration view/controller modules under `src/`
-- `src/orchestration/orc-event-bus.ts`
-- `src/orchestration/orc-tracker.ts`
-- `LANGEXTtracker.md`
-
-**Done when**
-- Orc telemetry reaches the TUI through dedicated subscribers that are decoupled from the Python process.
-
-### P2-013 — Add subagent activity surfaces and overlay management rules
-
-Support multiple live subagent displays and activity panes without choking the renderer.
-
-**Scope**
-- Define the identity model for subagent overlays/panels keyed by run, wave, and agent id.
-- Add open/update/close rules for subagent windows as agents spawn and complete.
-- Decide how long completed/failed agents remain visible and how they collapse into summaries.
-- Ensure overlay stacking and pane updates remain non-modal and deterministic.
-- Document how hidden or backgrounded overlays still receive event updates safely.
-
-**Primary files**
-- Relevant TUI overlay/pane modules
-- `src/orchestration/orc-events.ts`
-- `LANGEXTtracker.md`
-
-**Done when**
-- Multiple subagent activity surfaces can coexist and stay in sync with the bus.
-
-### P2-014 — Implement transport and orchestration fault handling
-
-Handle process crashes, broken pipes, startup failures, cancellation, and ambiguous terminal states gracefully.
-
-**Scope**
-- Emit canonical events for startup failure, transport disconnect, non-zero exit, SIGTERM/SIGINT shutdown, and user cancellation.
-- Ensure the bus, tracker, and TUI all converge on a consistent terminal state.
-- Prevent repeated error storms if the Python process dies while listeners remain attached.
-- Record operator-visible remediation hints for common failures.
-- Document which failures are retryable in Phase 2 vs deferred to Phase 3 recovery workflows.
-
-**Primary files**
-- `src/orchestration/orc-python-transport.ts`
-- `src/orchestration/orc-runtime.ts`
-- `src/orchestration/orc-tracker.ts`
-- `LANGEXTtracker.md`
-
-**Done when**
-- Broken execution paths terminate predictably and inform both operators and future recovery logic.
-
-**Phase 2 fault matrix**
-
-| failure class | canonical code | terminal state | remediation hint | retryability decision |
-| --- | --- | --- | --- | --- |
-| Startup failure | `transport_startup_failure` | `failed` | Verify the spawn contract, executable path, and permissions, then relaunch. | Retryable in Phase 2 with a clean transport restart. |
-| Transport disconnect | `transport_disconnect` | `failed` | Inspect runner logs and wait for replay-aware recovery support before trying to reconstruct in-flight work. | Deferred to Phase 3 recovery/replay. |
-| Broken pipe | `transport_broken_pipe` | `failed` | Inspect stderr, confirm the child did not exit early, then launch a fresh runner. | Retryable in Phase 2 with a fresh transport process. |
-| Non-zero exit | `transport_non_zero_exit` | `failed` | Review stderr and tracker snapshots before relaunching. | Deferred to Phase 3 recovery/replay because in-flight work may need reconstruction. |
-| SIGTERM/SIGINT shutdown | `transport_signal_shutdown` | `failed` | Determine whether an external signal interrupted the run, then recover via replay-aware tooling once available. | Deferred to Phase 3 recovery/replay. |
-| User cancellation | `transport_user_cancellation` | `cancelled` | Treat the run as intentionally stopped; start a new run or resume from a later checkpoint if needed. | Retryable in Phase 2 only as a fresh run, not as automatic recovery. |
-| Ambiguous terminal state | `transport_ambiguous_terminal_state` | `ambiguous` | Inspect the event log and tracker snapshot together. | Deferred to Phase 3 recovery/replay because conflicting terminal facts require durable analysis. |
-
-### P2-015 — Implement debug/diagnostic instrumentation for outside engineers
-
-Add the minimum durable diagnostics needed for future implementation and support work without polluting the default operator experience.
-
-**Implemented debug contract**
-- Debug mode is opt-in through `OrcRuntimeSkeleton` adapter wiring via `debugMode: { enabled: true }` and a documented config shape at `orchestration.debug.enabled`.
-- Default operator-facing surfaces remain unchanged; debug artifacts are written only under `~/Vibe_Agent/logs/orchestration/debug/...` and never promoted into the friendly dashboard/event-log-tail summaries by default.
-- The transport now mirrors canonical stdout envelopes, parser warnings/fault precursors, stderr capture metadata, and richer lifecycle/health diagnostics into run-scoped files for outside engineers.
-
-**Artifact locations**
-- Python stderr: `~/Vibe_Agent/logs/orchestration/debug/threads/<thread>/runs/<run>/python-stderr.jsonl`
-- Raw event mirror: `~/Vibe_Agent/logs/orchestration/debug/threads/<thread>/runs/<run>/raw-event-mirror.jsonl`
-- Parser warnings: `~/Vibe_Agent/logs/orchestration/debug/threads/<thread>/runs/<run>/parser-warnings.jsonl`
-- Transport diagnostics + health snapshots: `~/Vibe_Agent/logs/orchestration/debug/threads/<thread>/runs/<run>/transport-diagnostics.jsonl`
-- Runtime metadata: `~/Vibe_Agent/logs/orchestration/debug/threads/<thread>/runs/<run>/runtime-metadata.json`
-- Durable normalized event log: `~/Vibe_Agent/logs/orchestration/event-log/threads/<thread>/runs/<run>/`
-- Tracker snapshots: `~/Vibe_Agent/tracker/<thread>--<checkpoint>.json` plus the reserved export path `~/Vibe_Agent/tracker/LANGEXTtracker.md`
-
-**Troubleshooting guide for outside engineers**
-
-| Symptom | What to inspect first | Expected debug evidence | Recommended response |
-|---|---|---|---|
-| Malformed JSONL | `parser-warnings.jsonl` | `transport_parse_noise` or `transport_corrupt_stream` entries with line preview, byte count, expected/observed sequence hints, and correlated stderr snippets | Fix emitter formatting first; stdout must remain strict single-line JSON. |
-| Missing runner entry point | `python-stderr.jsonl`, `runtime-metadata.json` | Import/module error on stderr plus the exact command/cwd used to spawn Python | Confirm `python3 -m src.orchestration.python.orc_runner` still resolves from the repo root or packaged runtime. |
-| Stalled stream | `transport-diagnostics.jsonl` | `transport_idle_timeout`, `transport_ready_timeout`, or `transport_stall_timeout` with last stdout/stderr timestamps | Compare the same run's event log and tracker snapshot to determine whether the run hung before or after a durable state boundary. |
-| Transport startup failure | `transport-diagnostics.jsonl`, `python-stderr.jsonl` | `spawn_failed` / startup fault records plus stderr context | Repair the environment/entry point before retrying; Phase 2 recovery is only a fresh restart. |
-
-**Safety caveats**
-- Safe for local development because the artifacts are append-only/run-scoped and do not alter reducer state or operator-facing defaults.
-- Not appropriate for always-on operator mode because raw mirrors/stderr may contain verbose provider, tool, or command payload detail.
-- Tracker snapshots remain intentionally reduced; forensics should correlate tracker snapshots with event logs and debug artifacts rather than expanding the tracker schema.
-
-**Primary files**
-- `docs/orchestration/phase-2-execution-plan.md`
-- Debug/logging modules under `src/orchestration/`
-- `README.md`
-- `LANGEXTtracker.md`
-
-**Done when**
-- Outside engineers can inspect transport and event-bus behavior without reverse-engineering the runtime.
-
-### P2-016 — Wire security and approval events into the GEB contract
-
-Make sure the Phase 1 security-policy abstractions can publish approval-required and blocked-command states through the same event system.
-
-**Scope**
-- Map `OrcSecurityEvent` and future command-interceptor results into canonical bus events.
-- Distinguish informational security notices from blocking approval states.
-- Surface approval-needed events to the TUI without coupling UI components to specific tool implementations.
-- Ensure these events are persisted in the timestamped event log.
-- Document how security events affect worker-status and run-status summaries.
-
-**Primary files**
-- `src/orchestration/orc-security.ts`
-- `src/orchestration/orc-events.ts`
-- `src/orchestration/orc-tracker.ts`
-- `LANGEXTtracker.md`
-
-**Done when**
-- Security enforcement outcomes travel through the same decoupled telemetry pipeline as other orchestration events.
-
-### P2-017 — Prepare the tracker/checkpoint bridge for Phase 3 durability work
-
-Lay the non-invasive groundwork needed so Phase 3 checkpointing and rewind features can consume Phase 2 telemetry cleanly.
-
-**Scope**
-- Annotate which event types should create checkpoint-worthy state transitions.
-- Extend checkpoint metadata shapes only as needed to record transport/run correlation and latest durable event offsets.
-- Avoid implementing full rewind/recovery behavior, but document the contract needed for it.
-- Ensure tracker snapshots preserve enough reduced state for future resume operations.
-- Update the design-compliance mapping in `LANGEXTtracker.md` for DM-05 handoff readiness.
-
-**Primary files**
-- `src/orchestration/orc-checkpoints.ts`
-- `src/orchestration/orc-tracker.ts`
-- `LANGEXTtracker.md`
-
-**Done when**
-- Phase 3 durability work has a clean bridge from live Phase 2 telemetry and state reduction.
-
-### P2-018 — Publish Phase 2 engineering documentation and operator handoff notes
-
-Document the finished Phase 2 architecture for future implementers, reviewers, and operators.
-
-**Scope**
-- Update `README.md` with the new Phase 2 architecture guide.
-- Expand this document into a stable orientation guide once implementation lands.
-- Document the Python runner, JSONL transport, GEB, event-log persistence, TUI subscriber pattern, and troubleshooting guidance.
-- Add a completion checklist tied back to Phase 2 exit criteria and design mandates.
-- Ensure final tracker entries include validation evidence, carryover items, and explicit sign-off.
-
-**Primary files**
-- `README.md`
-- `docs/orchestration/phase-2-execution-plan.md`
-- `LANGEXTtracker.md`
-
-**Done when**
-- An outside engineer can trace Phase 2 from summon path to Python transport to GEB to TUI rendering and logs.
-
-## Suggested dependency map
-
-- `P2-001` → prerequisite for `P2-002`, `P2-003`, `P2-005`
-- `P2-002` → prerequisite for `P2-006`, `P2-007`, `P2-010`, `P2-011`, `P2-016`
-- `P2-003` → prerequisite for `P2-004`, `P2-005`
-- `P2-004` + `P2-005` → prerequisite for `P2-006`, `P2-007`, `P2-009`
-- `P2-007` + `P2-010` → prerequisite for `P2-012`, `P2-013`, `P2-014`
-- `P2-008`, `P2-014`, `P2-016`, `P2-017` can progress once the core event contract exists
-- `P2-018` closes the phase after the implementation backlog is complete
-
-## Phase 2 exit checklist
-
-Phase 2 is ready to close only when all of the following are true:
-
-- Orc can launch or resume a LangGraph-backed run through a supervised Python child process.
-- Python emits strict JSONL telemetry over stdout and TypeScript ingests it incrementally.
-- A typed GEB exists and is the only event source TUI orchestration components subscribe to.
-- Event logging is durable, timestamped, and independent from rendering.
-- Friendly operator-facing summaries exist for agent/user and agent/computer activity.
-- Multiple overlays/panes can react to live telemetry without coupling to transport internals.
-- Stream breakage, malformed events, cancellations, and process failures are handled gracefully.
-- `LANGEXTtracker.md` contains completed Phase 2 ledger rows, validation notes, risk updates, next-session handoff notes, and sign-off evidence.
+**Boundary**
+- Tracker snapshots are not raw debug mirrors. They intentionally retain summary truth rather than every transport detail.
+
+### 7. TUI subscriber pattern
+
+**Role**
+- `src/orchestration/orc-tui-subscriber.ts` is the adapter boundary between the GEB and TUI surfaces.
+- Batches event bursts, owns subagent surface identity/lifecycle rules, and exposes stable slices for dashboards, overlays, and panes.
+
+**Rule for future engineers**
+- Add new Orc views by extending subscriber-owned slices first. Do not bind TUI components directly to transport streams, raw parser output, or Python lifecycle events.
+
+## Durable vs transient reference
+
+| Layer | Durable | Purpose | Notes |
+| --- | --- | --- | --- |
+| Event-log segments + manifest | Yes | Replay, postmortem, Phase 3 recovery input | Canonical normalized stream. |
+| Reduced tracker snapshot / checkpoint metadata | Yes | Resume, operator handoff, dashboards | Summary truth, not raw event detail. |
+| Debug artifacts | Yes, opt-in | Outside-engineer diagnostics | Separate from default operator surfaces. |
+| TUI subscriber slices | No | Live rendering | Rebuilt from live events, not persisted wholesale. |
+| Process handles / stdout buffers | No | Runtime internals | Must not leak to UI integrations. |
+
+## Execution flow reference
+
+1. Orc runtime prepares launch or resume state and constructs the run-owned dependencies.
+2. The Python transport spawns `python3 -m src.orchestration.python.orc_runner`.
+3. TypeScript writes one JSON launch envelope to stdin.
+4. Python emits strict single-line JSON telemetry over stdout.
+5. The transport incrementally reassembles lines, classifies lifecycle/parse/fault conditions, and forwards valid envelopes for normalization.
+6. Normalization converts raw payloads into canonical Orc events.
+7. The GEB publishes those canonical events to reducers, event-log persistence, and TUI subscriber adapters.
+8. Reducers update durable control-plane state; event logs append normalized records; subscribers batch live UI updates.
+9. Terminal, cancellation, or transport-failure events trigger deterministic cleanup and final tracker/checkpoint persistence.
+
+## Fault handling and operational posture
+
+### Supported Phase 2 fault classes
+
+| failure class | canonical code | terminal state | engineer posture |
+| --- | --- | --- | --- |
+| Startup failure | `transport_startup_failure` | `failed` | Fix the summon contract or environment, then relaunch with a fresh process. |
+| Transport disconnect | `transport_disconnect` | `failed` | Treat as a failed run and inspect logs; replay-aware recovery is deferred to Phase 3. |
+| Broken pipe | `transport_broken_pipe` | `failed` | Inspect stderr and runner health, then restart as a fresh run. |
+| Non-zero exit | `transport_non_zero_exit` | `failed` | Inspect tracker + event log + stderr before retrying. |
+| Signal shutdown | `transport_signal_shutdown` | `failed` | Determine whether an external signal interrupted the run. |
+| User cancellation | `transport_user_cancellation` | `cancelled` | Expected stop; a fresh run is allowed, automatic replay is not. |
+| Ambiguous terminal state | `transport_ambiguous_terminal_state` | `ambiguous` | Correlate tracker snapshots and event logs before changing code. |
+
+### Fault-handling rules
+
+- Convert malformed output into canonical warning/fault events whenever possible.
+- Avoid duplicate terminal publication; the runtime, tracker, and TUI should converge on one terminal summary.
+- Keep persistence best-effort and non-fatal.
+- Record unresolved replay/recovery limitations explicitly rather than pretending Phase 2 can restore in-flight work.
+
+## Troubleshooting and diagnostics for outside engineers
+
+### Recommended inspection order
+
+1. **Tracker snapshot / `LANGEXTtracker.md`**: confirm the reduced state, blocker notes, validation history, and current deferred-work posture.
+2. **Durable event log**: confirm the exact canonical event stream seen by reducers and subscribers.
+3. **Debug artifacts**: only if needed, inspect stderr, raw mirrors, parser warnings, and transport diagnostics.
+4. **Code-level contracts**: inspect normalization, subscriber, and reducer boundaries only after artifacts disagree.
+
+### Artifact map
+
+| Artifact | Location | Use it for |
+| --- | --- | --- |
+| Durable event log | `~/Vibe_Agent/logs/orchestration/event-log/threads/<thread>/runs/<run>/` | Canonical event sequence and postmortems. |
+| Debug stderr capture | `~/Vibe_Agent/logs/orchestration/debug/threads/<thread>/runs/<run>/python-stderr.jsonl` | Python import/setup/runtime errors. |
+| Raw event mirror | `~/Vibe_Agent/logs/orchestration/debug/threads/<thread>/runs/<run>/raw-event-mirror.jsonl` | Compare pre-reducer output with normalized event logs. |
+| Parser warnings | `~/Vibe_Agent/logs/orchestration/debug/threads/<thread>/runs/<run>/parser-warnings.jsonl` | Malformed JSONL, sequence anomalies, partial-line truncation. |
+| Transport diagnostics | `~/Vibe_Agent/logs/orchestration/debug/threads/<thread>/runs/<run>/transport-diagnostics.jsonl` | Ready/idle/stall/fault timing and child-process lifecycle. |
+| Runtime metadata | `~/Vibe_Agent/logs/orchestration/debug/threads/<thread>/runs/<run>/runtime-metadata.json` | Spawn command, cwd, artifact paths, ids, and debug caveats. |
+| Tracker snapshots | `~/Vibe_Agent/tracker/<thread>--<checkpoint>.json` | Reduced durable state and handoff-safe summaries. |
+
+### Common symptom matrix
+
+| Symptom | First artifact | What it usually means | Next action |
+| --- | --- | --- | --- |
+| Runner never starts | `runtime-metadata.json`, `transport-diagnostics.jsonl` | Spawn contract, cwd, or module-path issue | Fix environment/entry point first. |
+| JSONL parse noise | `parser-warnings.jsonl` | Emitter formatting or stdout contamination | Restore strict single-line JSON on stdout. |
+| Dashboard looks wrong but logs look right | Durable event log + tracker snapshot | Presentation/subscriber issue | Inspect summary helpers and subscriber slices. |
+| Run appears hung | `transport_idle_timeout` or `transport_stall_timeout` diagnostics | Runner emitted no readable progress | Compare stderr and last durable event-log offset. |
+| Resume lacks in-flight worker state | Tracker/checkpoint metadata | Expected Phase 2 limitation | Carry into Phase 3 replay/recovery work. |
+
+## Deferred work that later phases inherit
+
+These items are intentionally deferred and should not rely on conversational memory alone:
+
+- replace bootstrap/demo Python telemetry with live LangGraph and DeepAgents callback bindings;
+- implement replay-aware event-log discovery, segment enumeration, and republishing during resume/recovery;
+- restore in-flight worker execution from durable checkpoints rather than only reduced metadata;
+- wire live command/tool interception so canonical security telemetry is emitted by real worker runtime hooks; and
+- connect the subscriber-owned `subagentSurfaces` state to the main application overlay/pane controllers everywhere Orc is presented live.
+
+## Completion checklist mapped to Phase 2 criteria and design mandates
+
+| Exit criterion / mandate | Phase 2 status | Evidence / reference |
+| --- | --- | --- |
+| Worker lifecycle is operational | Implemented | Runtime-owned launch/resume supervision, transport lifecycle events, and deterministic cleanup are now part of the live Phase 2 stack. |
+| Dependency-aware, isolated execution plane exists | Implemented in Phase 2 scope | Python runner + child-process transport + canonical event ownership establish the worker-execution plane boundary; replay-aware resurrection is deferred. |
+| Python emits strict JSONL telemetry | Implemented | Stdout is reserved for single-line JSON, stderr for diagnostics, with malformed-stream recovery documented above. |
+| Typed Global Event Bus exists | Implemented | Canonical normalized events flow through the async GEB to reducers, logs, and TUI subscribers. |
+| Durable event logging exists | Implemented | Append-only event-log segments + manifest persist normalized events independent of rendering. |
+| Friendly operator telemetry exists | Implemented | Presentation helpers and subscriber slices summarize agent/user, tool, security, and transport activity. |
+| TUI consumes subscriber adapters, not transport internals | Implemented boundary | `orc-tui-subscriber` is the supported adapter boundary for dashboards/overlays/panes. |
+| Faults, malformed streams, and cancellations are handled | Implemented in Phase 2 scope | Canonical warning/fault taxonomy plus terminal-state convergence are in place. |
+| DM-01 thin orchestrator boundary | Satisfied in Phase 2 scope | TypeScript runtime coordinates; Python workers emit telemetry without exposing raw worker mechanics to the TUI. |
+| DM-04 wave-based isolated execution workers | Partially satisfied / Phase 2 foundation complete | Wave-aware worker state and subagent surfaces exist; richer replay/recovery remains later-phase work. |
+| DM-05 durable persistence and resumability bridge | Bridge complete | Tracker/checkpoint metadata and event-log offsets now define the Phase 3 handoff contract. |
+| DM-06 secure tool interception and confinement telemetry | Telemetry complete, live enforcement still expanding | Canonical security approval/block events exist; full upstream hook wiring is deferred. |
+| DM-08 durable artifacts for continuity | Satisfied | Tracker, event logs, debug artifacts, and handoff notes form the durable engineer/operator trail. |
+
+## Relationship to `LANGEXTtracker.md`
+
+`LANGEXTtracker.md` remains the governing process artifact for:
+
+- ledger-row completion state;
+- validation evidence;
+- risks/blockers refreshes;
+- next-session handoff items;
+- sign-off notes; and
+- explicit deferred-work capture.
+
+Use this orientation guide to understand the implemented system. Use the tracker to understand what was validated, what remains deferred, and what the next engineer should pick up.
