@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { join } from "node:path";
 import { getVibeLogsDir, type VibeDurablePathOptions } from "../durable/durable-paths.js";
 import type { OrcEventBus, OrcEventBusSubscription } from "./orc-event-bus.js";
-import type { OrcBusEvent } from "./orc-events.js";
+import type { OrcBusEvent } from "./orc-events/index.js";
 
 export interface OrcEventLogLocation {
 	rootDirPath: string;
