@@ -37,6 +37,7 @@ export interface StyleTestTextControl extends StyleTestControlBase {
 	defaultValue: string;
 	placeholder?: string;
 	multiline?: boolean;
+	readOnly?: boolean;
 }
 
 export type StyleTestControl =
@@ -69,6 +70,9 @@ export interface StyleTestRuntimeContext {
 	getAnimationState(): AnimationState;
 	getTheme(): ThemeConfig;
 	getThemeName(): ThemeName;
+	resolveStyleDemo(sourceFile: string, exportName: string): StyleTestDemoDefinition | undefined;
+	listStyleDemos(): StyleTestDemoDefinition[];
+	setControlValue(controlId: string, value: StyleTestControlValue): void;
 	openSelectOverlay(id: string, title: string, description: string): void;
 	openTextPrompt(title: string, description: string, initialValue: string): void;
 	openEditorPrompt(title: string, prefill: string): void;
