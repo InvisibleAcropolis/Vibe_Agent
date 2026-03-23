@@ -8,8 +8,10 @@ import { MouseEnabledTerminal } from "../../src/mouse-enabled-terminal.js";
 import type { MouseEvent, Rect } from "../../src/mouse.js";
 import { parseMouseEvent, pointInRect } from "../../src/mouse.js";
 import { DefaultOverlayController } from "../../src/overlay-controller.js";
+import { DEFAULT_FLOATING_ANIMBOX_PRESET, FloatingAnimBoxContent, type FloatingAnimBoxPreset } from "../../src/components/floating_animbox.js";
 import { SideBySideContainer } from "../../src/components/side-by-side-container.js";
 import { renderMenuBar, type MenuBarItem } from "../../src/components/menu-bar.js";
+import type { ShellMenuDefinition, ShellMenuItem } from "../../src/components/shell-menu-overlay.js";
 import { animPreloadService } from "../../src/components/animpreload-service.js";
 import { agentTheme, createDynamicTheme } from "../../src/theme.js";
 import type {
@@ -19,16 +21,32 @@ import type {
 	StyleTestRuntime,
 	StyleTestRuntimeContext,
 } from "../../src/style-test-contract.js";
+import type { HostedViewportDimensions } from "../../src/types.js";
 import { getActiveTheme, getThemeNames, setActiveTheme, type ThemeName } from "../../src/themes/index.js";
 import { buildDemoCatalog, createCatalogErrorDemo, getDefaultDemoId, getDefaultDemoValues, getDemoById } from "./catalog/build-demo-catalog.js";
+import { DemoPresetStore } from "./catalog/demo-preset-store.js";
 
 type FocusPane = "browser" | "preview" | "controls";
 
 type PanelListRow = { kind: "group"; label: string } | { kind: "demo"; id: string; title: string; sourceFile: string; kindLabel: string };
 type ActionRow = { id: string; label: string; type: "action" };
+type FloatingPresetControlId = keyof FloatingAnimBoxPreset;
+
+interface ActiveFloatingAnimBoxState {
+	overlayId: string;
+	title: string;
+	presetStore: DemoPresetStore;
+	presetId: string;
+	values: FloatingAnimBoxPreset;
+	content: FloatingAnimBoxContent;
+}
 
 interface MouseAwareComponent extends Component {
 	handleMouse?(event: MouseEvent, rect: Rect): boolean;
+}
+
+interface InspectorPanel extends MouseAwareComponent {
+	maxHeight: number;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -37,6 +55,47 @@ function clamp(value: number, min: number, max: number): number {
 
 function padVisible(text: string, width: number): string {
 	return text + " ".repeat(Math.max(0, width - visibleWidth(text)));
+}
+
+function isFloatingAnimBoxPreset(value: unknown): value is FloatingAnimBoxPreset {
+	if (typeof value !== "object" || value === null) {
+		return false;
+	}
+	const candidate = value as Partial<FloatingAnimBoxPreset>;
+	return typeof candidate.sourceFile === "string"
+		&& typeof candidate.exportName === "string"
+		&& typeof candidate.animationPresetId === "string"
+		&& typeof candidate.cols === "number"
+		&& typeof candidate.rows === "number"
+		&& typeof candidate.x === "number"
+		&& typeof candidate.y === "number";
+}
+
+function normalizeFloatingAnimBoxPreset(value: Record<string, unknown> | undefined): FloatingAnimBoxPreset {
+	if (!isFloatingAnimBoxPreset(value)) {
+		return { ...DEFAULT_FLOATING_ANIMBOX_PRESET };
+	}
+	return {
+		sourceFile: value.sourceFile,
+		exportName: value.exportName,
+		animationPresetId: value.animationPresetId,
+		cols: clamp(Math.round(value.cols), 8, 120),
+		rows: clamp(Math.round(value.rows), 4, 40),
+		x: clamp(Math.round(value.x), 1, 240),
+		y: clamp(Math.round(value.y), 1, 120),
+	};
+}
+
+function createFloatingAnimBoxPresetControls(values: FloatingAnimBoxPreset): StyleTestControl[] {
+	return [
+		{ id: "cols", label: "Cols", type: "number", defaultValue: values.cols, min: 8, max: 120, step: 1 },
+		{ id: "rows", label: "Rows", type: "number", defaultValue: values.rows, min: 4, max: 40, step: 1 },
+		{ id: "x", label: "X", type: "number", defaultValue: values.x, min: 1, max: 240, step: 1 },
+		{ id: "y", label: "Y", type: "number", defaultValue: values.y, min: 1, max: 120, step: 1 },
+		{ id: "sourceFile", label: "Source", type: "text", defaultValue: values.sourceFile, readOnly: true },
+		{ id: "exportName", label: "Export", type: "text", defaultValue: values.exportName, readOnly: true },
+		{ id: "animationPresetId", label: "Anim Preset", type: "text", defaultValue: values.animationPresetId, readOnly: true },
+	];
 }
 
 class BrowserPanel implements MouseAwareComponent {
@@ -287,6 +346,123 @@ class ControlsPanel implements MouseAwareComponent {
 	}
 }
 
+class FloatingWindowPresetDesignerPanel implements InspectorPanel {
+	private renderedRows: Array<{ row: number; id: string }> = [];
+	private selectedIndex = 0;
+	public maxHeight = 20;
+
+	constructor(
+		private readonly getTitle: () => string,
+		private readonly getValues: () => FloatingAnimBoxPreset,
+		private readonly getPresetActions: () => ActionRow[],
+		private readonly isFocused: () => boolean,
+		private readonly onAdjust: (controlId: FloatingPresetControlId, delta: number) => void,
+		private readonly onEditNumber: (controlId: FloatingPresetControlId) => void,
+		private readonly onAction: (actionId: string) => void,
+	) {}
+
+	invalidate(): void {}
+
+	private entriesForRender(): Array<StyleTestControl | ActionRow> {
+		return [
+			{ id: "floating-action-pick-animation", label: "Pick Animation Target", type: "action" },
+			{ id: "floating-action-close-window", label: "Close Window", type: "action" },
+			...this.getPresetActions(),
+			...createFloatingAnimBoxPresetControls(this.getValues()),
+		];
+	}
+
+	private currentEntryId(): string | undefined {
+		return this.entriesForRender()[clamp(this.selectedIndex, 0, Math.max(0, this.entriesForRender().length - 1))]?.id;
+	}
+
+	handleInput(data: string): void {
+		const entries = this.entriesForRender();
+		if (matchesKey(data, "up")) {
+			this.selectedIndex = clamp(this.selectedIndex - 1, 0, Math.max(0, entries.length - 1));
+			return;
+		}
+		if (matchesKey(data, "down")) {
+			this.selectedIndex = clamp(this.selectedIndex + 1, 0, Math.max(0, entries.length - 1));
+			return;
+		}
+		const current = entries[this.selectedIndex];
+		if (!current) {
+			return;
+		}
+		if ("type" in current && current.type === "action") {
+			if (matchesKey(data, "enter") || matchesKey(data, "right")) {
+				this.onAction(current.id);
+			}
+			return;
+		}
+		if (current.type === "number") {
+			if (matchesKey(data, "left")) this.onAdjust(current.id as FloatingPresetControlId, -1);
+			if (matchesKey(data, "right")) this.onAdjust(current.id as FloatingPresetControlId, 1);
+			if (matchesKey(data, "enter")) this.onEditNumber(current.id as FloatingPresetControlId);
+		}
+	}
+
+	handleMouse(event: MouseEvent, rect: Rect): boolean {
+		if (!pointInRect(event, rect) || event.action !== "down" || event.button !== "left") {
+			return false;
+		}
+		const localRow = event.row - rect.row + 1;
+		const hit = this.renderedRows.find((entry) => entry.row === localRow);
+		if (!hit) {
+			return true;
+		}
+		const entries = this.entriesForRender();
+		this.selectedIndex = clamp(entries.findIndex((entry) => entry.id === hit.id), 0, Math.max(0, entries.length - 1));
+		const current = entries[this.selectedIndex];
+		if (!current) {
+			return true;
+		}
+		if ("type" in current && current.type === "action") {
+			this.onAction(current.id);
+			return true;
+		}
+		return true;
+	}
+
+	render(width: number): string[] {
+		const values = this.getValues();
+		const entries = this.entriesForRender();
+		this.selectedIndex = clamp(this.selectedIndex, 0, Math.max(0, entries.length - 1));
+		const availableRows = Math.max(1, this.maxHeight - 5);
+		const start = clamp(this.selectedIndex - Math.floor(availableRows / 2), 0, Math.max(0, entries.length - availableRows));
+		const visibleRows = entries.slice(start, start + availableRows);
+		const border = this.isFocused() ? agentTheme.accentStrong : agentTheme.dim;
+		const lines: string[] = [];
+		lines.push(border("╭" + "─".repeat(Math.max(0, width - 2)) + "╮"));
+		lines.push(paintLine(agentTheme.accentStrong(" Preset Designer"), width));
+		lines.push(paintLine(agentTheme.dim(` ${this.getTitle()}`), width));
+		this.renderedRows = [];
+		let row = 4;
+		for (const entry of visibleRows) {
+			const selected = this.currentEntryId() === entry.id;
+			const prefix = selected ? agentTheme.accent(" › ") : agentTheme.dim("   ");
+			if ("type" in entry && entry.type === "action") {
+				lines.push(paintLine(`${prefix}${selected ? agentTheme.accentStrong(entry.label) : agentTheme.muted(entry.label)}`, width));
+				this.renderedRows.push({ row, id: entry.id });
+				row++;
+				continue;
+			}
+			const value = values[entry.id as FloatingPresetControlId];
+			const label = truncateToWidth(entry.label, Math.max(1, width - 18), "");
+			const renderedValue = truncateToWidth(String(value), 14, "");
+			const valueStyler = entry.type === "text" && entry.readOnly ? agentTheme.muted : agentTheme.accent;
+			lines.push(paintLine(`${prefix}${selected ? agentTheme.text(label) : agentTheme.dim(label)} ${valueStyler(renderedValue)}`, width));
+			this.renderedRows.push({ row, id: entry.id });
+			row++;
+		}
+		lines.push(paintLine("", width));
+		lines.push(paintLine(agentTheme.dim(" Left/Right adjust  |  Enter edit"), width));
+		lines.push(border("╰" + "─".repeat(Math.max(0, width - 2)) + "╯"));
+		return lines;
+	}
+}
+
 class PreviewPanel implements MouseAwareComponent {
 	public maxHeight = 20;
 
@@ -349,11 +525,13 @@ export class TUIStyleTestApp {
 	private demos: StyleTestDemoDefinition[] = [createCatalogErrorDemo("Catalog has not been loaded yet.")];
 	private readonly browserPanel: BrowserPanel;
 	private readonly controlsPanel: ControlsPanel;
+	private readonly floatingPresetPanel: FloatingWindowPresetDesignerPanel;
 	private readonly previewPanel: PreviewPanel;
 	private readonly innerContent: SideBySideContainer;
 	private readonly outerContent: SideBySideContainer;
 	private readonly values = new Map<string, StyleTestControlValues>();
 	private readonly activePresetIds = new Map<string, string>();
+	private activeFloatingAnimBox?: ActiveFloatingAnimBoxState;
 	private runtime?: StyleTestRuntime;
 	private running = false;
 	private focusedPane: FocusPane = "browser";
@@ -384,6 +562,15 @@ export class TUIStyleTestApp {
 			(controlId, direction) => this.cycleEnumControl(controlId, direction),
 			(controlId) => this.editTextControl(controlId),
 			(actionId) => this.runAction(actionId),
+		);
+		this.floatingPresetPanel = new FloatingWindowPresetDesignerPanel(
+			() => this.activeFloatingAnimBox?.title ?? "Floating Animbox",
+			() => this.activeFloatingAnimBox?.values ?? { ...DEFAULT_FLOATING_ANIMBOX_PRESET },
+			() => this.currentFloatingPresetActions(),
+			() => this.focusedPane === "controls",
+			(controlId, delta) => this.adjustFloatingPresetNumber(controlId, delta),
+			(controlId) => this.editFloatingPresetNumber(controlId),
+			(actionId) => this.runFloatingPresetAction(actionId),
 		);
 		this.previewPanel = new PreviewPanel(() => this.currentDemo(), () => this.runtime, () => this.focusedPane === "preview");
 		this.innerContent = new SideBySideContainer(this.previewPanel, this.controlsPanel, 34);
@@ -470,6 +657,26 @@ export class TUIStyleTestApp {
 		];
 	}
 
+	private currentInspectorPanel(): InspectorPanel {
+		return this.activeFloatingAnimBox ? this.floatingPresetPanel : this.controlsPanel;
+	}
+
+	private currentFloatingPresetActions(): ActionRow[] {
+		const active = this.activeFloatingAnimBox;
+		if (!active) {
+			return [];
+		}
+		const variants = active.presetStore.listVariants();
+		return [
+			{ id: "floating-action-save-preset-as", label: `Save Preset As (${active.presetId})`, type: "action" },
+			...variants.map((variant) => ({
+				id: `floating-variant:${variant.id}`,
+				label: `${variant.id === active.presetId ? "Variant *" : "Variant"}: ${variant.label}`,
+				type: "action" as const,
+			})),
+		];
+	}
+
 	getThemeName(): ThemeName {
 		return getActiveTheme().name;
 	}
@@ -503,7 +710,7 @@ export class TUIStyleTestApp {
 
 	private getFocusComponent(): Component | null {
 		if (this.focusedPane === "browser") return this.browserPanel as unknown as Component;
-		if (this.focusedPane === "controls") return this.controlsPanel as unknown as Component;
+		if (this.focusedPane === "controls") return this.currentInspectorPanel() as unknown as Component;
 		return this.previewPanel as unknown as Component;
 	}
 
@@ -550,13 +757,18 @@ export class TUIStyleTestApp {
 		const menuItems: MenuBarItem[] = [
 			{ key: "Tab", label: "Focus" },
 			{ key: "Enter", label: "Edit" },
+			{ key: "F9", label: "Float Menu" },
 			{ key: "Esc", label: "Close Overlay" },
 			{ key: "Ctrl+Q", label: "Quit" },
 		];
 		this.menu.setText(renderMenuBar(menuItems, this.terminal.columns, dynamicTheme.borderAnimated, agentTheme.dim, agentTheme.muted, dynamicTheme.borderAnimated));
 		this.separatorTop.setText(dynamicTheme.borderAnimated("─".repeat(this.terminal.columns)));
 		this.separatorBottom.setText(dynamicTheme.borderAnimated("─".repeat(this.terminal.columns)));
-		const footerLeft = agentTheme.dim(`focus=${this.focusedPane}  overlays=${this.overlayController.getOverlayDepth()}  controls=${this.currentDemo().controls.length}`);
+		this.innerContent.right = this.currentInspectorPanel();
+		const inspectorSummary = this.activeFloatingAnimBox
+			? `designer=${this.activeFloatingAnimBox.presetId}`
+			: `controls=${this.currentDemo().controls.length}`;
+		const footerLeft = agentTheme.dim(`focus=${this.focusedPane}  overlays=${this.overlayController.getOverlayDepth()}  ${inspectorSummary}`);
 		const footerRight = agentTheme.text(this.stateStore.getState().focusLabel);
 		this.footer.setText(paintBoxLineTwoParts(footerLeft, footerRight, this.terminal.columns, " ", undefined, dynamicTheme.borderAnimated));
 		this.updateLayoutWidths();
@@ -573,6 +785,7 @@ export class TUIStyleTestApp {
 		this.outerContent.maxHeight = bodyHeight;
 		this.browserPanel.maxHeight = bodyHeight;
 		this.controlsPanel.maxHeight = bodyHeight;
+		this.floatingPresetPanel.maxHeight = bodyHeight;
 		this.previewPanel.maxHeight = bodyHeight;
 	}
 
@@ -605,6 +818,10 @@ export class TUIStyleTestApp {
 			this.tui.requestRender();
 			return { consume: true };
 		}
+		if (matchesKey(data, "f9")) {
+			this.openFloatingWindowMenu();
+			return { consume: true };
+		}
 		if (matchesKey(data, "f1")) {
 			this.runtime?.openOverlay?.();
 			return { consume: true };
@@ -633,15 +850,12 @@ export class TUIStyleTestApp {
 		}
 		if (pointInRect(event, controlsRect)) {
 			this.setFocusPane("controls");
-			this.controlsPanel.handleMouse?.(event, controlsRect);
+			this.currentInspectorPanel().handleMouse?.(event, controlsRect);
 		}
 	}
 
-	private rebuildRuntime(): void {
-		this.runtime?.dispose?.();
-		const demo = this.currentDemo();
-		const values = this.currentValues();
-		const context: StyleTestRuntimeContext = {
+	private createStyleTestRuntimeContext(): StyleTestRuntimeContext {
+		return {
 			tui: this.tui,
 			getAnimationState: () => this.animationEngine.getState(),
 			getTheme: () => getActiveTheme(),
@@ -676,7 +890,208 @@ export class TUIStyleTestApp {
 			openShellMenu: (id, definition) => this.overlayController.openMenuOverlay(id, definition),
 			closeOverlay: (id) => this.overlayController.closeOverlay(id),
 		};
-		this.runtime = demo.createRuntime(context, values);
+	}
+
+	private loadFloatingAnimBoxPreset(store: DemoPresetStore, presetId = "default"): FloatingAnimBoxPreset {
+		const normalized = normalizeFloatingAnimBoxPreset(store.load(presetId));
+		store.save({ ...normalized }, presetId);
+		return normalized;
+	}
+
+	private persistActiveFloatingAnimBox(): void {
+		const active = this.activeFloatingAnimBox;
+		if (!active) {
+			return;
+		}
+		active.presetStore.save({ ...active.values }, active.presetId);
+	}
+
+	private buildFloatingWindowMenuDefinition(): ShellMenuDefinition {
+		const items: ShellMenuItem[] = [
+			{
+				kind: "action",
+				id: "floating-animbox",
+				label: "Floating Animbox",
+				description: "Floating animation host with preset-backed geometry and target selection.",
+				onSelect: () => this.openFloatingAnimBoxWindow(),
+			},
+		];
+		return {
+			title: "Floating Windows",
+			subtitle: "Specialized style-lab windows",
+			anchor: { row: 2, col: 4 },
+			width: 40,
+			childWidth: 36,
+			items,
+		};
+	}
+
+	private buildFloatingAnimBoxPickerMenu(): ShellMenuDefinition {
+		const demos = this.demos
+			.filter((demo) => demo.kind === "animation" && demo.sourceFile.includes("/anim_"))
+			.sort((left, right) => {
+				const sourceDelta = left.sourceFile.localeCompare(right.sourceFile);
+				if (sourceDelta !== 0) {
+					return sourceDelta;
+				}
+				return left.title.localeCompare(right.title);
+			});
+		const grouped = new Map<string, typeof demos>();
+		for (const demo of demos) {
+			const items = grouped.get(demo.sourceFile) ?? [];
+			items.push(demo);
+			grouped.set(demo.sourceFile, items);
+		}
+		const items: ShellMenuItem[] = Array.from(grouped.entries()).map(([sourceFile, sourceDemos]) => ({
+			kind: "submenu",
+			id: `floating-source:${sourceFile}`,
+			label: sourceFile,
+			items: sourceDemos.map((demo) => ({
+				kind: "submenu",
+				id: `floating-export:${demo.id}`,
+				label: demo.title,
+				description: demo.description,
+				items: (demo.listPresetVariants?.() ?? [{ id: "default", label: "Default" }]).map((preset) => ({
+					kind: "action",
+					id: `floating-preset:${demo.id}:${preset.id}`,
+					label: preset.label,
+					onSelect: () => {
+						const exportName = demo.id.slice(demo.id.lastIndexOf("#") + 1);
+						this.updateFloatingAnimBoxPreset({
+							sourceFile: demo.sourceFile,
+							exportName,
+							animationPresetId: preset.id,
+						});
+					},
+				})),
+			})),
+		}));
+		return {
+			title: "Animation Picker",
+			subtitle: "Choose animation source, export, and preset",
+			anchor: { row: 2, col: 4 },
+			width: 44,
+			childWidth: 40,
+			items,
+		};
+	}
+
+	private openFloatingWindowMenu(): void {
+		this.overlayController.openMenuOverlay("styletest-floating-window-menu", this.buildFloatingWindowMenuDefinition());
+	}
+
+	private openFloatingAnimBoxWindow(presetId = this.activeFloatingAnimBox?.presetId ?? "default"): void {
+		this.closeActiveFloatingAnimBox();
+		const presetStore = new DemoPresetStore(process.cwd(), "src/components/floating_animbox.ts", "floatingAnimBox");
+		const values = this.loadFloatingAnimBoxPreset(presetStore, presetId);
+		const content = new FloatingAnimBoxContent(
+			this.createStyleTestRuntimeContext(),
+			values,
+			"styletest-floating-animbox",
+			(viewport) => this.handleFloatingAnimBoxViewportChange(viewport),
+		);
+		this.activeFloatingAnimBox = {
+			overlayId: "styletest-floating-animbox",
+			title: "Floating Animbox",
+			presetStore,
+			presetId,
+			values,
+			content,
+		};
+		this.overlayController.showCustomOverlay("styletest-floating-animbox", content, {
+			anchor: "top-left",
+			row: values.y,
+			col: values.x,
+			width: Math.max(10, values.cols + 2),
+			minHeight: 8,
+			maxWidth: 122,
+			maxHeight: 44,
+			floatingTitle: "Floating Animbox",
+			floatingContentViewport: { width: values.cols, height: values.rows },
+			onHide: () => this.handleFloatingAnimBoxHidden(),
+			onFloatingWindowStateChange: (model) => this.handleFloatingAnimBoxStateChange(model),
+		});
+		this.refreshChrome();
+		this.tui.requestRender();
+	}
+
+	private closeActiveFloatingAnimBox(): void {
+		if (!this.activeFloatingAnimBox) {
+			return;
+		}
+		this.overlayController.closeOverlay(this.activeFloatingAnimBox.overlayId);
+	}
+
+	private handleFloatingAnimBoxStateChange(model: { row: number; col: number }): void {
+		const active = this.activeFloatingAnimBox;
+		if (!active) {
+			return;
+		}
+		active.values = {
+			...active.values,
+			x: model.col,
+			y: model.row,
+		};
+		this.refreshChrome();
+	}
+
+	private handleFloatingAnimBoxViewportChange(viewport: HostedViewportDimensions): void {
+		const active = this.activeFloatingAnimBox;
+		if (!active) {
+			return;
+		}
+		active.values = {
+			...active.values,
+			cols: viewport.width,
+			rows: viewport.height,
+		};
+		this.refreshChrome();
+	}
+
+	private handleFloatingAnimBoxHidden(): void {
+		if (!this.activeFloatingAnimBox) {
+			return;
+		}
+		this.persistActiveFloatingAnimBox();
+		this.activeFloatingAnimBox = undefined;
+		this.refreshChrome();
+		if (this.focusedPane === "controls") {
+			this.setFocusPane("controls");
+		} else {
+			this.tui.requestRender();
+		}
+	}
+
+	private updateFloatingAnimBoxPreset(partial: Partial<FloatingAnimBoxPreset>, persist = true): void {
+		const active = this.activeFloatingAnimBox;
+		if (!active) {
+			return;
+		}
+		active.values = {
+			...active.values,
+			...partial,
+		};
+		active.content.setPreset(active.values);
+		if (partial.x !== undefined || partial.y !== undefined || partial.cols !== undefined || partial.rows !== undefined) {
+			this.overlayController.updateFloatingOverlayGeometry(active.overlayId, {
+				row: active.values.y,
+				col: active.values.x,
+				width: Math.max(10, active.values.cols + 2),
+				height: Math.max(8, active.values.rows + 4),
+			});
+		}
+		if (persist) {
+			this.persistActiveFloatingAnimBox();
+		}
+		this.refreshChrome();
+		this.tui.requestRender();
+	}
+
+	private rebuildRuntime(): void {
+		this.runtime?.dispose?.();
+		const demo = this.currentDemo();
+		const values = this.currentValues();
+		this.runtime = demo.createRuntime(this.createStyleTestRuntimeContext(), values);
 	}
 
 	private currentControl(controlId: string): StyleTestControl | undefined {
@@ -749,6 +1164,78 @@ export class TUIStyleTestApp {
 			this.updateControlValue(controlId, value);
 			this.setFocusPane("controls");
 		});
+	}
+
+	private adjustFloatingPresetNumber(controlId: FloatingPresetControlId, delta: number): void {
+		const controls = createFloatingAnimBoxPresetControls(this.activeFloatingAnimBox?.values ?? { ...DEFAULT_FLOATING_ANIMBOX_PRESET });
+		const control = controls.find((entry) => entry.id === controlId);
+		if (!control || control.type !== "number" || !this.activeFloatingAnimBox) {
+			return;
+		}
+		const current = Number(this.activeFloatingAnimBox.values[controlId]);
+		const next = clamp(current + delta * control.step, control.min, control.max);
+		this.updateFloatingAnimBoxPreset({ [controlId]: Number(next.toFixed(4)) } as Partial<FloatingAnimBoxPreset>);
+	}
+
+	private editFloatingPresetNumber(controlId: FloatingPresetControlId): void {
+		if (!this.activeFloatingAnimBox) {
+			return;
+		}
+		const controls = createFloatingAnimBoxPresetControls(this.activeFloatingAnimBox.values);
+		const control = controls.find((entry) => entry.id === controlId);
+		if (!control || control.type !== "number") {
+			return;
+		}
+		this.stateStore.setFocusLabel(`edit:${controlId}`);
+		this.overlayController.openTextPrompt(
+			control.label,
+			control.description ?? "Enter an exact numeric value.",
+			String(this.activeFloatingAnimBox.values[controlId]),
+			(value) => {
+				const numeric = Number(value.trim());
+				if (!Number.isFinite(numeric)) {
+					this.setFocusPane("controls");
+					return;
+				}
+				const next = clamp(numeric, control.min, control.max);
+				this.updateFloatingAnimBoxPreset({ [controlId]: Number(next.toFixed(4)) } as Partial<FloatingAnimBoxPreset>);
+				this.setFocusPane("controls");
+			},
+			() => this.setFocusPane("controls"),
+		);
+	}
+
+	private runFloatingPresetAction(actionId: string): void {
+		const active = this.activeFloatingAnimBox;
+		if (!active) {
+			return;
+		}
+		if (actionId === "floating-action-pick-animation") {
+			this.overlayController.openMenuOverlay("styletest-floating-animbox-picker", this.buildFloatingAnimBoxPickerMenu());
+			return;
+		}
+		if (actionId === "floating-action-close-window") {
+			this.closeActiveFloatingAnimBox();
+			return;
+		}
+		if (actionId === "floating-action-save-preset-as") {
+			this.overlayController.openTextPrompt("Save Floating Preset As", "Enter a name for the new floating animbox preset.", "", (value) => {
+				const nextId = active.presetStore.save({ ...active.values }, value.trim());
+				active.presetId = nextId;
+				this.refreshChrome();
+				this.tui.requestRender();
+				this.setFocusPane("controls");
+			}, () => this.setFocusPane("controls"));
+			return;
+		}
+		if (actionId.startsWith("floating-variant:")) {
+			const presetId = actionId.slice("floating-variant:".length);
+			active.presetId = presetId;
+			active.values = this.loadFloatingAnimBoxPreset(active.presetStore, presetId);
+			active.content.setPreset(active.values);
+			this.refreshChrome();
+			this.tui.requestRender();
+		}
 	}
 
 	private runAction(actionId: string): void {

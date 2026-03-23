@@ -1,7 +1,7 @@
 import { type Component, type OverlayHandle, type OverlayOptions, type TUI } from "@mariozechner/pi-tui";
 import type { PiMonoAppDebugger } from "./app-debugger.js";
 import type { AppStateStore } from "./app-state-store.js";
-import { FloatWindow, adaptHostedComponent } from "./components/float_window.js";
+import { FloatWindow, adaptHostedComponent, type FloatWindowModel } from "./components/float_window.js";
 import { EditorOverlay } from "./components/editor-overlay.js";
 import { FilterSelectOverlay, type OverlaySelectItem } from "./components/filter-select-overlay.js";
 import { ShellMenuOverlay, type ShellMenuDefinition } from "./components/shell-menu-overlay.js";
@@ -11,6 +11,7 @@ import type { MouseEvent, Rect } from "./mouse.js";
 import { pointInRect } from "./mouse.js";
 import { resolveOverlayRect } from "./overlay-layout.js";
 import type { OverlayMousePolicy, OverlayOutsideClickPolicy, OverlayRecord } from "./types.js";
+import type { HostedViewportDimensions } from "./types.js";
 
 interface FloatingOverlayGeometry {
 	row: number;
@@ -24,6 +25,10 @@ type OverlayOptionsWithMousePolicy = OverlayOptions & {
 	minHeight?: number;
 	maxWidth?: number;
 	mousePolicy?: OverlayMousePolicy;
+	floatingTitle?: string;
+	floatingContentViewport?: HostedViewportDimensions;
+	onHide?: () => void;
+	onFloatingWindowStateChange?: (model: FloatWindowModel) => void;
 };
 
 export interface OverlayController {
@@ -45,6 +50,7 @@ export interface OverlayController {
 	openEditorPrompt(title: string, prefill: string, onSubmit: (value: string) => void, onCancel: () => void): void;
 	openMenuOverlay(id: string, definition: ShellMenuDefinition): void;
 	showCustomOverlay(id: string, component: Component, options: OverlayOptionsWithMousePolicy): OverlayHandle;
+	updateFloatingOverlayGeometry(id: string, geometry: { row?: number; col?: number; width?: number; height?: number }): void;
 	closeTopOverlay(): void;
 	closeOverlay(id: string): void;
 	closeAllOverlays(): void;
@@ -163,7 +169,33 @@ export class DefaultOverlayController implements OverlayController {
 	}
 
 	showCustomOverlay(id: string, component: Component, options: OverlayOptionsWithMousePolicy): OverlayHandle {
-		return this.showOverlay(id, component, options, { floating: true, title: id });
+		return this.showOverlay(id, component, options, { floating: true, title: options.floatingTitle ?? id });
+	}
+
+	updateFloatingOverlayGeometry(id: string, geometry: { row?: number; col?: number; width?: number; height?: number }): void {
+		const overlay = this.overlays.find((entry) => entry.id === id);
+		if (!overlay?.window) {
+			return;
+		}
+		if (typeof geometry.row === "number") {
+			overlay.window.model.row = geometry.row;
+			overlay.options.row = geometry.row;
+		}
+		if (typeof geometry.col === "number") {
+			overlay.window.model.col = geometry.col;
+			overlay.options.col = geometry.col;
+		}
+		if (typeof geometry.width === "number") {
+			overlay.window.model.width = geometry.width;
+			overlay.options.width = geometry.width;
+		}
+		if (typeof geometry.height === "number") {
+			overlay.window.model.height = geometry.height;
+			overlay.options.maxHeight = geometry.height;
+		}
+		overlay.window.setViewportSize({ width: this.tui.terminal.columns, height: this.tui.terminal.rows });
+		this.captureFloatingGeometry(overlay);
+		this.tui.requestRender();
 	}
 
 	closeTopOverlay(): void {
@@ -174,6 +206,7 @@ export class DefaultOverlayController implements OverlayController {
 		this.captureFloatingGeometry(overlay);
 		this.debuggerSink.log("overlay.hide", { id: overlay.id, mode: "top" });
 		overlay.hide();
+		overlay.onHide?.();
 		this.stateStore.removeOverlay(overlay.id);
 		this.setFocus(this.overlays[this.overlays.length - 1]?.component ?? this.getFocusRestoreTarget(), "overlay.closeTop");
 	}
@@ -187,6 +220,7 @@ export class DefaultOverlayController implements OverlayController {
 		this.captureFloatingGeometry(overlay);
 		this.debuggerSink.log("overlay.hide", { id, mode: "specific" });
 		overlay.hide();
+		overlay.onHide?.();
 		this.stateStore.removeOverlay(id);
 		this.setFocus(this.overlays[this.overlays.length - 1]?.component ?? this.getFocusRestoreTarget(), `overlay.close:${id}`);
 	}
@@ -200,6 +234,7 @@ export class DefaultOverlayController implements OverlayController {
 			this.captureFloatingGeometry(overlay);
 			this.debuggerSink.log("overlay.hide", { id: overlay.id, mode: "all" });
 			overlay.hide();
+			overlay.onHide?.();
 		}
 		this.stateStore.clearOverlays();
 	}
@@ -310,6 +345,10 @@ export class DefaultOverlayController implements OverlayController {
 
 		if (config?.floating) {
 			const initialRect = this.floatingGeometry.get(id) ?? resolveOverlayRect(component, renderedOptions, this.tui.terminal.columns, this.tui.terminal.rows);
+			if (options.floatingContentViewport) {
+				initialRect.width = Math.max(10, options.floatingContentViewport.width + 2);
+				initialRect.height = Math.max(8, options.floatingContentViewport.height + 4);
+			}
 			window = new FloatWindow({
 				title: config.title ?? id,
 				content: adaptHostedComponent(component),
@@ -337,6 +376,7 @@ export class DefaultOverlayController implements OverlayController {
 						height: model.height,
 						active: model.active,
 					});
+					options.onFloatingWindowStateChange?.(model);
 					this.tui.requestRender();
 				},
 			});
@@ -357,6 +397,8 @@ export class DefaultOverlayController implements OverlayController {
 			handle,
 			window,
 			mousePolicy: options.mousePolicy,
+			onHide: options.onHide,
+			onFloatingWindowStateChange: options.onFloatingWindowStateChange,
 			hide: () => handle.hide(),
 		};
 		this.overlays.push(record);

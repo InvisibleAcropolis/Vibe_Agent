@@ -81,6 +81,27 @@ function isClassLike(value: unknown): value is new (...args: any[]) => object {
 	return typeof value === "function" && /^\s*class\s/.test(Function.prototype.toString.call(value));
 }
 
+function isRenderableComponentInstance(value: object): value is { render(width: number): string[]; invalidate(): void } {
+	const candidate = value as Partial<{ render: unknown; invalidate: unknown }>;
+	return typeof candidate.render === "function" && typeof candidate.invalidate === "function";
+}
+
+function instantiateAutoClass(classConstructor: new (...args: any[]) => object): object | undefined {
+	if (classConstructor.length !== 0) {
+		return undefined;
+	}
+	try {
+		return new classConstructor();
+	} catch {
+		return undefined;
+	}
+}
+
+function canAutoRenderClassExport(classConstructor: new (...args: any[]) => object): boolean {
+	const instance = instantiateAutoClass(classConstructor);
+	return instance !== undefined && isRenderableComponentInstance(instance);
+}
+
 function buildRendererRuntime(
 	renderer: Function,
 	values: StyleTestControlValues,
@@ -132,7 +153,15 @@ function buildClassRuntime(
 	context: StyleTestRuntimeContext,
 ): StyleTestRuntime {
 	if (classConstructor.length === 0) {
-		return createComponentRuntime(new classConstructor() as any);
+		const instance = instantiateAutoClass(classConstructor);
+		if (instance && isRenderableComponentInstance(instance)) {
+			return createComponentRuntime(instance);
+		}
+		return createPlaceholderRuntime(
+			humanizeIdentifier(exportName),
+			`The class export ${exportName} does not implement the renderable component interface required for auto-generated demos.`,
+			sourceFile,
+		);
 	}
 	if (exportName.endsWith("Overlay") && classConstructor.length === 1) {
 		const overlayId = `${sourceFile}#${exportName}`;
@@ -191,6 +220,14 @@ export function buildAutoDemos(loaded: LoadedStyleModule, rootDir: string): Styl
 	};
 	const autoExportsEnabled = loaded.metadata?.autoExports ?? !(inferredMetadata?.onlyUseInferred ?? false);
 	const demos: StyleTestDemoDefinition[] = [];
+	const suppressedNonRenderableZeroArgClass = Object.entries(namespace).some(
+		([name, value]) =>
+			name !== "styleTestDemos" &&
+			!metadataByExport[name] &&
+			isClassLike(value) &&
+			value.length === 0 &&
+			!canAutoRenderClassExport(value),
+	);
 	const discoveredExports = autoExportsEnabled
 		? Object.entries(namespace)
 				.filter(([name, value]) =>
@@ -198,7 +235,7 @@ export function buildAutoDemos(loaded: LoadedStyleModule, rootDir: string): Styl
 					(
 						(isAutoRenderableExport(name, value) && canAutoRenderExport(value)) ||
 						(isAutoFactoryExport(name, value) && canAutoInvokeFactory(value)) ||
-						isClassLike(value)
+						(isClassLike(value) && (value.length !== 0 || canAutoRenderClassExport(value)))
 					),
 				)
 				.map(([name]) => name)
@@ -276,6 +313,9 @@ export function buildAutoDemos(loaded: LoadedStyleModule, rootDir: string): Styl
 	}
 
 	if (demos.length === 0) {
+		if (suppressedNonRenderableZeroArgClass) {
+			return demos;
+		}
 		const fileTitle = humanizeIdentifier(path.basename(loaded.sourceFile, ".ts"));
 		const moduleMeta = loaded.metadata?.module;
 		demos.push({
