@@ -1,5 +1,6 @@
-import type { Component, EditorComponent, OverlayOptions, TUI, Terminal } from "@mariozechner/pi-tui";
+import type { Component, EditorComponent, OverlayHandle, OverlayOptions, TUI, Terminal } from "@mariozechner/pi-tui";
 import type { PiMonoAppDebugger } from "./app-debugger.js";
+import type { FloatWindow } from "./components/float_window.js";
 import type { ArtifactCatalogService } from "./durable/artifacts/artifact-catalog-service.js";
 import type { LogCatalogService } from "./durable/logs/log-catalog-service.js";
 import type { MemoryStoreService } from "./durable/memory/memory-store-service.js";
@@ -14,6 +15,8 @@ export interface OverlayRecord {
 	id: string;
 	component: Component;
 	options: OverlayOptions;
+	handle: OverlayHandle;
+	window?: FloatWindow;
 	hide: () => void;
 }
 

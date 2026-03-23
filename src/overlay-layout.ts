@@ -21,59 +21,75 @@ function resolveDimension(value: number | string | undefined, total: number): nu
 
 export function resolveOverlayRect(component: Component, options: OverlayOptions, termCols: number, termRows: number): Rect {
 	const margin = resolveMargin(options.margin as MarginValue | undefined);
-	const usableWidth = termCols - margin.left - margin.right;
-	const usableHeight = termRows - margin.top - margin.bottom;
-	const width = Math.min(resolveDimension(options.width, termCols) ?? usableWidth, usableWidth);
-	const maxHeight = Math.min(resolveDimension(options.maxHeight, termRows) ?? usableHeight, usableHeight);
+	const usableWidth = Math.max(1, termCols - margin.left - margin.right);
+	const usableHeight = Math.max(1, termRows - margin.top - margin.bottom);
+	const requestedWidth = resolveDimension(options.width, termCols) ?? usableWidth;
+	const width = Math.max(options.minWidth ?? 1, Math.min(requestedWidth, usableWidth));
+	const requestedHeight = resolveDimension(options.maxHeight, termRows) ?? usableHeight;
 	const rendered = component.render(width);
-	const height = Math.min(rendered.length, maxHeight);
+	const intrinsicHeight = Math.min(rendered.length, usableHeight);
+	const height = Math.max(1, Math.min(requestedHeight, intrinsicHeight || requestedHeight));
 	const anchor = options.anchor ?? "center";
+	const explicitRow = resolveDimension(options.row, termRows);
+	const explicitCol = resolveDimension(options.col, termCols);
+	const offsetY = options.offsetY ?? 0;
+	const offsetX = options.offsetX ?? 0;
 
 	let row: number;
 	let col: number;
 
-	switch (anchor) {
-		case "top-left":
-			row = margin.top + 1;
-			col = margin.left + 1;
-			break;
-		case "top-center":
-			row = margin.top + 1;
-			col = margin.left + 1 + Math.floor((usableWidth - width) / 2);
-			break;
-		case "top-right":
-			row = margin.top + 1;
-			col = termCols - margin.right - width + 1;
-			break;
-		case "left-center":
-			row = margin.top + 1 + Math.floor((usableHeight - height) / 2);
-			col = margin.left + 1;
-			break;
-		case "center":
-			row = margin.top + 1 + Math.floor((usableHeight - height) / 2);
-			col = margin.left + 1 + Math.floor((usableWidth - width) / 2);
-			break;
-		case "right-center":
-			row = margin.top + 1 + Math.floor((usableHeight - height) / 2);
-			col = termCols - margin.right - width + 1;
-			break;
-		case "bottom-left":
-			row = termRows - margin.bottom - height + 1;
-			col = margin.left + 1;
-			break;
-		case "bottom-center":
-			row = termRows - margin.bottom - height + 1;
-			col = margin.left + 1 + Math.floor((usableWidth - width) / 2);
-			break;
-		case "bottom-right":
-			row = termRows - margin.bottom - height + 1;
-			col = termCols - margin.right - width + 1;
-			break;
-		default:
-			row = margin.top + 1 + Math.floor((usableHeight - height) / 2);
-			col = margin.left + 1 + Math.floor((usableWidth - width) / 2);
-			break;
+	if (explicitRow !== undefined) {
+		row = explicitRow;
+	} else {
+		switch (anchor) {
+			case "top-left":
+			case "top-center":
+			case "top-right":
+				row = margin.top + 1;
+				break;
+			case "left-center":
+			case "center":
+			case "right-center":
+				row = margin.top + 1 + Math.floor((usableHeight - height) / 2);
+				break;
+			case "bottom-left":
+			case "bottom-center":
+			case "bottom-right":
+				row = termRows - margin.bottom - height + 1;
+				break;
+			default:
+				row = margin.top + 1 + Math.floor((usableHeight - height) / 2);
+		}
 	}
 
-	return { row: Math.max(1, row), col: Math.max(1, col), width, height };
+	if (explicitCol !== undefined) {
+		col = explicitCol;
+	} else {
+		switch (anchor) {
+			case "top-left":
+			case "left-center":
+			case "bottom-left":
+				col = margin.left + 1;
+				break;
+			case "top-center":
+			case "center":
+			case "bottom-center":
+				col = margin.left + 1 + Math.floor((usableWidth - width) / 2);
+				break;
+			case "top-right":
+			case "right-center":
+			case "bottom-right":
+				col = termCols - margin.right - width + 1;
+				break;
+			default:
+				col = margin.left + 1 + Math.floor((usableWidth - width) / 2);
+		}
+	}
+
+	return {
+		row: Math.max(1, Math.min(termRows - height + 1, row + offsetY)),
+		col: Math.max(1, Math.min(termCols - width + 1, col + offsetX)),
+		width,
+		height,
+	};
 }
