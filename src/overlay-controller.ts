@@ -21,6 +21,8 @@ interface FloatingOverlayGeometry {
 }
 
 type OverlayOptionsWithMousePolicy = OverlayOptions & {
+	minHeight?: number;
+	maxWidth?: number;
 	mousePolicy?: OverlayMousePolicy;
 };
 
@@ -320,6 +322,8 @@ export class DefaultOverlayController implements OverlayController {
 					zIndex: this.overlays.length,
 				},
 				minWidth: options.minWidth,
+				minHeight: typeof options.minHeight === "number" ? options.minHeight : undefined,
+				maxWidth: typeof options.maxWidth === "number" ? options.maxWidth : undefined,
 				maxHeight: typeof options.maxHeight === "number" ? options.maxHeight : undefined,
 				onStateChange: (model) => {
 					renderedOptions.row = model.row;

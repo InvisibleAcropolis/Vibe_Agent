@@ -1,5 +1,6 @@
 import type { Component, OverlayOptions } from "@mariozechner/pi-tui";
 import type { Rect } from "./mouse.js";
+import type { HostedLayoutCapable, HostedSizeRequirements, HostedViewportDimensions } from "./types.js";
 
 type MarginValue = number | { top?: number; bottom?: number; left?: number; right?: number };
 
@@ -19,16 +20,36 @@ function resolveDimension(value: number | string | undefined, total: number): nu
 	return Number.parseInt(value, 10) || undefined;
 }
 
+function getHostedRequirements(component: Component, viewport: HostedViewportDimensions): HostedSizeRequirements {
+	return (component as HostedLayoutCapable).getHostedSizeRequirements?.(viewport) ?? {};
+}
+
+function coerce(value: number, min: number, max: number): number {
+	return Math.max(min, Math.min(max, value));
+}
+
 export function resolveOverlayRect(component: Component, options: OverlayOptions, termCols: number, termRows: number): Rect {
 	const margin = resolveMargin(options.margin as MarginValue | undefined);
 	const usableWidth = Math.max(1, termCols - margin.left - margin.right);
 	const usableHeight = Math.max(1, termRows - margin.top - margin.bottom);
-	const requestedWidth = resolveDimension(options.width, termCols) ?? usableWidth;
-	const width = Math.max(options.minWidth ?? 1, Math.min(requestedWidth, usableWidth));
-	const requestedHeight = resolveDimension(options.maxHeight, termRows) ?? usableHeight;
+	const terminalViewport = { width: usableWidth, height: usableHeight };
+	const hosted = getHostedRequirements(component, terminalViewport);
+	const minWidth = Math.max(1, hosted.minWidth ?? 1, options.minWidth ?? 1);
+	const maxWidth = Math.max(minWidth, Math.min(usableWidth, hosted.maxWidth ?? usableWidth));
+	const preferredWidth = hosted.preferredWidth ?? maxWidth;
+	const requestedWidth = resolveDimension(options.width, termCols) ?? preferredWidth;
+	const width = coerce(requestedWidth, minWidth, maxWidth);
+
+	const minHeight = Math.max(1, hosted.minHeight ?? 1);
+	const maxHeightLimit = resolveDimension(options.maxHeight, termRows) ?? hosted.maxHeight ?? usableHeight;
+	const maxHeight = Math.max(minHeight, Math.min(usableHeight, maxHeightLimit));
+	const preferredHeight = hosted.preferredHeight ?? maxHeight;
 	const rendered = component.render(width);
-	const intrinsicHeight = Math.min(rendered.length, usableHeight);
-	const height = Math.max(1, Math.min(requestedHeight, intrinsicHeight || requestedHeight));
+	const intrinsicHeight = rendered.length || preferredHeight;
+	const requestedHeight = Math.min(preferredHeight, intrinsicHeight, maxHeight);
+	const height = coerce(requestedHeight, minHeight, maxHeight);
+	(component as HostedLayoutCapable).setHostedViewportSize?.({ width, height });
+
 	const anchor = options.anchor ?? "center";
 	const explicitRow = resolveDimension(options.row, termRows);
 	const explicitCol = resolveDimension(options.col, termCols);

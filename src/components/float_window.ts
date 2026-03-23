@@ -3,25 +3,15 @@ import { paintBoxLineTwoParts, paintLine, paintLineTwoParts } from "../ansi.js";
 import type { MouseEvent, Rect } from "../mouse.js";
 import { pointInRect } from "../mouse.js";
 import { agentTheme } from "../theme.js";
+import type { HostedLayoutCapable, HostedSizeRequirements, HostedViewportDimensions } from "../types.js";
 
 export type FloatWindowResizeEdge = "top" | "bottom" | "left" | "right";
 export type FloatWindowResizeHandle = FloatWindowResizeEdge | "top-left" | "top-right" | "bottom-left" | "bottom-right";
 
-export interface FloatWindowViewport {
-	width: number;
-	height: number;
-}
+export type FloatWindowViewport = HostedViewportDimensions;
+export type FloatWindowSizingRequirements = HostedSizeRequirements;
 
-export interface FloatWindowSizingRequirements {
-	minWidth?: number;
-	minHeight?: number;
-	maxWidth?: number;
-	maxHeight?: number;
-}
-
-export interface FloatWindowHostedElement extends Component {
-	getSizingRequirements?(viewport: FloatWindowViewport): FloatWindowSizingRequirements;
-	setViewportSize?(viewport: FloatWindowViewport): void;
+export interface FloatWindowHostedElement extends HostedLayoutCapable {
 	handleMouse?(event: MouseEvent, rect: Rect): boolean;
 }
 
@@ -36,6 +26,15 @@ export interface FloatWindowFrameHints {
 	drag?: string;
 	resize?: string;
 	close?: string;
+}
+
+export interface FloatWindowResolvedConstraints {
+	minWidth: number;
+	minHeight: number;
+	preferredWidth: number;
+	preferredHeight: number;
+	maxWidth: number;
+	maxHeight: number;
 }
 
 export interface FloatWindowModel {
@@ -54,7 +53,7 @@ export interface FloatWindowModel {
 		origin: Rect;
 		pointerOrigin: { row: number; col: number };
 	} | null;
-	constraints: Required<FloatWindowSizingRequirements>;
+	constraints: FloatWindowResolvedConstraints;
 }
 
 export interface FloatWindowOptions {
@@ -72,8 +71,9 @@ export interface FloatWindowOptions {
 	onStateChange?: (model: FloatWindowModel) => void;
 }
 
-const FRAME_WIDTH = 2;
-const FRAME_HEIGHT = 3;
+const FRAME_HORIZONTAL_CHROME = 2;
+const FRAME_VERTICAL_CHROME = 4;
+const TITLE_BAR_HEIGHT = 1;
 const FOOTER_HEIGHT = 1;
 const MIN_CONTENT_WIDTH = 8;
 const MIN_CONTENT_HEIGHT = 1;
@@ -82,20 +82,55 @@ function coerce(value: number, min: number, max: number): number {
 	return Math.max(min, Math.min(max, value));
 }
 
+function toWindowWidth(contentWidth: number): number {
+	return Math.max(FRAME_HORIZONTAL_CHROME + MIN_CONTENT_WIDTH, contentWidth + FRAME_HORIZONTAL_CHROME);
+}
+
+function toWindowHeight(contentHeight: number): number {
+	return Math.max(FRAME_VERTICAL_CHROME + MIN_CONTENT_HEIGHT, contentHeight + FRAME_VERTICAL_CHROME);
+}
+
+function toContentViewport(windowWidth: number, windowHeight: number): FloatWindowViewport {
+	return {
+		width: Math.max(MIN_CONTENT_WIDTH, windowWidth - FRAME_HORIZONTAL_CHROME),
+		height: Math.max(MIN_CONTENT_HEIGHT, windowHeight - FRAME_VERTICAL_CHROME),
+	};
+}
+
 function mergeConstraints(
 	explicit: FloatWindowSizingRequirements,
-	content: FloatWindowSizingRequirements,
-	viewport: FloatWindowViewport,
-): Required<FloatWindowSizingRequirements> {
-	const contentMinWidth = Math.max(MIN_CONTENT_WIDTH, content.minWidth ?? MIN_CONTENT_WIDTH);
-	const contentMinHeight = Math.max(MIN_CONTENT_HEIGHT, content.minHeight ?? MIN_CONTENT_HEIGHT);
-	const baseMinWidth = FRAME_WIDTH + contentMinWidth;
-	const baseMinHeight = FRAME_HEIGHT + contentMinHeight + FOOTER_HEIGHT;
-	const maxWidth = Math.max(baseMinWidth, explicit.maxWidth ?? content.maxWidth ?? viewport.width);
-	const maxHeight = Math.max(baseMinHeight, explicit.maxHeight ?? content.maxHeight ?? viewport.height);
+	hosted: FloatWindowSizingRequirements,
+	terminal: HostedViewportDimensions,
+): FloatWindowResolvedConstraints {
+	const terminalMaxWidth = Math.max(toWindowWidth(MIN_CONTENT_WIDTH), terminal.width);
+	const terminalMaxHeight = Math.max(toWindowHeight(MIN_CONTENT_HEIGHT), terminal.height);
+	const minWidth = Math.max(
+		toWindowWidth(hosted.minWidth ?? MIN_CONTENT_WIDTH),
+		explicit.minWidth ?? 0,
+		toWindowWidth(MIN_CONTENT_WIDTH),
+	);
+	const minHeight = Math.max(
+		toWindowHeight(hosted.minHeight ?? MIN_CONTENT_HEIGHT),
+		explicit.minHeight ?? 0,
+		toWindowHeight(MIN_CONTENT_HEIGHT),
+	);
+	const maxWidth = Math.max(minWidth, Math.min(terminalMaxWidth, explicit.maxWidth ?? hosted.maxWidth ?? terminalMaxWidth));
+	const maxHeight = Math.max(minHeight, Math.min(terminalMaxHeight, explicit.maxHeight ?? hosted.maxHeight ?? terminalMaxHeight));
+	const preferredWidth = coerce(
+		toWindowWidth(hosted.preferredWidth ?? hosted.minWidth ?? MIN_CONTENT_WIDTH),
+		minWidth,
+		maxWidth,
+	);
+	const preferredHeight = coerce(
+		toWindowHeight(hosted.preferredHeight ?? hosted.minHeight ?? MIN_CONTENT_HEIGHT),
+		minHeight,
+		maxHeight,
+	);
 	return {
-		minWidth: Math.min(maxWidth, Math.max(baseMinWidth, explicit.minWidth ?? baseMinWidth)),
-		minHeight: Math.min(maxHeight, Math.max(baseMinHeight, explicit.minHeight ?? baseMinHeight)),
+		minWidth,
+		minHeight,
+		preferredWidth,
+		preferredHeight,
 		maxWidth,
 		maxHeight,
 	};
@@ -121,11 +156,14 @@ function composite(baseLines: string[], childLines: string[], row: number, col: 
 }
 
 export function adaptHostedComponent(component: Component): FloatWindowHostedElement {
+	const hosted = component as HostedLayoutCapable;
 	return {
 		render: (width) => component.render(width),
 		handleInput: component.handleInput?.bind(component),
 		invalidate: () => component.invalidate(),
 		wantsKeyRelease: component.wantsKeyRelease,
+		getHostedSizeRequirements: hosted.getHostedSizeRequirements?.bind(component),
+		setHostedViewportSize: hosted.setHostedViewportSize?.bind(component),
 	};
 }
 
@@ -137,9 +175,10 @@ export class FloatWindow implements FloatWindowHostedElement {
 	private readonly explicitConstraints: FloatWindowSizingRequirements;
 	private readonly footer?: string;
 	private readonly status?: string;
-	private lastViewport: FloatWindowViewport = { width: 0, height: 0 };
+	private lastTerminalViewport: HostedViewportDimensions = { width: Number.MAX_SAFE_INTEGER, height: Number.MAX_SAFE_INTEGER };
 	private lastRect: Rect;
 	readonly model: FloatWindowModel;
+	readonly content: FloatWindowHostedElement;
 
 	constructor(options: FloatWindowOptions) {
 		this.title = options.title ?? "Window";
@@ -168,27 +207,23 @@ export class FloatWindow implements FloatWindowHostedElement {
 			active: options.initialState.active ?? true,
 			dragState: null,
 			resizeState: null,
-			constraints: mergeConstraints(this.explicitConstraints, {}, { width: Number.MAX_SAFE_INTEGER, height: Number.MAX_SAFE_INTEGER }),
+			constraints: mergeConstraints(this.explicitConstraints, {}, this.lastTerminalViewport),
 		};
 		this.lastRect = { row: this.model.row, col: this.model.col, width: this.model.width, height: this.model.height };
-		this.syncViewport();
+		this.reconcileWindowState(false);
 	}
-
-	readonly content: FloatWindowHostedElement;
 
 	invalidate(): void {
 		this.content.invalidate();
 	}
 
 	render(width: number): string[] {
-		const windowWidth = Math.max(3, width);
-		const viewport = this.getViewport(windowWidth, this.model.height);
-		this.refreshConstraints(viewport);
-		this.model.width = coerce(windowWidth, this.model.constraints.minWidth, this.model.constraints.maxWidth);
-		const windowHeight = coerce(this.model.height, this.model.constraints.minHeight, this.model.constraints.maxHeight);
-		this.model.height = windowHeight;
+		if (width !== this.model.width) {
+			this.model.width = width;
+		}
+		this.reconcileWindowState(false);
+		const viewport = toContentViewport(this.model.width, this.model.height);
 		this.lastRect = { row: this.model.row, col: this.model.col, width: this.model.width, height: this.model.height };
-		this.syncViewport();
 
 		const contentLines = this.content.render(viewport.width).slice(0, viewport.height);
 		const clipped = contentLines.map((line) => paintLine(line, viewport.width, agentTheme.panelBgActive));
@@ -197,21 +232,21 @@ export class FloatWindow implements FloatWindowHostedElement {
 		}
 
 		const border = this.model.active ? agentTheme.accentStrong : agentTheme.dim;
-		const title = truncateToWidth(this.title, Math.max(0, windowWidth - 18), "…");
+		const title = truncateToWidth(this.title, Math.max(0, this.model.width - 18), "…");
 		const rightMeta = this.status
-			? agentTheme.accent(` ${truncateToWidth(this.status, Math.max(0, windowWidth - 16), "…")} `)
+			? agentTheme.accent(` ${truncateToWidth(this.status, Math.max(0, this.model.width - 16), "…")} `)
 			: this.model.active
 				? agentTheme.accent(" ● active ")
 				: agentTheme.muted(" ○ idle ");
-		const topInner = paintBoxLineTwoParts(agentTheme.accentStrong(` ${title}`), rightMeta, Math.max(0, windowWidth - 2), "─", border);
+		const topInner = paintBoxLineTwoParts(agentTheme.accentStrong(` ${title}`), rightMeta, Math.max(0, this.model.width - 2), "─", border);
 		const lines: string[] = [`${border("╭")}${topInner}${border("╮")}`];
 		for (const contentLine of clipped) {
 			lines.push(`${border("│")}${contentLine}${border("│")}`);
 		}
-		const footerLeft = truncateToWidth(this.footer ?? this.footerText(), Math.max(0, windowWidth - 20), "…");
+		const footerLeft = truncateToWidth(this.footer ?? this.footerText(), Math.max(0, this.model.width - 20), "…");
 		const footerRight = agentTheme.dim(`${this.model.width}×${this.model.height}`);
-		lines.push(`${border("├")}${paintLineTwoParts(footerLeft, footerRight, Math.max(0, windowWidth - 2), agentTheme.panelBgRaised)}${border("┤")}`);
-		lines.push(border(`╰${agentTheme.dim("═".repeat(Math.max(0, windowWidth - 2)))}╯`));
+		lines.push(`${border("├")}${paintLineTwoParts(footerLeft, footerRight, Math.max(0, this.model.width - 2), agentTheme.panelBgRaised)}${border("┤")}`);
+		lines.push(border(`╰${agentTheme.dim("═".repeat(Math.max(0, this.model.width - 2)))}╯`));
 
 		return this.renderChildren(lines, viewport);
 	}
@@ -221,19 +256,22 @@ export class FloatWindow implements FloatWindowHostedElement {
 	}
 
 	getSizingRequirements(viewport: FloatWindowViewport): FloatWindowSizingRequirements {
-		this.refreshConstraints(viewport);
+		return this.getHostedSizeRequirements(viewport);
+	}
+
+	getHostedSizeRequirements(viewport: FloatWindowViewport): FloatWindowSizingRequirements {
+		this.lastTerminalViewport = viewport;
+		this.refreshConstraints();
 		return this.model.constraints;
 	}
 
 	setViewportSize(viewport: FloatWindowViewport): void {
-		this.lastViewport = viewport;
-		this.refreshConstraints(viewport);
-		this.model.width = coerce(this.model.width, this.model.constraints.minWidth, this.model.constraints.maxWidth);
-		this.model.height = coerce(this.model.height, this.model.constraints.minHeight, this.model.constraints.maxHeight);
-		this.model.row = Math.max(1, Math.min(this.model.row, Math.max(1, viewport.height - this.model.height + 1)));
-		this.model.col = Math.max(1, Math.min(this.model.col, Math.max(1, viewport.width - this.model.width + 1)));
-		this.syncViewport();
-		this.emitStateChange();
+		this.setHostedViewportSize(viewport);
+	}
+
+	setHostedViewportSize(viewport: FloatWindowViewport): void {
+		this.lastTerminalViewport = viewport;
+		this.reconcileWindowState(true);
 	}
 
 	handleMouse(event: MouseEvent, rect: Rect): boolean {
@@ -296,19 +334,12 @@ export class FloatWindow implements FloatWindowHostedElement {
 		return [this.hints.drag, this.hints.resize, this.hints.close].filter(Boolean).join("  •  ");
 	}
 
-	private getViewport(windowWidth: number, windowHeight: number): FloatWindowViewport {
-		return {
-			width: Math.max(MIN_CONTENT_WIDTH, windowWidth - FRAME_WIDTH),
-			height: Math.max(MIN_CONTENT_HEIGHT, windowHeight - FRAME_HEIGHT - FOOTER_HEIGHT),
-		};
-	}
-
 	private getContentRect(rect: Rect): Rect {
 		return {
-			row: rect.row + 1,
+			row: rect.row + TITLE_BAR_HEIGHT,
 			col: rect.col + 1,
-			width: Math.max(0, rect.width - FRAME_WIDTH),
-			height: Math.max(0, rect.height - FRAME_HEIGHT - FOOTER_HEIGHT),
+			width: Math.max(0, rect.width - FRAME_HORIZONTAL_CHROME),
+			height: Math.max(0, rect.height - FRAME_VERTICAL_CHROME),
 		};
 	}
 
@@ -324,16 +355,27 @@ export class FloatWindow implements FloatWindowHostedElement {
 		return rendered;
 	}
 
-	private refreshConstraints(viewport: FloatWindowViewport): void {
-		const hosted = this.content.getSizingRequirements?.(viewport) ?? {};
-		this.model.constraints = mergeConstraints(this.explicitConstraints, hosted, {
-			width: Math.max(viewport.width + FRAME_WIDTH, this.lastViewport.width || viewport.width + FRAME_WIDTH),
-			height: Math.max(viewport.height + FRAME_HEIGHT + FOOTER_HEIGHT, this.lastViewport.height || viewport.height + FRAME_HEIGHT + FOOTER_HEIGHT),
-		});
+	private refreshConstraints(): void {
+		const hostedViewportHint = toContentViewport(this.model.width, this.model.height);
+		const hosted = this.content.getHostedSizeRequirements?.(hostedViewportHint) ?? {};
+		this.model.constraints = mergeConstraints(this.explicitConstraints, hosted, this.lastTerminalViewport);
 	}
 
-	private syncViewport(): void {
-		this.content.setViewportSize?.(this.getViewport(this.model.width, this.model.height));
+	private reconcileWindowState(emit: boolean): void {
+		this.refreshConstraints();
+		const nextWidth = coerce(this.model.width || this.model.constraints.preferredWidth, this.model.constraints.minWidth, this.model.constraints.maxWidth);
+		const nextHeight = coerce(this.model.height || this.model.constraints.preferredHeight, this.model.constraints.minHeight, this.model.constraints.maxHeight);
+		const nextRow = Math.max(1, Math.min(this.model.row, Math.max(1, this.lastTerminalViewport.height - nextHeight + 1)));
+		const nextCol = Math.max(1, Math.min(this.model.col, Math.max(1, this.lastTerminalViewport.width - nextWidth + 1)));
+		const changed = nextWidth !== this.model.width || nextHeight !== this.model.height || nextRow !== this.model.row || nextCol !== this.model.col;
+		this.model.width = nextWidth;
+		this.model.height = nextHeight;
+		this.model.row = nextRow;
+		this.model.col = nextCol;
+		this.content.setHostedViewportSize?.(toContentViewport(this.model.width, this.model.height));
+		if (emit && changed) {
+			this.emitStateChange();
+		}
 	}
 
 	private emitStateChange(): void {
@@ -363,8 +405,8 @@ export class FloatWindow implements FloatWindowHostedElement {
 		}
 		const nextRow = state.windowOrigin.row + (event.row - state.origin.row);
 		const nextCol = state.windowOrigin.col + (event.col - state.origin.col);
-		this.model.row = Math.max(1, Math.min(nextRow, Math.max(1, this.lastViewport.height - this.model.height + 1)));
-		this.model.col = Math.max(1, Math.min(nextCol, Math.max(1, this.lastViewport.width - this.model.width + 1)));
+		this.model.row = Math.max(1, Math.min(nextRow, Math.max(1, this.lastTerminalViewport.height - this.model.height + 1)));
+		this.model.col = Math.max(1, Math.min(nextCol, Math.max(1, this.lastTerminalViewport.width - this.model.width + 1)));
 		this.emitStateChange();
 	}
 
@@ -373,6 +415,7 @@ export class FloatWindow implements FloatWindowHostedElement {
 		if (!state) {
 			return;
 		}
+		this.refreshConstraints();
 		const deltaRow = event.row - state.pointerOrigin.row;
 		const deltaCol = event.col - state.pointerOrigin.col;
 		let { row, col, width, height } = state.origin;
@@ -386,13 +429,19 @@ export class FloatWindow implements FloatWindowHostedElement {
 			height -= deltaRow;
 			row += deltaRow;
 		}
-		width = coerce(width, this.model.constraints.minWidth, this.model.constraints.maxWidth);
-		height = coerce(height, this.model.constraints.minHeight, this.model.constraints.maxHeight);
-		this.model.width = width;
-		this.model.height = height;
-		this.model.row = Math.max(1, Math.min(row, Math.max(1, this.lastViewport.height - height + 1)));
-		this.model.col = Math.max(1, Math.min(col, Math.max(1, this.lastViewport.width - width + 1)));
-		this.syncViewport();
+		const nextWidth = coerce(width, this.model.constraints.minWidth, this.model.constraints.maxWidth);
+		const nextHeight = coerce(height, this.model.constraints.minHeight, this.model.constraints.maxHeight);
+		if (state.handle.includes("left")) {
+			col = state.origin.col + (state.origin.width - nextWidth);
+		}
+		if (state.handle.includes("top")) {
+			row = state.origin.row + (state.origin.height - nextHeight);
+		}
+		this.model.width = nextWidth;
+		this.model.height = nextHeight;
+		this.model.row = Math.max(1, Math.min(row, Math.max(1, this.lastTerminalViewport.height - nextHeight + 1)));
+		this.model.col = Math.max(1, Math.min(col, Math.max(1, this.lastTerminalViewport.width - nextWidth + 1)));
+		this.content.setHostedViewportSize?.(toContentViewport(this.model.width, this.model.height));
 		this.emitStateChange();
 	}
 }
