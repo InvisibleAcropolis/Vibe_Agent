@@ -1,7 +1,7 @@
-import { classifyOrcTransportIssue, type OrcTransportFaultCode, type OrcTransportWarningCode } from "../orc-events/index.js";
+import type { OrcTransportFaultCode, OrcTransportWarningCode } from "../orc-events/types.js";
 import type { StderrSnippet } from "./types.js";
 import { extractObservedSequenceHint, previewLine } from "./protocol-parser.js";
-import type { OrcTransportPolicyResult } from "./policy-results.js";
+import { mapTransportRecoveryToPolicyAction, type OrcTransportPolicyResult } from "./policy-results.js";
 
 export function evaluateParseFailurePolicy(params: {
 	message: string;
@@ -47,7 +47,7 @@ export function evaluateParseFailurePolicy(params: {
 		},
 	};
 	if (consecutiveParseFailures < fatalParseFailureCount) {
-		return { emissions: [warning], action: mapRecoveryToAction(warning.code) };
+		return { emissions: [warning], action: mapTransportRecoveryToPolicyAction(warning.code) };
 	}
 	const faultCode: OrcTransportFaultCode = "transport_corrupt_stream";
 	return {
@@ -62,11 +62,6 @@ export function evaluateParseFailurePolicy(params: {
 				consecutiveParseFailures,
 			},
 		}],
-		action: mapRecoveryToAction(faultCode),
+		action: mapTransportRecoveryToPolicyAction(faultCode),
 	};
-}
-
-function mapRecoveryToAction(code: Parameters<typeof classifyOrcTransportIssue>[0]): OrcTransportPolicyResult["action"] {
-	const rule = classifyOrcTransportIssue(code);
-	return rule.recovery === "continue_stream" ? "continue" : rule.recovery === "request_supervisor_restart" ? "restart" : "terminate";
 }

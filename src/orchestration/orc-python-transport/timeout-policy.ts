@@ -1,14 +1,6 @@
-import { classifyOrcTransportIssue } from "../orc-events/index.js";
-import type { OrcTransportPolicyResult } from "./policy-results.js";
+import type { OrcTransportTimeoutPolicyResult } from "./policy-results.js";
+import { mapTransportRecoveryToPolicyAction, maxTransportPolicyAction } from "./policy-results.js";
 import type { OrcPythonTransportHealth, StderrSnippet } from "./types.js";
-
-export interface OrcTransportTimeoutEvaluation {
-	readyTimedOut: boolean;
-	stallTimedOut: boolean;
-	idleWarningDue: boolean;
-	silenceMs: number;
-	nowIso: string;
-}
 
 export function evaluateTransportTimeoutPolicy(params: {
 	health: OrcPythonTransportHealth;
@@ -17,7 +9,7 @@ export function evaluateTransportTimeoutPolicy(params: {
 	stallTimeoutMs: number;
 	readyTimeoutMs: number;
 	now?: number;
-}): OrcTransportTimeoutEvaluation & OrcTransportPolicyResult {
+}): OrcTransportTimeoutPolicyResult {
 	const { health, idleWarningMs, now = Date.now(), readyTimeoutMs, recentStderr, stallTimeoutMs } = params;
 	const nowIso = new Date(now).toISOString();
 	const lastProgressAt = health.timeouts.lastProgressAt ? Date.parse(health.timeouts.lastProgressAt) : now;
@@ -27,9 +19,11 @@ export function evaluateTransportTimeoutPolicy(params: {
 	const stallTimedOut = silenceMs >= stallTimeoutMs && !health.timeouts.lastStallFaultAt;
 	const lastIdleWarningAt = health.timeouts.lastIdleWarningAt ? Date.parse(health.timeouts.lastIdleWarningAt) : 0;
 	const idleWarningDue = !stallTimedOut && silenceMs >= idleWarningMs && now - lastIdleWarningAt >= idleWarningMs;
-	const emissions: OrcTransportPolicyResult["emissions"] = [];
-	let action: OrcTransportPolicyResult["action"] = "continue";
+	const emissions: OrcTransportTimeoutPolicyResult["emissions"] = [];
+	const healthMarks: OrcTransportTimeoutPolicyResult["healthMarks"] = {};
+	let action: OrcTransportTimeoutPolicyResult["action"] = "continue";
 	if (readyTimedOut) {
+		healthMarks.lastReadyTimeoutAt = nowIso;
 		emissions.push({
 			kind: "fault",
 			code: "transport_ready_timeout",
@@ -43,9 +37,10 @@ export function evaluateTransportTimeoutPolicy(params: {
 				retryable: true,
 			},
 		});
-		action = maxAction(action, mapRecoveryToAction("transport_ready_timeout"));
+		action = maxTransportPolicyAction(action, mapTransportRecoveryToPolicyAction("transport_ready_timeout"));
 	}
 	if (stallTimedOut) {
+		healthMarks.lastStallFaultAt = nowIso;
 		emissions.push({
 			kind: "fault",
 			code: "transport_stall_timeout",
@@ -61,9 +56,10 @@ export function evaluateTransportTimeoutPolicy(params: {
 				retryable: true,
 			},
 		});
-		action = maxAction(action, mapRecoveryToAction("transport_stall_timeout"));
+		action = maxTransportPolicyAction(action, mapTransportRecoveryToPolicyAction("transport_stall_timeout"));
 	}
 	if (idleWarningDue) {
+		healthMarks.lastIdleWarningAt = nowIso;
 		emissions.push({
 			kind: "warning",
 			code: "transport_idle_timeout",
@@ -79,17 +75,7 @@ export function evaluateTransportTimeoutPolicy(params: {
 				recoverable: true,
 			},
 		});
-		action = maxAction(action, mapRecoveryToAction("transport_idle_timeout"));
+		action = maxTransportPolicyAction(action, mapTransportRecoveryToPolicyAction("transport_idle_timeout"));
 	}
-	return { emissions, action, readyTimedOut, stallTimedOut, idleWarningDue, silenceMs, nowIso };
-}
-
-function mapRecoveryToAction(code: Parameters<typeof classifyOrcTransportIssue>[0]): OrcTransportPolicyResult["action"] {
-	const rule = classifyOrcTransportIssue(code);
-	return rule.recovery === "continue_stream" ? "continue" : rule.recovery === "request_supervisor_restart" ? "restart" : "terminate";
-}
-
-function maxAction(left: OrcTransportPolicyResult["action"], right: OrcTransportPolicyResult["action"]): OrcTransportPolicyResult["action"] {
-	const order: Record<OrcTransportPolicyResult["action"], number> = { continue: 0, restart: 1, terminate: 2 };
-	return order[right] > order[left] ? right : left;
+	return { emissions, action, healthMarks, nowIso, silenceMs };
 }
