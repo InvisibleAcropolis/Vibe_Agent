@@ -101,7 +101,8 @@ function deriveTrackerPersistenceNeed(event: ReturnType<typeof normalizeOrcTrans
 		|| event.kind === "worker.status"
 		|| event.kind === "tool.result"
 		|| event.kind === "stream.warning"
-		|| event.kind === "transport.fault";
+		|| event.kind === "transport.fault"
+		|| event.kind === "security.approval";
 }
 
 interface OrcRuntimeThreadContext {

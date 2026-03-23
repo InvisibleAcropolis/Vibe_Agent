@@ -1,5 +1,5 @@
 import type { OrcBusEvent } from "./orc-events.js";
-import type { OrcSecurityEvent } from "./orc-security.js";
+import { getOrcSecurityTelemetryDisposition, isBlockingOrcSecurityEvent, type OrcSecurityEvent } from "./orc-security.js";
 import type { OrcControlPlaneState, OrcReducedTransportHealth, OrcWorkerResultStatus } from "./orc-state.js";
 
 export type OrcPresentationIntent = "neutral" | "active" | "success" | "warning" | "blocked" | "cancelled" | "failed";
@@ -144,10 +144,9 @@ export function presentOrcTrackerSummary(state?: OrcControlPlaneState): OrcTrack
 	const signOffStatus = deriveTrackerSignOffStatus(state, counts.blocked);
 	const transportSummary = presentTransportHealthSummary(state?.transportHealth);
 	const highlights = buildStateHighlights(state, counts, signOffStatus, transportSummary);
+	const phaseSummary = presentPhaseSummary(state);
 	return {
-		phase: state
-			? { label: humanizeOrcValue(state.phase), detail: `Current lifecycle phase: ${humanizeOrcValue(state.phase)}.`, intent: "active", tone: "accent" }
-			: { label: "Waiting for graph", detail: "No orchestration thread is active yet.", intent: "neutral", tone: "dim" },
+		phase: phaseSummary,
 		thread: state?.threadId
 			? { label: state.threadId, detail: `Active Orc thread: ${state.threadId}.`, intent: "neutral", tone: "default" }
 			: { label: "No thread selected", detail: "Launch or resume an Orc thread to populate tracker state.", intent: "neutral", tone: "dim" },
@@ -167,7 +166,7 @@ export function deriveTrackerSignOffStatus(state: OrcControlPlaneState | undefin
 	if (!state) {
 		return "not-started";
 	}
-	if (blockedTasks > 0 || state.phase === "failed" || state.phase === "cancelled") {
+	if (hasBlockingSecurityState(state) || blockedTasks > 0 || state.phase === "failed" || state.phase === "cancelled") {
 		return "blocked";
 	}
 	if (state.phase === "completed") {
@@ -183,7 +182,7 @@ export function countTrackerTasks(state?: OrcControlPlaneState): OrcTrackerTaskC
 	return {
 		completed: state?.workerResults.filter((result) => result.status === "completed").length ?? 0,
 		blocked: (state?.workerResults.filter((result) => isBlockedWorkerResult(result.status)).length ?? 0)
-			+ (state?.securityEvents?.filter((event) => event.kind === "approval-required" || event.kind === "blocked-command").length ?? 0),
+			+ (state?.securityEvents?.filter((event) => isBlockingOrcSecurityEvent(event)).length ?? 0),
 	};
 }
 
@@ -210,6 +209,15 @@ function presentWorkerStatus(status: string, workerId?: string, summary?: string
 }
 
 function presentSecurityEvent(event: OrcSecurityEvent): OrcPresentedSummary {
+	const disposition = getOrcSecurityTelemetryDisposition(event);
+	if (disposition === "informational") {
+		return {
+			label: "Security notice",
+			detail: firstNonEmpty(event.detail, event.command ? `Security notice for ${event.command}.` : undefined, "A policy notice was recorded."),
+			intent: "warning",
+			tone: "default",
+		};
+	}
 	if (event.kind === "blocked-command") {
 		return {
 			label: "Command blocked",
@@ -358,4 +366,29 @@ function firstNonEmpty(...values: Array<string | undefined>): string {
 		}
 	}
 	return "No additional detail available.";
+}
+
+
+function hasBlockingSecurityState(state: OrcControlPlaneState): boolean {
+	return state.securityEvents?.some((event) => isBlockingOrcSecurityEvent(event)) ?? false;
+}
+
+function presentPhaseSummary(state?: OrcControlPlaneState): OrcPresentedSummary {
+	if (!state) {
+		return { label: "Waiting for graph", detail: "No orchestration thread is active yet.", intent: "neutral", tone: "dim" };
+	}
+	const latestSecurity = [...(state.securityEvents ?? [])].reverse().find((event) => isBlockingOrcSecurityEvent(event));
+	if (latestSecurity?.kind === "approval-required") {
+		return { label: "Awaiting Approval", detail: latestSecurity.detail || "Human approval is required before execution can continue.", intent: "blocked", tone: "warning" };
+	}
+	if (latestSecurity?.kind === "blocked-command") {
+		return { label: "Blocked By Policy", detail: latestSecurity.detail || "A command was blocked by security policy.", intent: "blocked", tone: "warning" };
+	}
+	if (state.phase === "failed") {
+		return { label: humanizeOrcValue(state.phase), detail: `Current lifecycle phase: ${humanizeOrcValue(state.phase)}.`, intent: "failed", tone: "warning" };
+	}
+	if (state.phase === "completed" || state.phase === "checkpointed") {
+		return { label: humanizeOrcValue(state.phase), detail: `Current lifecycle phase: ${humanizeOrcValue(state.phase)}.`, intent: "success", tone: state.phase === "completed" ? "success" : "default" };
+	}
+	return { label: humanizeOrcValue(state.phase), detail: `Current lifecycle phase: ${humanizeOrcValue(state.phase)}.`, intent: "active", tone: "accent" };
 }

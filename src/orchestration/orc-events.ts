@@ -5,7 +5,13 @@ import type {
 	OrcInteractionTarget,
 } from "./orc-io.js";
 import { presentOrcEventSummary } from "./orc-presentation.js";
-import type { OrcSecurityEvent } from "./orc-security.js";
+import {
+	getOrcSecurityTelemetryDisposition,
+	isBlockingOrcSecurityEvent,
+	mapCommandInterceptorResultToOrcSecurityEvent,
+	type OrcCommandInterceptorResult,
+	type OrcSecurityEvent,
+} from "./orc-security.js";
 import type {
 	OrcActiveExecutionWave,
 	OrcCheckpointMetadataSummary,
@@ -581,6 +587,67 @@ export const ORC_EVENT_REDUCER_INITIAL_STATE: OrcEventReducerState = {
 	recentErrors: [],
 };
 
+
+export function mapOrcSecurityEventToCanonicalSeverity(event: OrcSecurityEvent): Extract<OrcEventSeverity, "notice" | "warning" | "error" | "critical"> {
+	const disposition = getOrcSecurityTelemetryDisposition(event);
+	if (disposition === "blocked") {
+		return "error";
+	}
+	if (disposition === "approval-required") {
+		return "warning";
+	}
+	return "notice";
+}
+
+export function createOrcSecurityApprovalEvent(input: {
+	envelope: OrcCanonicalEventEnvelope<Record<string, unknown>>;
+	event: OrcSecurityEvent;
+	normalizedFrom?: string;
+	notes?: string[];
+	escalationReason?: string;
+}): OrcSecurityApprovalEvent {
+	return {
+		kind: "security.approval",
+		envelope: {
+			...input.envelope,
+			what: {
+				...input.envelope.what,
+				category: "security",
+				severity: mapOrcSecurityEventToCanonicalSeverity(input.event),
+				status: isBlockingOrcSecurityEvent(input.event) ? "waiting_on_input" : "succeeded",
+				description: input.envelope.what.description ?? input.event.detail,
+			},
+		},
+		payload: {
+			event: input.event,
+			severityOverride: mapOrcSecurityEventToCanonicalSeverity(input.event),
+			escalationReason: input.escalationReason ?? input.event.reason,
+		},
+		interaction: classifyOrcInteraction(input.envelope),
+		debug: {
+			rawPayload: input.envelope.rawPayload,
+			normalizedFrom: input.normalizedFrom ?? "security-event",
+			notes: input.notes,
+		},
+	};
+}
+
+export function createOrcSecurityEventFromInterceptorResult(input: {
+	envelope: OrcCanonicalEventEnvelope<Record<string, unknown>>;
+	result: OrcCommandInterceptorResult;
+	normalizedFrom?: string;
+	notes?: string[];
+}): OrcSecurityApprovalEvent {
+	const event = mapCommandInterceptorResultToOrcSecurityEvent(input.result);
+	return createOrcSecurityApprovalEvent({
+		envelope: input.envelope,
+		event,
+		normalizedFrom: input.normalizedFrom ?? "command-interceptor",
+		notes: input.notes,
+		escalationReason: input.result.reason,
+	});
+}
+
 export interface OrcNormalizeEventOptions<TRawPayload = Record<string, unknown>> {
 	normalizedFrom?: string;
 	rawNamespace?: string;
@@ -818,6 +885,7 @@ export function reduceOrcControlPlaneEvent(
 	applyReducedActiveWave(next, event);
 	applyReducedWorkerResults(next, event);
 	applyReducedUserMessages(next, event, limits.maxMessages);
+	applyReducedSecurityEvents(next, event);
 	applyReducedCheckpointMetadata(next, event);
 	applyReducedTransportHealth(next, event);
 	applyReducedTerminalState(next, event);
@@ -953,6 +1021,12 @@ function applyTransportHealth(state: OrcEventReducerState, event: OrcBusEvent): 
 		state.transportHealth.retryability = undefined;
 		return;
 	}
+
+	if (event.kind === "security.approval" && !isBlockingOrcSecurityEvent(event.payload.event)) {
+		state.transportHealth.lastHeartbeatAt = event.envelope.when;
+		state.transportHealth.lastMessage = summarizeOrcEvent(event);
+		return;
+	}
 	if (event.kind === "stream.warning") {
 		state.transportHealth.status = "degraded";
 		state.transportHealth.lastWarningAt = event.envelope.when;
@@ -1060,6 +1134,56 @@ function applyReducedUserMessages(state: OrcControlPlaneState, event: OrcBusEven
 		state.messages.push(message);
 	}
 	state.messages = state.messages.slice(-maxMessages);
+}
+
+
+function applyReducedSecurityEvents(state: OrcControlPlaneState, event: OrcBusEvent): void {
+	if (event.kind !== "security.approval") {
+		return;
+	}
+	const securityEvents = state.securityEvents ?? [];
+	const nextSecurityEvent = { ...event.payload.event };
+	const existingIndex = securityEvents.findIndex((entry) =>
+		entry.createdAt === nextSecurityEvent.createdAt
+		&& entry.kind === nextSecurityEvent.kind
+		&& entry.workerId === nextSecurityEvent.workerId
+		&& entry.detail === nextSecurityEvent.detail
+	);
+	if (existingIndex >= 0) {
+		securityEvents[existingIndex] = nextSecurityEvent;
+	} else {
+		securityEvents.push(nextSecurityEvent);
+	}
+	state.securityEvents = securityEvents;
+	if (!nextSecurityEvent.workerId) {
+		return;
+	}
+	const waveId = readWaveId(event) ?? state.activeWave?.waveId ?? "unknown-wave";
+	const index = state.workerResults.findIndex((item) => item.workerId === nextSecurityEvent.workerId && item.waveId === waveId);
+	const workerResult = index >= 0 ? { ...state.workerResults[index]!, artifactIds: [...state.workerResults[index]!.artifactIds], logIds: [...state.workerResults[index]!.logIds], metadata: { ...(state.workerResults[index]!.metadata ?? {}) } } : createInitialWorkerResult(nextSecurityEvent.workerId, waveId, event.envelope.when);
+	workerResult.metadata = workerResult.metadata ?? {};
+	workerResult.metadata.securityTelemetryDisposition = getOrcSecurityTelemetryDisposition(nextSecurityEvent);
+	workerResult.metadata.securityStatusText = nextSecurityEvent.statusText;
+	workerResult.metadata.lastSecurityEventAt = event.envelope.when;
+	if (nextSecurityEvent.kind === "approval-required") {
+		workerResult.status = "pending";
+		workerResult.summary = nextSecurityEvent.detail;
+		workerResult.errorMessage = undefined;
+		workerResult.metadata.awaitingApproval = true;
+	}
+	if (nextSecurityEvent.kind === "blocked-command") {
+		workerResult.status = workerResult.status === "completed" ? "ambiguous" : "failed";
+		workerResult.summary = nextSecurityEvent.detail;
+		workerResult.errorMessage = nextSecurityEvent.detail;
+		workerResult.finishedAt = event.envelope.when;
+		workerResult.metadata.awaitingApproval = false;
+		appendVerificationErrorFromSecurityEvent(state, workerResult, event);
+	}
+	if (index >= 0) {
+		state.workerResults[index] = workerResult;
+	} else {
+		state.workerResults.push(workerResult);
+	}
 }
 
 function applyReducedCheckpointMetadata(state: OrcControlPlaneState, event: OrcBusEvent): void {
@@ -1205,6 +1329,8 @@ function deriveLifecyclePhase(state: OrcControlPlaneState, event: OrcBusEvent): 
 			return state.phase;
 		case "transport.fault":
 			return event.payload.status === "offline" ? "failed" : state.phase;
+		case "security.approval":
+			return isBlockingOrcSecurityEvent(event.payload.event) ? state.phase : state.phase;
 	}
 	return undefined;
 }
@@ -1267,6 +1393,24 @@ function appendVerificationErrorFromToolResult(state: OrcControlPlaneState, resu
 		source: "runtime",
 		workerId: result.workerId,
 		logId: event.payload.callId,
+	};
+	const existingIndex = state.verificationErrors.findIndex((entry) => entry.logId === issue.logId && entry.workerId === issue.workerId);
+	if (existingIndex >= 0) {
+		state.verificationErrors[existingIndex] = issue;
+	} else {
+		state.verificationErrors.push(issue);
+	}
+}
+
+
+function appendVerificationErrorFromSecurityEvent(state: OrcControlPlaneState, result: OrcParallelWorkerResult, event: OrcSecurityApprovalEvent): void {
+	const issue: OrcVerificationError = {
+		code: `security_${event.payload.event.kind}`,
+		message: event.payload.event.detail,
+		severity: event.payload.event.kind === "blocked-command" ? "error" : "warning",
+		source: "runtime",
+		workerId: result.workerId,
+		logId: event.envelope.origin.eventId,
 	};
 	const existingIndex = state.verificationErrors.findIndex((entry) => entry.logId === issue.logId && entry.workerId === issue.workerId);
 	if (existingIndex >= 0) {
@@ -1536,14 +1680,22 @@ function readStringUnion<TRawPayload, T extends string>(
 }
 
 function readSecurityEvent(envelope: OrcCanonicalEventEnvelope): OrcSecurityEvent {
-	const statusText = readString(envelope, ["statusText"], envelope.what.description ?? "Approval required") ?? "Approval required";
+	const kind = readStringUnion(envelope, ["kind"], ["informational-notice", "approval-required", "blocked-command"], "approval-required") ?? "approval-required";
+	const statusText = readString(envelope, ["statusText"], envelope.what.description ?? (kind === "informational-notice" ? "Security notice" : "Approval required")) ?? (kind === "informational-notice" ? "Security notice" : "Approval required");
+	const telemetryDisposition = readStringUnion(envelope, ["telemetryDisposition"], ["informational", "approval-required", "blocked"], kind === "blocked-command" ? "blocked" : kind === "approval-required" ? "approval-required" : "informational");
 	return {
-		kind: readStringUnion(envelope, ["kind"], ["approval-required", "blocked-command"], "approval-required") ?? "approval-required",
+		kind,
 		statusText,
 		detail: readString(envelope, ["detail", "message"], statusText) ?? statusText,
 		command: readString(envelope, ["command"]),
 		workerId: readString(envelope, ["workerId"]) ?? envelope.origin.workerId ?? envelope.who.workerId,
 		createdAt: readString(envelope, ["createdAt"], envelope.when) ?? envelope.when,
+		telemetryDisposition,
+		requiresOperatorAction: readBoolean(envelope, ["requiresOperatorAction"], telemetryDisposition !== "informational"),
+		blocksExecution: readBoolean(envelope, ["blocksExecution"], telemetryDisposition !== "informational"),
+		source: readStringUnion(envelope, ["source"], ["runtime-policy", "command-interceptor", "tool-runtime", "future-enforcement"]),
+		ruleId: readString(envelope, ["ruleId"]),
+		reason: readString(envelope, ["reason"]),
 	};
 }
 
@@ -1660,6 +1812,9 @@ function deriveOverlay(event: OrcBusEvent): OrcActiveOverlay | undefined {
 				...base,
 			};
 		case "security.approval":
+			if (!isBlockingOrcSecurityEvent(event.payload.event)) {
+				return undefined;
+			}
 			return {
 				id: `approval:${event.envelope.origin.eventId}`,
 				kind: "approval",
@@ -1751,7 +1906,7 @@ function deriveReducedError(event: OrcBusEvent): OrcReducedErrorEntry | undefine
 				id: `security:${event.envelope.origin.eventId}`,
 				kind: event.kind,
 				message: event.payload.event.detail,
-				severity: event.payload.event.kind === "blocked-command" ? "error" : "warning",
+				severity: mapOrcSecurityEventToCanonicalSeverity(event.payload.event),
 				createdAt: event.envelope.when,
 				workerId: event.payload.event.workerId,
 				agentId: extractAgentId(event),
