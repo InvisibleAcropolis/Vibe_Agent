@@ -84,6 +84,16 @@ interface InferredAnimationMetadataResult {
 	onlyUseInferred: boolean;
 }
 
+const PLASMA_FRACTAL_JULIA_MACRO_VERSION = 1;
+
+function isLegacyPlasmaFractalPreset(stored: unknown): stored is Record<string, unknown> {
+	if (typeof stored !== "object" || stored === null) {
+		return false;
+	}
+	const candidate = stored as Record<string, unknown>;
+	return candidate.mode === "fractal" && candidate.__plasmaFractalJuliaMacroVersion !== PLASMA_FRACTAL_JULIA_MACRO_VERSION;
+}
+
 const ADAPTERS: Record<string, AnimationAdapter> = {
 	"src/components/anim_datarain.ts#renderDataRainHex": {
 		omitOptionFields: ["glyphSet"],
@@ -165,15 +175,26 @@ const ADAPTERS: Record<string, AnimationAdapter> = {
 		customizeField(field) {
 			if (field.control.type === "number" && field.id in PLASMA_NUMBER_OPTION_SPECS) {
 				const spec = PLASMA_NUMBER_OPTION_SPECS[field.id as keyof typeof PLASMA_NUMBER_OPTION_SPECS];
+				const label = field.id === "fractalJuliaX"
+					? "Fractal Julia X"
+					: field.id === "fractalJuliaY"
+						? "Fractal Julia Y"
+						: field.label;
+				const description = field.id === "fractalJuliaX" || field.id === "fractalJuliaY"
+					? "1 = tuned base"
+					: field.control.description;
 				return {
 					...field,
+					label,
 					defaultValue: spec.defaultValue,
 					control: {
 						...field.control,
+						label,
 						defaultValue: spec.defaultValue,
 						min: spec.min,
 						max: spec.max,
 						step: spec.step,
+						description,
 					},
 				};
 			}
@@ -207,16 +228,30 @@ const ADAPTERS: Record<string, AnimationAdapter> = {
 		},
 		loadStoredValues(presetStore, presetId) {
 			const stored = presetStore.load(presetId);
+			if (isLegacyPlasmaFractalPreset(stored)) {
+				const repaired = {
+					...stored,
+					fractalJuliaX: 1,
+					fractalJuliaY: 1,
+					__plasmaFractalJuliaMacroVersion: PLASMA_FRACTAL_JULIA_MACRO_VERSION,
+				};
+				presetStore.save(repaired, presetId);
+				return repaired;
+			}
 			if (isPlasmaOptionsPresetValid(stored)) {
 				return stored;
 			}
-			const repaired: Record<string, unknown> = { ...PLASMA_DEFAULTS };
+			const repaired: Record<string, unknown> = {
+				...PLASMA_DEFAULTS,
+				__plasmaFractalJuliaMacroVersion: PLASMA_FRACTAL_JULIA_MACRO_VERSION,
+			};
 			presetStore.save(repaired, presetId);
 			return repaired;
 		},
 		saveStoredValues(presetStore, values, presetId) {
 			const normalized: Record<string, unknown> = {
 				...normalizePlasmaOptions(values as PlasmaOptions),
+				__plasmaFractalJuliaMacroVersion: PLASMA_FRACTAL_JULIA_MACRO_VERSION,
 			};
 			return presetStore.save(normalized, presetId);
 		},
