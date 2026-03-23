@@ -8,7 +8,13 @@ import { MouseEnabledTerminal } from "../../src/mouse-enabled-terminal.js";
 import type { MouseEvent, Rect } from "../../src/mouse.js";
 import { parseMouseEvent, pointInRect } from "../../src/mouse.js";
 import { DefaultOverlayController } from "../../src/overlay-controller.js";
-import { DEFAULT_FLOATING_ANIMBOX_PRESET, FloatingAnimBoxContent, type FloatingAnimBoxPreset } from "../../src/components/floating_animbox.js";
+import {
+	createFloatingAnimBoxWindow,
+	DEFAULT_FLOATING_ANIMBOX_PRESET,
+	type FloatingAnimBoxPreset,
+	type FloatingAnimBoxWindow,
+	type FloatingAnimBoxWindowState,
+} from "../../src/components/floating_animbox.js";
 import { SideBySideContainer } from "../../src/components/side-by-side-container.js";
 import { renderMenuBar, type MenuBarItem } from "../../src/components/menu-bar.js";
 import type { ShellMenuDefinition, ShellMenuItem } from "../../src/components/shell-menu-overlay.js";
@@ -38,7 +44,7 @@ interface ActiveFloatingAnimBoxState {
 	presetStore: DemoPresetStore;
 	presetId: string;
 	values: FloatingAnimBoxPreset;
-	content: FloatingAnimBoxContent;
+	window: FloatingAnimBoxWindow;
 }
 
 interface MouseAwareComponent extends Component {
@@ -84,6 +90,13 @@ function normalizeFloatingAnimBoxPreset(value: Record<string, unknown> | undefin
 		x: clamp(Math.round(value.x), 1, 240),
 		y: clamp(Math.round(value.y), 1, 120),
 	};
+}
+
+function isKnownCollapsedFloatingAnimBoxPreset(value: FloatingAnimBoxPreset): boolean {
+	return value.cols === 8
+		&& value.rows === 4
+		&& value.x === 1
+		&& value.y === 1;
 }
 
 function createFloatingAnimBoxPresetControls(values: FloatingAnimBoxPreset): StyleTestControl[] {
@@ -893,8 +906,16 @@ export class TUIStyleTestApp {
 	}
 
 	private loadFloatingAnimBoxPreset(store: DemoPresetStore, presetId = "default"): FloatingAnimBoxPreset {
-		const normalized = normalizeFloatingAnimBoxPreset(store.load(presetId));
-		store.save({ ...normalized }, presetId);
+		const raw = store.load(presetId);
+		const normalized = normalizeFloatingAnimBoxPreset(raw);
+		if (presetId !== "default") {
+			return normalized;
+		}
+		if (!isFloatingAnimBoxPreset(raw) || isKnownCollapsedFloatingAnimBoxPreset(normalized)) {
+			const healed = { ...DEFAULT_FLOATING_ANIMBOX_PRESET };
+			store.save({ ...healed }, presetId);
+			return healed;
+		}
 		return normalized;
 	}
 
@@ -984,32 +1005,33 @@ export class TUIStyleTestApp {
 		this.closeActiveFloatingAnimBox();
 		const presetStore = new DemoPresetStore(process.cwd(), "src/components/floating_animbox.ts", "floatingAnimBox");
 		const values = this.loadFloatingAnimBoxPreset(presetStore, presetId);
-		const content = new FloatingAnimBoxContent(
-			this.createStyleTestRuntimeContext(),
+		const window = createFloatingAnimBoxWindow(
 			values,
-			"styletest-floating-animbox",
-			(viewport) => this.handleFloatingAnimBoxViewportChange(viewport),
+			this.createStyleTestRuntimeContext(),
+			{
+				instanceId: "styletest-floating-animbox",
+				onViewportChange: (viewport) => this.handleFloatingAnimBoxViewportChange(viewport),
+				onStateChange: (model) => this.handleFloatingAnimBoxStateChange(model),
+			},
 		);
+		const rect = window.getOverlayRect();
 		this.activeFloatingAnimBox = {
 			overlayId: "styletest-floating-animbox",
 			title: "Floating Animbox",
 			presetStore,
 			presetId,
 			values,
-			content,
+			window,
 		};
-		this.overlayController.showCustomOverlay("styletest-floating-animbox", content, {
+		this.overlayController.showFramedOverlay("styletest-floating-animbox", window, {
 			anchor: "top-left",
-			row: values.y,
-			col: values.x,
-			width: Math.max(10, values.cols + 2),
-			minHeight: 8,
+			row: rect.row,
+			col: rect.col,
+			width: rect.width,
+			minHeight: rect.height,
 			maxWidth: 122,
-			maxHeight: 44,
-			floatingTitle: "Floating Animbox",
-			floatingContentViewport: { width: values.cols, height: values.rows },
+			maxHeight: rect.height,
 			onHide: () => this.handleFloatingAnimBoxHidden(),
-			onFloatingWindowStateChange: (model) => this.handleFloatingAnimBoxStateChange(model),
 		});
 		this.refreshChrome();
 		this.tui.requestRender();
@@ -1022,7 +1044,7 @@ export class TUIStyleTestApp {
 		this.overlayController.closeOverlay(this.activeFloatingAnimBox.overlayId);
 	}
 
-	private handleFloatingAnimBoxStateChange(model: { row: number; col: number }): void {
+	private handleFloatingAnimBoxStateChange(model: FloatingAnimBoxWindowState): void {
 		const active = this.activeFloatingAnimBox;
 		if (!active) {
 			return;
@@ -1032,6 +1054,13 @@ export class TUIStyleTestApp {
 			x: model.col,
 			y: model.row,
 		};
+		const rect = active.window.getOverlayRect();
+		this.overlayController.updateFloatingOverlayGeometry(active.overlayId, {
+			row: rect.row,
+			col: rect.col,
+			width: rect.width,
+			height: rect.height,
+		});
 		this.refreshChrome();
 	}
 
@@ -1045,6 +1074,13 @@ export class TUIStyleTestApp {
 			cols: viewport.width,
 			rows: viewport.height,
 		};
+		const rect = active.window.getOverlayRect();
+		this.overlayController.updateFloatingOverlayGeometry(active.overlayId, {
+			row: rect.row,
+			col: rect.col,
+			width: rect.width,
+			height: rect.height,
+		});
 		this.refreshChrome();
 	}
 
@@ -1062,7 +1098,7 @@ export class TUIStyleTestApp {
 		}
 	}
 
-	private updateFloatingAnimBoxPreset(partial: Partial<FloatingAnimBoxPreset>, persist = true): void {
+	private updateFloatingAnimBoxPreset(partial: Partial<FloatingAnimBoxPreset>, persist = false): void {
 		const active = this.activeFloatingAnimBox;
 		if (!active) {
 			return;
@@ -1071,13 +1107,14 @@ export class TUIStyleTestApp {
 			...active.values,
 			...partial,
 		};
-		active.content.setPreset(active.values);
+		active.window.setPreset(active.values);
 		if (partial.x !== undefined || partial.y !== undefined || partial.cols !== undefined || partial.rows !== undefined) {
+			const rect = active.window.getOverlayRect();
 			this.overlayController.updateFloatingOverlayGeometry(active.overlayId, {
-				row: active.values.y,
-				col: active.values.x,
-				width: Math.max(10, active.values.cols + 2),
-				height: Math.max(8, active.values.rows + 4),
+				row: rect.row,
+				col: rect.col,
+				width: rect.width,
+				height: rect.height,
 			});
 		}
 		if (persist) {
@@ -1232,7 +1269,14 @@ export class TUIStyleTestApp {
 			const presetId = actionId.slice("floating-variant:".length);
 			active.presetId = presetId;
 			active.values = this.loadFloatingAnimBoxPreset(active.presetStore, presetId);
-			active.content.setPreset(active.values);
+			active.window.setPreset(active.values);
+			const rect = active.window.getOverlayRect();
+			this.overlayController.updateFloatingOverlayGeometry(active.overlayId, {
+				row: rect.row,
+				col: rect.col,
+				width: rect.width,
+				height: rect.height,
+			});
 			this.refreshChrome();
 			this.tui.requestRender();
 		}

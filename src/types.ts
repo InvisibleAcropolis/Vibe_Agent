@@ -36,6 +36,7 @@ export interface OverlayRecord {
 	options: OverlayOptions;
 	handle: OverlayHandle;
 	window?: FloatWindow;
+	framed?: boolean;
 	mousePolicy?: OverlayMousePolicy;
 	onHide?: () => void;
 	onFloatingWindowStateChange?: (model: FloatWindowModel) => void;

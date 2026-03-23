@@ -245,4 +245,83 @@ describe("DefaultOverlayController floating overlays", () => {
 		assert.equal(window.model.dragState, null);
 		assert.equal(window.model.resizeState, null);
 	});
+
+	it("continues dragging while the pointer leaves the original window rect", () => {
+		const harness = createController(120, 50);
+		const hosted = new HostedProbeComponent(
+			(viewport) => Array.from({ length: viewport.height }, (_, index) => `drag-${index}`),
+			{ minWidth: 18, minHeight: 6, preferredWidth: 24, preferredHeight: 10, maxWidth: 40, maxHeight: 16 },
+		);
+		harness.controller.showCustomOverlay("captured-drag", hosted, { anchor: "top-left", row: 8, col: 18, width: 24, maxHeight: 10 });
+		const window = harness.overlays.at(-1)?.component as unknown as {
+			model: {
+				row: number;
+				col: number;
+				width: number;
+				height: number;
+				dragState: object | null;
+				resizeState: object | null;
+			};
+		};
+		const initial = { row: window.model.row, col: window.model.col, width: window.model.width, height: window.model.height };
+		const dragTarget = { row: initial.row + initial.height + 6, col: initial.col + initial.width + 12 };
+
+		assert.equal(
+			harness.controller.dispatchMouse(createMouseEvent({ row: initial.row, col: initial.col + 5 })),
+			true,
+		);
+		assert.notEqual(window.model.dragState, null);
+		assert.equal(
+			harness.controller.dispatchMouse(createMouseEvent({ action: "drag", row: dragTarget.row, col: dragTarget.col })),
+			true,
+		);
+		assert.ok(window.model.row > initial.row);
+		assert.ok(window.model.col > initial.col);
+		assert.equal(
+			harness.controller.dispatchMouse(createMouseEvent({ action: "up", row: dragTarget.row, col: dragTarget.col })),
+			true,
+		);
+		assert.equal(window.model.dragState, null);
+		assert.equal(window.model.resizeState, null);
+	});
+
+	it("continues resizing while the pointer leaves the original window rect", () => {
+		const harness = createController(120, 50);
+		const hosted = new HostedProbeComponent(
+			(viewport) => Array.from({ length: viewport.height }, (_, index) => `resize-${index}`),
+			{ minWidth: 18, minHeight: 6, preferredWidth: 24, preferredHeight: 10, maxWidth: 44, maxHeight: 18 },
+		);
+		harness.controller.showCustomOverlay("captured-resize", hosted, { anchor: "top-left", row: 7, col: 16, width: 24, maxHeight: 16 });
+		const window = harness.overlays.at(-1)?.component as unknown as {
+			model: {
+				row: number;
+				col: number;
+				width: number;
+				height: number;
+				dragState: object | null;
+				resizeState: object | null;
+			};
+		};
+		const initial = { row: window.model.row, col: window.model.col, width: window.model.width, height: window.model.height };
+		const resizeTarget = { row: initial.row + initial.height + 5, col: initial.col + initial.width + 9 };
+
+		assert.equal(
+			harness.controller.dispatchMouse(createMouseEvent({ row: initial.row + initial.height - 1, col: initial.col + initial.width - 1 })),
+			true,
+		);
+		assert.equal(window.model.dragState, null);
+		assert.notEqual(window.model.resizeState, null);
+		assert.equal(
+			harness.controller.dispatchMouse(createMouseEvent({ action: "drag", row: resizeTarget.row, col: resizeTarget.col })),
+			true,
+		);
+		assert.ok(window.model.width > initial.width);
+		assert.ok(window.model.height > initial.height);
+		assert.equal(
+			harness.controller.dispatchMouse(createMouseEvent({ action: "up", row: resizeTarget.row, col: resizeTarget.col })),
+			true,
+		);
+		assert.equal(window.model.dragState, null);
+		assert.equal(window.model.resizeState, null);
+	});
 });
