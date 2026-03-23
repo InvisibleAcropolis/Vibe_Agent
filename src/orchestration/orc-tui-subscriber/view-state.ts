@@ -2,10 +2,8 @@ import {
 	createInitialCheckpointMetadataSummary,
 	createInitialReducedTransportHealth,
 	createInitialTerminalStateSummary,
-	type OrcActiveOverlay,
-	type OrcBusEvent,
-	type OrcEventReducerState,
-} from "../orc-events/index.js";
+} from "../orc-events/control-plane-reducer.js";
+import type { OrcActiveOverlay, OrcBusEvent, OrcEventReducerState } from "../orc-events/types.js";
 import { createOrcTrackerDashboardViewModel } from "../orc-tracker.js";
 import type { OrcControlPlaneState, OrcProjectContext } from "../orc-state.js";
 import { getOrderedSurfaceEntries } from "./subagent-surfaces.js";

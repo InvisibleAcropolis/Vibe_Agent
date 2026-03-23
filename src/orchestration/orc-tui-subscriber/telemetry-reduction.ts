@@ -1,5 +1,6 @@
-import { ORC_EVENT_REDUCER_INITIAL_STATE, reduceOrcBusEvent, reduceOrcControlPlaneEvent } from "../orc-events/index.js";
-import type { OrcBusEvent, OrcEventReducerState } from "../orc-events/index.js";
+import { reduceOrcControlPlaneEvent } from "../orc-events/control-plane-reducer.js";
+import { ORC_EVENT_REDUCER_INITIAL_STATE, reduceOrcBusEvent } from "../orc-events/bus-reducer.js";
+import type { OrcBusEvent, OrcEventReducerState } from "../orc-events/types.js";
 import type { OrcControlPlaneState, OrcProjectContext } from "../orc-state.js";
 import type { OrcTuiEventLogTailEntry } from "./types.js";
 import { cloneControlPlaneState, cloneReducerState, createEmptyControlPlaneState } from "./view-state.js";

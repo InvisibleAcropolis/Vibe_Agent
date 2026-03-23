@@ -2,15 +2,16 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { StringDecoder } from "node:string_decoder";
-import type { OrcTransportFaultCode, OrcTransportWarningCode } from "../orc-events/index.js";
+import type { OrcTransportFaultCode, OrcTransportWarningCode } from "../orc-events/types.js";
 import type { OrcDebugArtifactsWriter } from "../orc-debug.js";
 import type { OrcCanonicalEventEnvelope, OrcPythonRunnerSpawnContract, OrcRunnerLaunchInput } from "../orc-io.js";
 import { defaultBuildPythonRunnerSpawnContract } from "./spawn-contract.js";
 import { drainTerminatedLines, flushResidualStream, guardBuffer } from "./line-assembler.js";
 import { extractObservedSequenceHint, handleStdoutLine, previewLine } from "./protocol-parser.js";
-import type { OrcTransportPolicyAction, OrcTransportPolicyResult, OrcTransportTimeoutHealthMarks } from "./policy-results.js";
+import type { OrcTransportPolicyResult } from "./policy-results.js";
 import { OrcPythonTransportHealthStore } from "./health-store.js";
 import { evaluateTransportTimeouts, startMonitors, stopMonitors } from "./timeout-monitor.js";
+import { OrcPythonTransportSupervisor } from "./transport-supervisor.js";
 import {
 	DEFAULT_CORRELATED_STDERR_HISTORY,
 	DEFAULT_FATAL_PARSE_FAILURE_COUNT,
@@ -68,7 +69,7 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 	private resolveExitPromise?: () => void;
 	private activeTerminationReason?: string;
 	private monitorInterval?: NodeJS.Timeout;
-	private readonly emittedFaultKeys = new Set<string>();
+	private readonly supervisor: OrcPythonTransportSupervisor;
 
 	constructor(options: OrcPythonTransportOptions = {}) {
 		this.buildSpawnContract = options.buildSpawnContract ?? defaultBuildPythonRunnerSpawnContract;
@@ -80,6 +81,15 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 		this.readyTimeoutMs = options.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS;
 		this.correlatedStderrHistory = options.correlatedStderrHistory ?? DEFAULT_CORRELATED_STDERR_HISTORY;
 		this.fatalParseFailureCount = options.fatalParseFailureCount ?? DEFAULT_FATAL_PARSE_FAILURE_COUNT;
+		this.supervisor = new OrcPythonTransportSupervisor({
+			healthStore: this.healthStore,
+			emitter: this.emitter,
+			debugArtifactsWriter: this.debugArtifactsWriter,
+			getHealth: () => this.getHealth(),
+			getChild: () => this.child,
+			getTerminationReason: () => this.activeTerminationReason,
+			setTerminationReason: (reason) => { this.activeTerminationReason = reason; },
+		});
 	}
 
 	async launch(input: OrcRunnerLaunchInput): Promise<void> { await this.start(input); }
@@ -120,7 +130,7 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 		this.resetAssemblyState();
 		this.recentStderr = [];
 		this.activeTerminationReason = undefined;
-		this.emittedFaultKeys.clear();
+		this.supervisor.resetFaultDeduplication();
 		this.health = {
 			threadId: launchInput.threadId,
 			runCorrelationId: launchInput.runCorrelationId,
@@ -153,7 +163,7 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 		this.health.pid = child.pid;
 		this.health.stage = "spawned";
 		this.startMonitors();
-		this.emitLifecycle({ stage: "spawned", at: spawnedAt, threadId: launchInput.threadId, runCorrelationId: launchInput.runCorrelationId, pid: child.pid });
+		this.supervisor.emitLifecycle({ stage: "spawned", at: spawnedAt, threadId: launchInput.threadId, runCorrelationId: launchInput.runCorrelationId, pid: child.pid });
 		this.debugArtifactsWriter?.recordHealthSnapshot("transport_spawned", this.getHealth());
 
 		const onStdoutData = (chunk: Buffer) => { this.processChunk("stdout", chunk); };
@@ -165,11 +175,11 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 			this.health.lastError = error.message;
 			this.health.lastErrorAt = at;
 			this.health.lastEventAt = at;
-			this.emitLifecycle({ stage: "spawn_failed", at, threadId: this.health.threadId, runCorrelationId: this.health.runCorrelationId, pid: child.pid, reason: error.message, error });
+			this.supervisor.emitLifecycle({ stage: "spawn_failed", at, threadId: this.health.threadId, runCorrelationId: this.health.runCorrelationId, pid: child.pid, reason: error.message, error });
 			this.debugArtifactsWriter?.recordTransportDiagnostic({ type: "spawn_failed", at, error: { name: error.name, message: error.message }, health: this.getHealth() });
 		};
 		const onStdinError = (error: Error) => {
-			this.emitTransportFault("transport_broken_pipe", "Runner stdin pipe closed unexpectedly.", {
+			this.supervisor.emitTransportFault("transport_broken_pipe", "Runner stdin pipe closed unexpectedly.", {
 				stream: "stdin",
 				message: error.message,
 				syscall: (error as NodeJS.ErrnoException).syscall,
@@ -189,7 +199,7 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 			this.health.lastSignal = signal;
 			this.health.stage = terminatedBySignal ? "terminated" : "exited";
 			this.health.status = exitCode === 0 && !terminatedBySignal && this.health.status !== "faulted" ? "offline" : this.health.status === "faulted" ? "faulted" : "offline";
-			this.emitLifecycle({ stage: terminatedBySignal ? "terminated" : "exit", at, threadId: this.health.threadId, runCorrelationId: this.health.runCorrelationId, pid: child.pid, exitCode, signal, reason: this.activeTerminationReason });
+			this.supervisor.emitLifecycle({ stage: terminatedBySignal ? "terminated" : "exit", at, threadId: this.health.threadId, runCorrelationId: this.health.runCorrelationId, pid: child.pid, exitCode, signal, reason: this.activeTerminationReason });
 			this.debugArtifactsWriter?.recordHealthSnapshot("transport_exit", this.getHealth());
 			this.detachChild();
 		};
@@ -235,7 +245,7 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 			setBufferedBytes: (target, value) => this.healthStore.setBufferedBytes(target, value),
 			onStderrOverflow: (bufferedBytes) => {
 				this.health.diagnosticsDropped += 1;
-				this.emitTransportWarning("transport_stderr_truncated", "Stderr buffer exceeded its byte budget and oldest diagnostic bytes were dropped.", {
+				this.supervisor.emitTransportWarning("transport_stderr_truncated", "Stderr buffer exceeded its byte budget and oldest diagnostic bytes were dropped.", {
 					stream,
 					bufferedBytes,
 					maxBufferedBytes: this.maxBufferedBytes,
@@ -243,7 +253,7 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 				});
 			},
 			onStdoutOverflow: (buffer, bufferedBytes) => {
-				this.emitTransportFault("transport_stdout_overflow", "Stdout buffer exceeded its byte budget before a newline boundary was observed.", {
+				this.supervisor.emitTransportFault("transport_stdout_overflow", "Stdout buffer exceeded its byte budget before a newline boundary was observed.", {
 					stream,
 					bufferedBytes,
 					maxBufferedBytes: this.maxBufferedBytes,
@@ -282,9 +292,9 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 			if (this.health.stage === "spawned") {
 				this.health.stage = "ready";
 				this.health.readyAt = result.observedAt;
-				this.emitLifecycle({ stage: "ready", at: this.health.readyAt, threadId: this.health.threadId, runCorrelationId: this.health.runCorrelationId, pid: this.health.pid, reason: result.envelope.what?.name });
+				this.supervisor.emitLifecycle({ stage: "ready", at: this.health.readyAt, threadId: this.health.threadId, runCorrelationId: this.health.runCorrelationId, pid: this.health.pid, reason: result.envelope.what?.name });
 			}
-			this.emitter.emit("envelope", result.envelope);
+			this.supervisor.emitEnvelope(result.envelope);
 			this.debugArtifactsWriter?.recordRawEventMirror(result.envelope);
 			return;
 		}
@@ -294,7 +304,7 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 			code: result.policy.emissions.at(-1)?.code ?? "transport_parse_noise",
 			payload: result.policy.emissions.at(-1)?.payload ?? {},
 		});
-		this.applyPolicyResult(result.policy);
+		this.supervisor.applyPolicyResult(result.policy);
 	}
 
 	private handleStderrLine(line: string): void {
@@ -308,7 +318,7 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 		this.recentStderr = this.recentStderr.slice(-this.correlatedStderrHistory);
 		if (truncated) {
 			this.health.diagnosticsDropped += 1;
-			this.emitTransportWarning("transport_stderr_truncated", "Stderr diagnostic exceeded the preview budget and was truncated.", {
+			this.supervisor.emitTransportWarning("transport_stderr_truncated", "Stderr diagnostic exceeded the preview budget and was truncated.", {
 				stream: "stderr",
 				linePreview: previewLine(line),
 				lineBytes: Buffer.byteLength(line, "utf8"),
@@ -317,7 +327,7 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 			});
 		}
 		const event = { at, stream: "stderr", threadId: this.health.threadId, runCorrelationId: this.health.runCorrelationId, line: normalizedLine, truncated } satisfies OrcPythonTransportDiagnosticEvent;
-		this.emitter.emit("diagnostic", event);
+		this.supervisor.emitDiagnostic(event);
 		this.debugArtifactsWriter?.recordPythonStderr(event);
 	}
 
@@ -331,7 +341,7 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 			onStdoutLine: (line) => this.handleStdoutLine(line),
 			onStderrLine: (line) => this.handleStderrLine(line),
 			onPartialStdoutLine: (leftover) => {
-				this.emitTransportWarning("transport_partial_line_truncated", "End-of-stream arrived with a partial stdout line that could not be completed.", {
+				this.supervisor.emitTransportWarning("transport_partial_line_truncated", "End-of-stream arrived with a partial stdout line that could not be completed.", {
 					stream,
 					linePreview: previewLine(leftover),
 					lineBytes: Buffer.byteLength(leftover, "utf8"),
@@ -366,71 +376,11 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 		if (!policy) {
 			return;
 		}
-		this.applyTimeoutHealthMarks(policy.healthMarks);
-		this.applyPolicyResult(policy);
+		this.supervisor.applyTimeoutHealthMarks(this.health, policy.healthMarks);
+		this.supervisor.applyPolicyResult(policy);
 	}
 
 
-	private applyTimeoutHealthMarks(healthMarks: OrcTransportTimeoutHealthMarks): void {
-		if (healthMarks.lastReadyTimeoutAt) {
-			this.health.timeouts.lastReadyTimeoutAt = healthMarks.lastReadyTimeoutAt;
-		}
-		if (healthMarks.lastStallFaultAt) {
-			this.health.timeouts.lastStallFaultAt = healthMarks.lastStallFaultAt;
-		}
-		if (healthMarks.lastIdleWarningAt) {
-			this.health.timeouts.lastIdleWarningAt = healthMarks.lastIdleWarningAt;
-		}
-	}
-
-	private applyPolicyResult(policy: OrcTransportPolicyResult): void {
-		for (const emission of policy.emissions) {
-			if (emission.kind === "warning") {
-				this.emitTransportWarning(emission.code, emission.message, emission.payload);
-				continue;
-			}
-			this.emitTransportFault(emission.code, emission.message, emission.payload);
-		}
-		this.applyPolicyAction(policy.action);
-	}
-
-	private applyPolicyAction(action: OrcTransportPolicyAction): void {
-		if (!this.child || action === "continue") {
-			return;
-		}
-		if (action === "restart") {
-			this.activeTerminationReason ??= "transport_policy_restart_requested";
-			this.healthStore.markStage("failed", "faulted");
-			this.child.kill("SIGTERM");
-			return;
-		}
-		this.activeTerminationReason ??= "transport_policy_terminated";
-		this.healthStore.markStage("failed", "faulted");
-		this.child.kill("SIGKILL");
-	}
-
-	private emitTransportWarning(code: OrcTransportWarningCode, message: string, rawPayload: Record<string, unknown>): void {
-		const { at, status } = this.healthStore.recordWarning(code, message);
-		this.debugArtifactsWriter?.recordTransportDiagnostic({ type: "warning", at, code, message, status, rawPayload, health: this.getHealth() });
-		this.emitter.emit("envelope", this.healthStore.buildTransportEnvelope("stream.warning", code, message, status, rawPayload));
-	}
-
-	private emitTransportFault(code: OrcTransportFaultCode, message: string, rawPayload: Record<string, unknown>): void {
-		const statusKey = String(rawPayload.status ?? "unknown");
-		const dedupeKey = `${code}:${statusKey}:${String(rawPayload.signal ?? "none")}:${String(rawPayload.exitCode ?? "none")}:${String(rawPayload.syscall ?? "none")}`;
-		if (this.emittedFaultKeys.has(dedupeKey)) {
-			return;
-		}
-		this.emittedFaultKeys.add(dedupeKey);
-		const { at, status } = this.healthStore.recordFault(code, message);
-		this.debugArtifactsWriter?.recordTransportDiagnostic({ type: "fault", at, code, message, status, rawPayload, health: this.getHealth() });
-		this.emitter.emit("envelope", this.healthStore.buildTransportEnvelope("transport.fault", code, message, status, rawPayload));
-	}
-
-	private emitLifecycle(event: OrcPythonTransportLifecycleEvent): void {
-		this.debugArtifactsWriter?.recordLifecycleEvent(event, this.getHealth());
-		this.emitter.emit("lifecycle", event);
-	}
 
 	private resetAssemblyState(): void {
 		this.stdoutState.decoder.end();

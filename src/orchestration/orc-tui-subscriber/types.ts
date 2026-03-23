@@ -4,7 +4,7 @@ import type {
 	OrcEventReducerState,
 	OrcLatestActivityRecord,
 	OrcReducedErrorEntry,
-} from "../orc-events/index.js";
+} from "../orc-events/types.js";
 import type { OrcTrackerDashboardViewModel } from "../orc-tracker.js";
 import type { OrcControlPlaneState, OrcProjectContext } from "../orc-state.js";
 import type { OrcEventBus, OrcEventBusSubscription } from "../orc-event-bus.js";

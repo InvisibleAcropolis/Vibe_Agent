@@ -24,3 +24,4 @@ export {
 	startTransport,
 } from "./transport-supervisor.js";
 export { createThreadContext } from "./thread-context-factory.js";
+export { createRuntimeSessionHooks, setStatePhase } from "./session-hooks.js";
