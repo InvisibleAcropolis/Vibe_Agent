@@ -3,6 +3,7 @@ import { createDynamicTheme } from "../themes/index.js";
 import { defineStyleTestDemos, type StyleTestRuntime, type StyleTestRuntimeContext } from "../style-test-contract.js";
 import { agentTheme } from "../theme.js";
 import { animPreloadService } from "./animpreload-service.js";
+import type { ShellMenuDefinition, ShellMenuItem } from "./shell-menu-overlay.js";
 
 export interface AnimBoxOptions {
 	cols?: number;
@@ -90,6 +91,62 @@ function buildFallbackLines(message: string, sourceFile: string, exportName: str
 	return [...base, ...Array.from({ length: Math.max(0, rows - base.length) }, () => "")];
 }
 
+function isAnimDemoSource(sourceFile: string): boolean {
+	return sourceFile.includes("/anim_") || sourceFile.startsWith("src/components/anim_");
+}
+
+function buildAnimPickerMenu(context: StyleTestRuntimeContext): ShellMenuDefinition {
+	const demos = context
+		.listStyleDemos()
+		.filter((demo) => demo.kind === "animation" && isAnimDemoSource(demo.sourceFile))
+		.sort((left, right) => {
+			const sourceDelta = left.sourceFile.localeCompare(right.sourceFile);
+			if (sourceDelta !== 0) {
+				return sourceDelta;
+			}
+			return left.title.localeCompare(right.title);
+		});
+
+	const grouped = new Map<string, typeof demos>();
+	for (const demo of demos) {
+		const items = grouped.get(demo.sourceFile) ?? [];
+		items.push(demo);
+		grouped.set(demo.sourceFile, items);
+	}
+
+	const items: ShellMenuItem[] = Array.from(grouped.entries()).map(([sourceFile, sourceDemos]) => ({
+		kind: "submenu",
+		id: `source:${sourceFile}`,
+		label: sourceFile,
+		items: sourceDemos.map((demo) => ({
+			kind: "submenu",
+			id: `export:${demo.id}`,
+			label: demo.title,
+			description: demo.description,
+			items: (demo.listPresetVariants?.() ?? [{ id: "default", label: "Default" }]).map((preset) => ({
+				kind: "action",
+				id: `preset:${demo.id}:${preset.id}`,
+				label: preset.label,
+				onSelect: () => {
+					const exportName = demo.id.slice(demo.id.lastIndexOf("#") + 1);
+					context.setControlValue("sourceFile", demo.sourceFile);
+					context.setControlValue("exportName", exportName);
+					context.setControlValue("presetId", preset.id);
+				},
+			})),
+		})),
+	}));
+
+	return {
+		title: "Animbox Picker",
+		subtitle: "Choose source, export, and preset",
+		anchor: { row: 2, col: 4 },
+		width: 44,
+		childWidth: 40,
+		items,
+	};
+}
+
 class AnimBoxRuntime implements StyleTestRuntime {
 	private readonly instanceId = "animbox-primitive#default";
 
@@ -97,6 +154,10 @@ class AnimBoxRuntime implements StyleTestRuntime {
 		private readonly context: StyleTestRuntimeContext,
 		private readonly options: Required<AnimBoxOptions>,
 	) {}
+
+	openOverlay(): void {
+		this.context.openShellMenu("animbox-picker", buildAnimPickerMenu(this.context));
+	}
 
 	render(width: number, height: number): string[] {
 		const dynamicTheme = createDynamicTheme(this.context.getTheme(), this.context.getAnimationState());
@@ -157,9 +218,9 @@ export const styleTestDemos = defineStyleTestDemos({
 				{ id: "rows", label: "Rows", type: "number", defaultValue: DEFAULTS.rows, min: 4, max: 40, step: 1 },
 				{ id: "x", label: "X", type: "number", defaultValue: DEFAULTS.x, min: -20, max: 120, step: 1 },
 				{ id: "y", label: "Y", type: "number", defaultValue: DEFAULTS.y, min: -10, max: 40, step: 1 },
-				{ id: "sourceFile", label: "Source File", type: "text", defaultValue: DEFAULTS.sourceFile },
-				{ id: "exportName", label: "Export Name", type: "text", defaultValue: DEFAULTS.exportName },
-				{ id: "presetId", label: "Preset Id", type: "text", defaultValue: DEFAULTS.presetId },
+				{ id: "sourceFile", label: "Source File", type: "text", defaultValue: DEFAULTS.sourceFile, readOnly: true, description: "Use Open Picker to change the hosted animation target." },
+				{ id: "exportName", label: "Export Name", type: "text", defaultValue: DEFAULTS.exportName, readOnly: true, description: "Use Open Picker to change the hosted animation target." },
+				{ id: "presetId", label: "Preset Id", type: "text", defaultValue: DEFAULTS.presetId, readOnly: true, description: "Use Open Picker to change the hosted animation preset." },
 			],
 			createRuntime: (_moduleNamespace, _exportName, _exportValue, context, values) =>
 				new AnimBoxRuntime(context, {

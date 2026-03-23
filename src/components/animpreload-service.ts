@@ -90,6 +90,8 @@ export class AnimPreloadService {
 			getTheme: () => hostContext.getTheme(),
 			getThemeName: () => hostContext.getThemeName(),
 			resolveStyleDemo: (sourceFile, exportName) => hostContext.resolveStyleDemo(sourceFile, exportName),
+			listStyleDemos: () => hostContext.listStyleDemos(),
+			setControlValue: () => undefined,
 			openSelectOverlay: () => undefined,
 			openTextPrompt: () => undefined,
 			openEditorPrompt: () => undefined,

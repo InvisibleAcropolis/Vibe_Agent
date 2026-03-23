@@ -133,6 +133,7 @@ class ControlsPanel implements MouseAwareComponent {
 	constructor(
 		private readonly getDemo: () => StyleTestDemoDefinition,
 		private readonly getValues: () => StyleTestControlValues,
+		private readonly getRuntime: () => StyleTestRuntime | undefined,
 		private readonly getThemeName: () => ThemeName,
 		private readonly getPresetActions: () => ActionRow[],
 		private readonly isFocused: () => boolean,
@@ -159,6 +160,8 @@ class ControlsPanel implements MouseAwareComponent {
 		}
 		if (demo.kind === "overlay") {
 			actionRows.push({ id: "action-open-overlay", label: "Open Overlay", type: "action" });
+		} else if (this.getRuntime()?.openOverlay) {
+			actionRows.push({ id: "action-open-overlay", label: "Open Picker", type: "action" });
 		}
 		return [...demo.controls, ...actionRows];
 	}
@@ -201,7 +204,7 @@ class ControlsPanel implements MouseAwareComponent {
 				if (matchesKey(data, "right") || matchesKey(data, "enter")) this.onCycleEnum(current.id, 1);
 				break;
 			case "text":
-				if (matchesKey(data, "enter") || matchesKey(data, "right")) this.onEditText(current.id);
+				if (!current.readOnly && (matchesKey(data, "enter") || matchesKey(data, "right"))) this.onEditText(current.id);
 				break;
 		}
 	}
@@ -271,7 +274,8 @@ class ControlsPanel implements MouseAwareComponent {
 					break;
 			}
 			const renderedValue = truncateToWidth(valueText, 14, "");
-			const content = `${prefix}${selected ? agentTheme.text(label) : agentTheme.dim(label)} ${agentTheme.accent(renderedValue)}`;
+			const valueStyler = entry.type === "text" && entry.readOnly ? agentTheme.muted : agentTheme.accent;
+			const content = `${prefix}${selected ? agentTheme.text(label) : agentTheme.dim(label)} ${valueStyler(renderedValue)}`;
 			lines.push(paintLine(content, width));
 			this.renderedControlRows.push({ row, controlId: entry.id });
 			row++;
@@ -370,6 +374,7 @@ export class TUIStyleTestApp {
 		this.controlsPanel = new ControlsPanel(
 			() => this.currentDemo(),
 			() => this.currentValues(),
+			() => this.runtime,
 			() => this.getThemeName(),
 			() => this.currentPresetActions(),
 			() => this.focusedPane === "controls",
@@ -643,6 +648,8 @@ export class TUIStyleTestApp {
 			getThemeName: () => this.getThemeName(),
 			resolveStyleDemo: (sourceFile, exportName) =>
 				this.demos.find((demo) => demo.sourceFile === sourceFile && demo.id === `${sourceFile}#${exportName}`),
+			listStyleDemos: () => this.demos,
+			setControlValue: (controlId, value) => this.updateControlValue(controlId, value),
 			openSelectOverlay: (id, title, description) =>
 				this.overlayController.openSelectOverlay(
 					id,
@@ -723,7 +730,7 @@ export class TUIStyleTestApp {
 
 	private editTextControl(controlId: string): void {
 		const control = this.currentControl(controlId);
-		if (!control || control.type !== "text") return;
+		if (!control || control.type !== "text" || control.readOnly) return;
 		this.stateStore.setFocusLabel(`edit:${controlId}`);
 		const initialValue = String(this.currentValues()[controlId] ?? control.defaultValue);
 		if (control.multiline) {
