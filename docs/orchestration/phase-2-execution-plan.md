@@ -309,6 +309,18 @@ Handle process crashes, broken pipes, startup failures, cancellation, and ambigu
 **Done when**
 - Broken execution paths terminate predictably and inform both operators and future recovery logic.
 
+**Phase 2 fault matrix**
+
+| failure class | canonical code | terminal state | remediation hint | retryability decision |
+| --- | --- | --- | --- | --- |
+| Startup failure | `transport_startup_failure` | `failed` | Verify the spawn contract, executable path, and permissions, then relaunch. | Retryable in Phase 2 with a clean transport restart. |
+| Transport disconnect | `transport_disconnect` | `failed` | Inspect runner logs and wait for replay-aware recovery support before trying to reconstruct in-flight work. | Deferred to Phase 3 recovery/replay. |
+| Broken pipe | `transport_broken_pipe` | `failed` | Inspect stderr, confirm the child did not exit early, then launch a fresh runner. | Retryable in Phase 2 with a fresh transport process. |
+| Non-zero exit | `transport_non_zero_exit` | `failed` | Review stderr and tracker snapshots before relaunching. | Deferred to Phase 3 recovery/replay because in-flight work may need reconstruction. |
+| SIGTERM/SIGINT shutdown | `transport_signal_shutdown` | `failed` | Determine whether an external signal interrupted the run, then recover via replay-aware tooling once available. | Deferred to Phase 3 recovery/replay. |
+| User cancellation | `transport_user_cancellation` | `cancelled` | Treat the run as intentionally stopped; start a new run or resume from a later checkpoint if needed. | Retryable in Phase 2 only as a fresh run, not as automatic recovery. |
+| Ambiguous terminal state | `transport_ambiguous_terminal_state` | `ambiguous` | Inspect the event log and tracker snapshot together. | Deferred to Phase 3 recovery/replay because conflicting terminal facts require durable analysis. |
+
 ### P2-015 — Implement debug/diagnostic instrumentation for outside engineers
 
 Add the minimum durable diagnostics needed for future implementation and support work without polluting the default operator experience.

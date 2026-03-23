@@ -93,6 +93,9 @@ export interface OrcReducedTransportHealth {
 	lastWarningAt?: string;
 	lastFaultAt?: string;
 	lastMessage?: string;
+	lastRemediationHint?: string;
+	lastFailureCode?: string;
+	retryability?: "phase_2_retryable" | "phase_3_recovery" | "not_retryable";
 	consecutiveWarnings: number;
 	consecutiveFaults: number;
 }
@@ -102,6 +105,9 @@ export interface OrcTerminalStateSummary {
 	reason?: string;
 	resolvedAt?: string;
 	sourceEventId?: string;
+	failureCode?: string;
+	remediationHint?: string;
+	retryability?: "phase_2_retryable" | "phase_3_recovery" | "not_retryable";
 	ambiguityNotes: string[];
 }
 

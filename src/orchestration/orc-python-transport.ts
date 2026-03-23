@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { StringDecoder } from "node:string_decoder";
 import {
+	classifyOrcFailureDisposition,
 	classifyOrcTransportIssue,
 	type OrcTransportFaultCode,
 	type OrcTransportWarningCode,
@@ -185,6 +186,7 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 	private resolveExitPromise?: () => void;
 	private activeTerminationReason?: string;
 	private monitorInterval?: NodeJS.Timeout;
+	private readonly emittedFaultKeys = new Set<string>();
 
 	constructor(options: OrcPythonTransportOptions = {}) {
 		this.buildSpawnContract = options.buildSpawnContract ?? defaultBuildPythonRunnerSpawnContract;
@@ -255,6 +257,7 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 		this.resetAssemblyState();
 		this.recentStderr = [];
 		this.activeTerminationReason = undefined;
+		this.emittedFaultKeys.clear();
 		this.health = {
 			threadId: launchInput.threadId,
 			runCorrelationId: launchInput.runCorrelationId,
@@ -324,6 +327,16 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 				error,
 			});
 		};
+		const onStdinError = (error: Error) => {
+			this.emitTransportFault("transport_broken_pipe", "Runner stdin pipe closed unexpectedly.", {
+				stream: "stdin",
+				message: error.message,
+				syscall: (error as NodeJS.ErrnoException).syscall,
+				retryable: true,
+				remediationHint: "Inspect stderr and relaunch the runner; the IPC pipe closed before the launch contract completed.",
+				retryability: "phase_2_retryable",
+			});
+		};
 		const onExit = (exitCode: number | null, signal: NodeJS.Signals | null) => {
 			const at = new Date().toISOString();
 			const terminatedBySignal = Boolean(signal);
@@ -350,11 +363,13 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 
 		child.stdout.on("data", onStdoutData);
 		child.stderr.on("data", onStderrData);
+		child.stdin.on("error", onStdinError);
 		child.once("error", onError);
 		child.once("exit", onExit);
 		this.cleanupCallbacks = [
 			() => child.stdout.off("data", onStdoutData),
 			() => child.stderr.off("data", onStderrData),
+			() => child.stdin.off("error", onStdinError),
 			() => child.off("error", onError),
 			() => child.off("exit", onExit),
 		];
@@ -677,10 +692,16 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 	}
 
 	private emitTransportFault(code: OrcTransportFaultCode, message: string, rawPayload: Record<string, unknown>): void {
+		const statusKey = String(rawPayload.status ?? "unknown");
+		const dedupeKey = `${code}:${statusKey}:${String(rawPayload.signal ?? "none")}:${String(rawPayload.exitCode ?? "none")}:${String(rawPayload.syscall ?? "none")}`;
+		if (this.emittedFaultKeys.has(dedupeKey)) {
+			return;
+		}
+		this.emittedFaultKeys.add(dedupeKey);
 		const rule = classifyOrcTransportIssue(code);
 		const at = new Date().toISOString();
 		this.health.faultEvents += 1;
-		this.health.status = "faulted";
+		this.health.status = rule.defaultStatus === "offline" ? "offline" : "faulted";
 		this.health.lastErrorAt = at;
 		this.health.lastError = `${code}: ${message}`;
 		this.health.lastEventAt = at;
@@ -698,6 +719,7 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 	): OrcCanonicalEventEnvelope<Record<string, unknown>> {
 		const now = new Date().toISOString();
 		const isWarning = kind === "stream.warning";
+		const disposition = !isWarning ? classifyOrcFailureDisposition(code as OrcTransportFaultCode) : undefined;
 		return {
 			origin: {
 				runCorrelationId: this.health.runCorrelationId ?? `orc-run-${randomUUID()}`,
@@ -735,6 +757,8 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 					code: code,
 					message,
 					status,
+					remediationHint: disposition?.remediationHint,
+					retryability: disposition?.retryability,
 					pid: this.health.pid,
 					warningCode: isWarning ? code : undefined,
 					faultCode: isWarning ? undefined : code,
@@ -838,3 +862,4 @@ export function defaultBuildPythonRunnerSpawnContract(input: OrcRunnerLaunchInpu
 		stderrProtocol: "diagnostic_text",
 	};
 }
+

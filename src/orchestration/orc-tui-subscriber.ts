@@ -133,6 +133,7 @@ export function createOrcTuiTelemetrySubscriber(options: OrcTuiTelemetrySubscrib
 	let surfaceStore = createEmptySurfaceStore();
 	let state = createViewState(controlPlane, reducerState, surfaceStore, []);
 	let pendingTail: OrcTuiEventLogTailEntry[] = [];
+	let seenEventIds = new Set<string>();
 	let flushTimer: NodeJS.Timeout | undefined;
 	let busSubscription: OrcEventBusSubscription | undefined;
 
@@ -158,6 +159,10 @@ export function createOrcTuiTelemetrySubscriber(options: OrcTuiTelemetrySubscrib
 	};
 
 	const handleEvent = (event: OrcBusEvent) => {
+		if (seenEventIds.has(event.envelope.origin.eventId)) {
+			return;
+		}
+		seenEventIds.add(event.envelope.origin.eventId);
 		reducerState = reduceOrcBusEvent(reducerState, event);
 		controlPlane = reduceOrcControlPlaneEvent(controlPlane, event);
 		surfaceStore = reduceSubagentSurfaceStore(surfaceStore, event);
@@ -194,6 +199,7 @@ export function createOrcTuiTelemetrySubscriber(options: OrcTuiTelemetrySubscrib
 			reducerState = cloneReducerState(ORC_EVENT_REDUCER_INITIAL_STATE);
 			surfaceStore = createEmptySurfaceStore();
 			pendingTail = [];
+			seenEventIds = new Set();
 			state = createViewState(controlPlane, reducerState, surfaceStore, [], []);
 			if (flushTimer) {
 				clearTimeout(flushTimer);
@@ -242,6 +248,7 @@ export function createOrcTuiTelemetrySubscriber(options: OrcTuiTelemetrySubscrib
 			busSubscription?.unsubscribe();
 			busSubscription = undefined;
 			listeners.clear();
+			seenEventIds = new Set();
 			if (flushTimer) {
 				clearTimeout(flushTimer);
 				flushTimer = undefined;

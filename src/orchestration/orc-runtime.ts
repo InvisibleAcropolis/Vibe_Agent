@@ -14,11 +14,14 @@ import type {
 import { attachOrcDurableEventLogWriter, type OrcDurableEventLogWriter } from "./orc-event-log.js";
 import { createOrcEventBus, type OrcEventBus, type OrcEventBusSubscription } from "./orc-event-bus.js";
 import {
+	ORC_FAILURE_DISPOSITIONS,
 	createInitialCheckpointMetadataSummary,
 	createInitialReducedTransportHealth,
 	createInitialTerminalStateSummary,
 	normalizeOrcTransportEnvelope,
 	reduceOrcControlPlaneEvent,
+	type OrcBusEvent,
+	type OrcTransportFaultCode,
 } from "./orc-events.js";
 import {
 	NoopOrcCheckpointStore,
@@ -29,6 +32,7 @@ import {
 	OrcPythonChildProcessTransport,
 	type OrcPythonTransport,
 	type OrcPythonTransportHealth,
+	type OrcPythonTransportLifecycleEvent,
 } from "./orc-python-transport.js";
 import { createDefaultOrcSecurityPolicy, mergeOrcSecurityPolicy, type OrcSecurityPolicy } from "./orc-security.js";
 import { OrcSessionHandle, type OrcSession, type OrcSessionRuntimeHooks } from "./orc-session.js";
@@ -107,6 +111,9 @@ interface OrcRuntimeThreadContext {
 	storageHooks: OrcRuntimeStorageHooks;
 	cleanupReason?: string;
 	disposed: boolean;
+	listenersBound: boolean;
+	publishedEventIds: Set<string>;
+	publishedTerminalKeys: Set<string>;
 }
 
 export interface OrcRuntime {
@@ -302,6 +309,9 @@ export class OrcRuntimeSkeleton implements OrcRuntime {
 			live,
 			storageHooks: { eventLogWriter: writer, eventLogSubscription: subscription },
 			disposed: false,
+			listenersBound: false,
+			publishedEventIds: new Set(),
+			publishedTerminalKeys: new Set(),
 		};
 		this.bindTransport(context);
 		session.attachRuntimeHooks(this.createSessionHooks(context));
@@ -329,23 +339,20 @@ export class OrcRuntimeSkeleton implements OrcRuntime {
 	}
 
 	private bindTransport(context: OrcRuntimeThreadContext): void {
+		if (context.listenersBound) {
+			return;
+		}
+		context.listenersBound = true;
 		context.live.transport.onLifecycle((event) => {
 			if (!event.threadId || event.threadId !== context.threadId || context.disposed) {
 				return;
 			}
 			this.transportHealth.set(context.threadId, context.live.transport.getHealth());
-			if (event.stage === "ready") {
-				context.state = this.setStatePhase(context, "planning", context.state.checkpointId);
-				void this.persistTrackerState(context);
+			const synthetic = this.createLifecycleBusEvent(context, event);
+			if (synthetic) {
+				this.publishRuntimeEvent(context, synthetic);
 			}
-			if (event.stage === "exit") {
-				const phase: OrcLifecyclePhase = event.exitCode === 0 ? "completed" : context.state.phase === "cancelled" ? "cancelled" : "failed";
-				context.state = this.setStatePhase(context, phase, context.state.checkpointId);
-				void this.persistTrackerState(context).finally(() => this.cleanupThread(context, `transport_${event.stage}`));
-			}
-			if (event.stage === "terminated" || event.stage === "spawn_failed") {
-				const phase: OrcLifecyclePhase = context.state.phase === "cancelled" ? "cancelled" : "failed";
-				context.state = this.setStatePhase(context, phase, context.state.checkpointId);
+			if (event.stage === "exit" || event.stage === "terminated" || event.stage === "spawn_failed") {
 				void this.persistTrackerState(context).finally(() => this.cleanupThread(context, `transport_${event.stage}`));
 			}
 		});
@@ -355,12 +362,7 @@ export class OrcRuntimeSkeleton implements OrcRuntime {
 			}
 			this.transportHealth.set(context.threadId, context.live.transport.getHealth());
 			const busEvent = normalizeOrcTransportEnvelope(envelope);
-			context.live.eventBus.publish(busEvent);
-			context.state = reduceOrcControlPlaneEvent(context.state, busEvent);
-			context.session.updateState(context.state);
-			if (busEvent.kind === "checkpoint.status" || deriveTrackerPersistenceNeed(busEvent)) {
-				void this.persistTrackerState(context);
-			}
+			this.publishRuntimeEvent(context, busEvent);
 		});
 		context.live.transport.onDiagnostic((event) => {
 			if (event.threadId && event.threadId !== context.threadId) {
@@ -370,6 +372,26 @@ export class OrcRuntimeSkeleton implements OrcRuntime {
 		});
 	}
 
+	private publishRuntimeEvent(context: OrcRuntimeThreadContext, busEvent: OrcBusEvent): void {
+		if (context.disposed || context.publishedEventIds.has(busEvent.envelope.origin.eventId)) {
+			return;
+		}
+		const terminalKey = this.getTerminalPublicationKey(busEvent);
+		if (terminalKey && context.publishedTerminalKeys.has(terminalKey)) {
+			return;
+		}
+		context.publishedEventIds.add(busEvent.envelope.origin.eventId);
+		if (terminalKey) {
+			context.publishedTerminalKeys.add(terminalKey);
+		}
+		context.live.eventBus.publish(busEvent);
+		context.state = reduceOrcControlPlaneEvent(context.state, busEvent);
+		context.session.updateState(context.state);
+		if (busEvent.kind === "checkpoint.status" || deriveTrackerPersistenceNeed(busEvent) || context.state.terminalState.status !== "running") {
+			void this.persistTrackerState(context);
+		}
+	}
+
 	private async startTransport(context: OrcRuntimeThreadContext, input: OrcRunnerLaunchInput, mode: "launch" | "resume"): Promise<void> {
 		this.transportHealth.set(context.threadId, context.live.transport.getHealth());
 		if (mode === "resume") {
@@ -377,6 +399,92 @@ export class OrcRuntimeSkeleton implements OrcRuntime {
 			return;
 		}
 		await context.live.transport.launch(input);
+	}
+
+	private createLifecycleBusEvent(context: OrcRuntimeThreadContext, event: OrcPythonTransportLifecycleEvent): OrcBusEvent | undefined {
+		const when = event.at;
+		const baseEnvelope = {
+			origin: {
+				eventId: `${context.runCorrelationId}:${event.stage}:${event.signal ?? event.exitCode ?? event.reason ?? "none"}`,
+				emittedAt: when,
+				threadId: context.threadId,
+				runCorrelationId: context.runCorrelationId,
+				streamSequence: Number.MAX_SAFE_INTEGER,
+				source: "orc_runtime" as const,
+			},
+			who: { id: "orc-runtime", kind: "transport" as const, label: "Orc runtime transport supervisor" },
+			how: { channel: "event_bus" as const, interactionTarget: "computer" as const, environment: "transport" as const, transport: "python_child_process" as const },
+			when,
+		};
+		if (event.stage === "spawned" || event.stage === "ready") {
+			return normalizeOrcTransportEnvelope({
+				...baseEnvelope,
+				what: { category: "transport", name: `process_${event.stage}`, status: event.stage === "ready" ? "succeeded" : "started", severity: "info", description: event.reason },
+				rawPayload: { namespace: "orc.runtime.lifecycle", payload: { eventKind: "process.lifecycle", stage: event.stage, pid: event.pid, reason: event.reason } },
+			});
+		}
+		const failureCode = this.classifyLifecycleFailureCode(context, event);
+		if (event.stage === "exit" && (event.exitCode ?? 0) === 0 && !failureCode) {
+			return normalizeOrcTransportEnvelope({
+				...baseEnvelope,
+				what: { category: "transport", name: "process_exited", status: "succeeded", severity: "info", description: event.reason },
+				rawPayload: { namespace: "orc.runtime.lifecycle", payload: { eventKind: "process.lifecycle", stage: "exited", pid: event.pid, exitCode: event.exitCode ?? 0, reason: event.reason } },
+			});
+		}
+		if (!failureCode) {
+			return undefined;
+		}
+		const disposition = ORC_FAILURE_DISPOSITIONS[failureCode];
+		const stage = event.stage === "exit" ? "exited" : event.stage === "terminated" ? "terminated" : "terminated";
+		const status = disposition.terminalState === "cancelled" ? "cancelled" : "failed";
+		return normalizeOrcTransportEnvelope({
+			...baseEnvelope,
+			what: { category: "transport", name: failureCode, status, severity: disposition.terminalState === "cancelled" ? "warning" : "error", description: event.reason },
+			rawPayload: {
+				namespace: "orc.runtime.lifecycle",
+				payload: {
+					eventKind: "process.lifecycle",
+					stage,
+					pid: event.pid,
+					exitCode: event.exitCode,
+					signal: event.signal,
+					reason: event.reason ?? failureCode,
+					failureCode,
+					retryability: disposition.retryability,
+					remediationHint: disposition.remediationHint,
+				},
+				},
+			});
+	}
+
+	private classifyLifecycleFailureCode(context: OrcRuntimeThreadContext, event: OrcPythonTransportLifecycleEvent): OrcTransportFaultCode | undefined {
+		if (event.stage === "spawn_failed") {
+			const reason = (event.reason ?? event.error?.message ?? "").toLowerCase();
+			return reason.includes("epipe") ? "transport_broken_pipe" : "transport_startup_failure";
+		}
+		if (event.stage === "terminated") {
+			if ((event.reason ?? "").includes("cancel") || context.state.phase === "cancelled") {
+				return "transport_user_cancellation";
+			}
+			if (event.signal === "SIGINT" || event.signal === "SIGTERM") {
+				return "transport_signal_shutdown";
+			}
+			return "transport_disconnect";
+		}
+		if (event.stage === "exit" && (event.exitCode ?? 0) !== 0) {
+			return "transport_non_zero_exit";
+		}
+		return undefined;
+	}
+
+	private getTerminalPublicationKey(event: OrcBusEvent): string | undefined {
+		if (event.kind !== "process.lifecycle") {
+			return undefined;
+		}
+		if (event.payload.stage !== "exited" && event.payload.stage !== "terminated") {
+			return undefined;
+		}
+		return `${event.payload.failureCode ?? event.payload.stage}:${event.payload.exitCode ?? "none"}:${event.payload.signal ?? "none"}:${event.payload.reason ?? "none"}`;
 	}
 
 	private buildLaunchInput(context: OrcRuntimeThreadContext, checkpoint?: OrcCheckpointMetadata): OrcRunnerLaunchInput {
