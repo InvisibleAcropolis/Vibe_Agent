@@ -139,6 +139,4 @@ export interface TransportSupervisorContext {
 	idleWarningMs: number;
 	stallTimeoutMs: number;
 	readyTimeoutMs: number;
-	emitTransportWarning: (code: any, message: string, payload: Record<string, unknown>) => void;
-	emitTransportFault: (code: any, message: string, payload: Record<string, unknown>) => void;
 }

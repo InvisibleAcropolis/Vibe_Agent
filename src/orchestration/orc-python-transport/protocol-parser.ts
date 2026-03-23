@@ -1,12 +1,11 @@
-import type { OrcTransportWarningCode } from "../orc-events/index.js";
 import type { OrcCanonicalEventEnvelope } from "../orc-io.js";
+import { evaluateParseFailurePolicy } from "./parse-failure-policy.js";
 import type { AssembledLine, OrcPythonTransportHealth, StderrSnippet } from "./types.js";
 
 export type StdoutParseResult =
 	| { kind: "ignore" }
 	| { kind: "canonical_envelope"; envelope: OrcCanonicalEventEnvelope; observedAt: string }
-	| { kind: "warning"; code: OrcTransportWarningCode; message: string; payload: Record<string, unknown>; observedAt: string }
-	| { kind: "fatal_fault"; code: "transport_corrupt_stream"; message: string; payload: Record<string, unknown>; observedAt: string };
+	| { kind: "policy_request"; observedAt: string; policy: ReturnType<typeof evaluateParseFailurePolicy> };
 
 export function handleStdoutLine(params: {
 	line: AssembledLine;
@@ -68,40 +67,26 @@ export function noteParseFailure(params: {
 	fatalParseFailureCount: number;
 }): StdoutParseResult {
 	const { byteLength, detail, fatalParseFailureCount, health, line, message, recentStderr, stdoutBufferedBytes } = params;
-	const code: OrcTransportWarningCode = "transport_parse_noise";
 	health.parseFailures += 1;
 	health.consecutiveParseFailures += 1;
 	health.lastErrorAt = health.lastEventAt;
-	health.lastError = `${code}: ${detail}`;
-	const payload = {
-		stream: "stdout",
-		warningCode: code,
-		message: `${message} ${detail}`,
-		lineSequence: health.stdoutLines,
-		recoverable: true,
-		linePreview: previewLine(line),
-		lineBytes: byteLength,
-		bufferedBytes: stdoutBufferedBytes,
-		expectedSequenceHint: health.lastStdoutSequence === undefined ? undefined : health.lastStdoutSequence + 1,
-		observedSequenceHint: extractObservedSequenceHint(line),
-		stderrSnippets: recentStderr,
+	health.lastError = `transport_parse_noise: ${detail}`;
+	return {
+		kind: "policy_request",
+		observedAt: new Date().toISOString(),
+		policy: evaluateParseFailurePolicy({
+			message,
+			line,
+			byteLength,
+			detail,
+			lineSequence: health.stdoutLines,
+			consecutiveParseFailures: health.consecutiveParseFailures,
+			fatalParseFailureCount,
+			stdoutBufferedBytes,
+			lastStdoutSequence: health.lastStdoutSequence,
+			recentStderr,
+		}),
 	};
-	const observedAt = new Date().toISOString();
-	if (health.consecutiveParseFailures >= fatalParseFailureCount) {
-		return {
-			kind: "fatal_fault",
-			code: "transport_corrupt_stream",
-			message: "Repeated stdout parse failures crossed the fatal corruption threshold.",
-			observedAt,
-			payload: {
-				...payload,
-				retryable: true,
-				failureThreshold: fatalParseFailureCount,
-				consecutiveParseFailures: health.consecutiveParseFailures,
-			},
-		};
-	}
-	return { kind: "warning", code, message, observedAt, payload };
 }
 
 export function isCanonicalEnvelope(value: unknown): value is OrcCanonicalEventEnvelope {

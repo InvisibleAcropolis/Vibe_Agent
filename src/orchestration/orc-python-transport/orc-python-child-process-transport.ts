@@ -8,6 +8,7 @@ import type { OrcCanonicalEventEnvelope, OrcPythonRunnerSpawnContract, OrcRunner
 import { defaultBuildPythonRunnerSpawnContract } from "./spawn-contract.js";
 import { drainTerminatedLines, flushResidualStream, guardBuffer } from "./line-assembler.js";
 import { extractObservedSequenceHint, handleStdoutLine, previewLine } from "./protocol-parser.js";
+import type { OrcTransportEmissionRequest, OrcTransportPolicyAction } from "./policy-results.js";
 import { OrcPythonTransportHealthStore } from "./health-store.js";
 import { evaluateTransportTimeouts, startMonitors, stopMonitors } from "./timeout-monitor.js";
 import {
@@ -287,12 +288,13 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 			this.debugArtifactsWriter?.recordRawEventMirror(result.envelope);
 			return;
 		}
-		this.debugArtifactsWriter?.recordParserWarning({ at: result.observedAt, level: result.kind === "fatal_fault" ? "fault" : "warning", code: result.code, payload: result.payload });
-		if (result.kind === "fatal_fault") {
-			this.emitTransportFault(result.code, result.message, result.payload);
-			return;
-		}
-		this.emitTransportWarning(result.code, result.message, result.payload);
+		this.debugArtifactsWriter?.recordParserWarning({
+			at: result.observedAt,
+			level: result.policy.emissions.some((emission) => emission.kind === "fault") ? "fault" : "warning",
+			code: result.policy.emissions.at(-1)?.code ?? "transport_parse_noise",
+			payload: result.policy.emissions.at(-1)?.payload ?? {},
+		});
+		this.applyPolicyResult(result.policy);
 	}
 
 	private handleStderrLine(line: string): void {
@@ -353,16 +355,54 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 	}
 
 	private evaluateTransportTimeouts(): void {
-		evaluateTransportTimeouts({
+		const policy = evaluateTransportTimeouts({
 			child: this.child,
 			health: this.health,
 			recentStderr: this.recentStderr,
 			idleWarningMs: this.idleWarningMs,
 			stallTimeoutMs: this.stallTimeoutMs,
 			readyTimeoutMs: this.readyTimeoutMs,
-			emitTransportWarning: (code, message, payload) => this.emitTransportWarning(code as OrcTransportWarningCode, message, payload),
-			emitTransportFault: (code, message, payload) => this.emitTransportFault(code as OrcTransportFaultCode, message, payload),
 		});
+		if (!policy) {
+			return;
+		}
+		if (policy.readyTimedOut) {
+			this.health.timeouts.lastReadyTimeoutAt = policy.nowIso;
+		}
+		if (policy.stallTimedOut) {
+			this.health.timeouts.lastStallFaultAt = policy.nowIso;
+		}
+		if (policy.idleWarningDue) {
+			this.health.timeouts.lastIdleWarningAt = policy.nowIso;
+		}
+		this.applyPolicyResult(policy);
+	}
+
+
+	private applyPolicyResult(policy: { emissions: OrcTransportEmissionRequest[]; action: OrcTransportPolicyAction }): void {
+		for (const emission of policy.emissions) {
+			if (emission.kind === "warning") {
+				this.emitTransportWarning(emission.code, emission.message, emission.payload);
+				continue;
+			}
+			this.emitTransportFault(emission.code, emission.message, emission.payload);
+		}
+		this.applyPolicyAction(policy.action);
+	}
+
+	private applyPolicyAction(action: OrcTransportPolicyAction): void {
+		if (!this.child || action === "continue") {
+			return;
+		}
+		if (action === "restart") {
+			this.activeTerminationReason ??= "transport_policy_restart_requested";
+			this.healthStore.markStage("failed", "faulted");
+			this.child.kill("SIGTERM");
+			return;
+		}
+		this.activeTerminationReason ??= "transport_policy_terminated";
+		this.healthStore.markStage("failed", "faulted");
+		this.child.kill("SIGKILL");
 	}
 
 	private emitTransportWarning(code: OrcTransportWarningCode, message: string, rawPayload: Record<string, unknown>): void {
