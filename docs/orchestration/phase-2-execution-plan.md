@@ -325,12 +325,33 @@ Handle process crashes, broken pipes, startup failures, cancellation, and ambigu
 
 Add the minimum durable diagnostics needed for future implementation and support work without polluting the default operator experience.
 
-**Scope**
-- Define a debug mode that records richer transport diagnostics, raw-event mirrors, and parser warnings.
-- Keep debug outputs opt-in and separate from the friendly default dashboard.
-- Document where to find Python stderr, event logs, tracker snapshots, and runtime metadata.
-- Provide an engineer-readable troubleshooting section covering malformed JSONL, missing runners, and stalled streams.
-- Ensure diagnostics are safe to leave enabled during local development.
+**Implemented debug contract**
+- Debug mode is opt-in through `OrcRuntimeSkeleton` adapter wiring via `debugMode: { enabled: true }` and a documented config shape at `orchestration.debug.enabled`.
+- Default operator-facing surfaces remain unchanged; debug artifacts are written only under `~/Vibe_Agent/logs/orchestration/debug/...` and never promoted into the friendly dashboard/event-log-tail summaries by default.
+- The transport now mirrors canonical stdout envelopes, parser warnings/fault precursors, stderr capture metadata, and richer lifecycle/health diagnostics into run-scoped files for outside engineers.
+
+**Artifact locations**
+- Python stderr: `~/Vibe_Agent/logs/orchestration/debug/threads/<thread>/runs/<run>/python-stderr.jsonl`
+- Raw event mirror: `~/Vibe_Agent/logs/orchestration/debug/threads/<thread>/runs/<run>/raw-event-mirror.jsonl`
+- Parser warnings: `~/Vibe_Agent/logs/orchestration/debug/threads/<thread>/runs/<run>/parser-warnings.jsonl`
+- Transport diagnostics + health snapshots: `~/Vibe_Agent/logs/orchestration/debug/threads/<thread>/runs/<run>/transport-diagnostics.jsonl`
+- Runtime metadata: `~/Vibe_Agent/logs/orchestration/debug/threads/<thread>/runs/<run>/runtime-metadata.json`
+- Durable normalized event log: `~/Vibe_Agent/logs/orchestration/event-log/threads/<thread>/runs/<run>/`
+- Tracker snapshots: `~/Vibe_Agent/tracker/<thread>--<checkpoint>.json` plus the reserved export path `~/Vibe_Agent/tracker/LANGEXTtracker.md`
+
+**Troubleshooting guide for outside engineers**
+
+| Symptom | What to inspect first | Expected debug evidence | Recommended response |
+|---|---|---|---|
+| Malformed JSONL | `parser-warnings.jsonl` | `transport_parse_noise` or `transport_corrupt_stream` entries with line preview, byte count, expected/observed sequence hints, and correlated stderr snippets | Fix emitter formatting first; stdout must remain strict single-line JSON. |
+| Missing runner entry point | `python-stderr.jsonl`, `runtime-metadata.json` | Import/module error on stderr plus the exact command/cwd used to spawn Python | Confirm `python3 -m src.orchestration.python.orc_runner` still resolves from the repo root or packaged runtime. |
+| Stalled stream | `transport-diagnostics.jsonl` | `transport_idle_timeout`, `transport_ready_timeout`, or `transport_stall_timeout` with last stdout/stderr timestamps | Compare the same run's event log and tracker snapshot to determine whether the run hung before or after a durable state boundary. |
+| Transport startup failure | `transport-diagnostics.jsonl`, `python-stderr.jsonl` | `spawn_failed` / startup fault records plus stderr context | Repair the environment/entry point before retrying; Phase 2 recovery is only a fresh restart. |
+
+**Safety caveats**
+- Safe for local development because the artifacts are append-only/run-scoped and do not alter reducer state or operator-facing defaults.
+- Not appropriate for always-on operator mode because raw mirrors/stderr may contain verbose provider, tool, or command payload detail.
+- Tracker snapshots remain intentionally reduced; forensics should correlate tracker snapshots with event logs and debug artifacts rather than expanding the tracker schema.
 
 **Primary files**
 - `docs/orchestration/phase-2-execution-plan.md`

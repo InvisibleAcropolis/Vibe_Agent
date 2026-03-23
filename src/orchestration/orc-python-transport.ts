@@ -8,6 +8,7 @@ import {
 	type OrcTransportFaultCode,
 	type OrcTransportWarningCode,
 } from "./orc-events.js";
+import type { OrcDebugArtifactsWriter } from "./orc-debug.js";
 import type { OrcCanonicalEventEnvelope, OrcPythonRunnerSpawnContract, OrcRunnerLaunchInput } from "./orc-io.js";
 
 export type OrcPythonTransportLifecycleStage =
@@ -88,6 +89,7 @@ export interface OrcPythonTransportDiagnosticEvent {
 
 export interface OrcPythonTransportOptions {
 	buildSpawnContract?: (input: OrcRunnerLaunchInput) => OrcPythonRunnerSpawnContract;
+	debugArtifactsWriter?: OrcDebugArtifactsWriter;
 	maxBufferedBytes?: number;
 	maxDiagnosticLineLength?: number;
 	idleWarningMs?: number;
@@ -141,6 +143,7 @@ interface StderrSnippet {
 export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 	private readonly emitter = new EventEmitter();
 	private readonly buildSpawnContract: (input: OrcRunnerLaunchInput) => OrcPythonRunnerSpawnContract;
+	private readonly debugArtifactsWriter?: OrcDebugArtifactsWriter;
 	private readonly maxBufferedBytes: number;
 	private readonly maxDiagnosticLineLength: number;
 	private readonly idleWarningMs: number;
@@ -190,6 +193,7 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 
 	constructor(options: OrcPythonTransportOptions = {}) {
 		this.buildSpawnContract = options.buildSpawnContract ?? defaultBuildPythonRunnerSpawnContract;
+		this.debugArtifactsWriter = options.debugArtifactsWriter;
 		this.maxBufferedBytes = options.maxBufferedBytes ?? DEFAULT_MAX_BUFFERED_BYTES;
 		this.maxDiagnosticLineLength = options.maxDiagnosticLineLength ?? DEFAULT_MAX_DIAGNOSTIC_LINE_LENGTH;
 		this.idleWarningMs = options.idleWarningMs ?? DEFAULT_IDLE_WARNING_MS;
@@ -303,6 +307,7 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 			runCorrelationId: launchInput.runCorrelationId,
 			pid: child.pid,
 		});
+		this.debugArtifactsWriter?.recordHealthSnapshot("transport_spawned", this.getHealth());
 
 		const onStdoutData = (chunk: Buffer) => {
 			this.processChunk("stdout", chunk);
@@ -325,6 +330,12 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 				pid: child.pid,
 				reason: error.message,
 				error,
+			});
+			this.debugArtifactsWriter?.recordTransportDiagnostic({
+				type: "spawn_failed",
+				at,
+				error: { name: error.name, message: error.message },
+				health: this.getHealth(),
 			});
 		};
 		const onStdinError = (error: Error) => {
@@ -358,6 +369,7 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 				signal,
 				reason: this.activeTerminationReason,
 			});
+			this.debugArtifactsWriter?.recordHealthSnapshot("transport_exit", this.getHealth());
 			this.detachChild();
 		};
 
@@ -468,6 +480,7 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 			});
 		}
 		this.emitter.emit("envelope", envelope);
+		this.debugArtifactsWriter?.recordRawEventMirror(envelope);
 	}
 
 	private handleStderrLine(line: string): void {
@@ -497,6 +510,14 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 			line: normalizedLine,
 			truncated,
 		} satisfies OrcPythonTransportDiagnosticEvent);
+		this.debugArtifactsWriter?.recordPythonStderr({
+			at,
+			stream: "stderr",
+			threadId: this.health.threadId,
+			runCorrelationId: this.health.runCorrelationId,
+			line: normalizedLine,
+			truncated,
+		});
 	}
 
 	private noteParseFailure(code: OrcTransportWarningCode, message: string, line: string, byteLength: number, detail: string): void {
@@ -518,6 +539,16 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 			stderrSnippets: this.recentStderr,
 		};
 		if (this.health.consecutiveParseFailures >= this.fatalParseFailureCount) {
+			this.debugArtifactsWriter?.recordParserWarning({
+				at: new Date().toISOString(),
+				level: "fault",
+				code: "transport_corrupt_stream",
+				payload: {
+					...payload,
+					failureThreshold: this.fatalParseFailureCount,
+					consecutiveParseFailures: this.health.consecutiveParseFailures,
+				},
+			});
 			this.emitTransportFault("transport_corrupt_stream", "Repeated stdout parse failures crossed the fatal corruption threshold.", {
 				...payload,
 				retryable: true,
@@ -526,6 +557,12 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 			});
 			return;
 		}
+		this.debugArtifactsWriter?.recordParserWarning({
+			at: new Date().toISOString(),
+			level: "warning",
+			code,
+			payload,
+		});
 		this.emitTransportWarning(code, message, payload);
 	}
 
@@ -688,6 +725,15 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 		this.health.lastErrorAt = at;
 		this.health.lastError = `${code}: ${message}`;
 		this.health.lastEventAt = at;
+		this.debugArtifactsWriter?.recordTransportDiagnostic({
+			type: "warning",
+			at,
+			code,
+			message,
+			status,
+			rawPayload,
+			health: this.getHealth(),
+		});
 		this.emitter.emit("envelope", this.buildTransportEnvelope("stream.warning", code, message, status, rawPayload));
 	}
 
@@ -707,6 +753,15 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 		this.health.lastEventAt = at;
 		const status: "degraded" | "faulted" | "offline" =
 			rule.defaultStatus === "degraded" || rule.defaultStatus === "offline" ? rule.defaultStatus : "faulted";
+		this.debugArtifactsWriter?.recordTransportDiagnostic({
+			type: "fault",
+			at,
+			code,
+			message,
+			status,
+			rawPayload,
+			health: this.getHealth(),
+		});
 		this.emitter.emit("envelope", this.buildTransportEnvelope("transport.fault", code, message, status, rawPayload));
 	}
 
@@ -827,6 +882,7 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 	}
 
 	private emitLifecycle(event: OrcPythonTransportLifecycleEvent): void {
+		this.debugArtifactsWriter?.recordLifecycleEvent(event, this.getHealth());
 		this.emitter.emit("lifecycle", event);
 	}
 
@@ -862,4 +918,3 @@ export function defaultBuildPythonRunnerSpawnContract(input: OrcRunnerLaunchInpu
 		stderrProtocol: "diagnostic_text",
 	};
 }
-
