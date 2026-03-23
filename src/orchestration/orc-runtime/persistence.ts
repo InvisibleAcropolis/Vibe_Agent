@@ -12,13 +12,25 @@ export function deriveTrackerPersistenceNeed(event: ReturnType<typeof normalizeO
 		|| event.kind === "security.approval";
 }
 
+export class OrcRuntimePersistenceCoordinator {
+	shouldPersistAfterEvent(context: OrcRuntimeThreadContext, busEvent: OrcBusEvent): boolean {
+		return busEvent.kind === "checkpoint.status"
+			|| deriveTrackerPersistenceNeed(busEvent)
+			|| context.state.terminalState.status !== "running";
+	}
+
+	async persistTrackerState(context: OrcRuntimeThreadContext): Promise<void> {
+		context.session.updateState(context.state);
+		await context.live.tracker.save(context.state);
+	}
+}
+
 export async function persistTrackerState(context: OrcRuntimeThreadContext): Promise<void> {
-	context.session.updateState(context.state);
-	await context.live.tracker.save(context.state);
+	const coordinator = new OrcRuntimePersistenceCoordinator();
+	await coordinator.persistTrackerState(context);
 }
 
 export function shouldPersistAfterEvent(context: OrcRuntimeThreadContext, busEvent: OrcBusEvent): boolean {
-	return busEvent.kind === "checkpoint.status"
-		|| deriveTrackerPersistenceNeed(busEvent)
-		|| context.state.terminalState.status !== "running";
+	const coordinator = new OrcRuntimePersistenceCoordinator();
+	return coordinator.shouldPersistAfterEvent(context, busEvent);
 }

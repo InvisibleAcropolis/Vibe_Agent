@@ -13,21 +13,22 @@ import {
 	NoopOrcCheckpointStore,
 	type OrcCheckpointStore,
 } from "./orc-checkpoints.js";
-import type { OrcPythonTransportHealth } from "./orc-python-transport.js";
+import type { OrcPythonTransportHealth, OrcPythonTransportLifecycleEvent } from "./orc-python-transport.js";
 import { createDefaultOrcSecurityPolicy, mergeOrcSecurityPolicy, type OrcSecurityPolicy } from "./orc-security.js";
 import { OrcSessionHandle, type OrcSession, type OrcSessionRuntimeHooks } from "./orc-session.js";
 import { NoopOrcStorage, type OrcStorage } from "./orc-storage.js";
 import { NoopOrcTracker, type OrcTracker } from "./orc-tracker.js";
-import type { OrcControlPlaneState, OrcLifecyclePhase } from "./orc-state.js";
-import { cleanupThread } from "./orc-runtime/cleanup.js";
-import { persistTrackerState } from "./orc-runtime/persistence.js";
+import { type OrcControlPlaneState, type OrcLifecyclePhase } from "./orc-state.js";
+import { cleanupExistingThread, cleanupThread } from "./orc-runtime/cleanup.js";
+import { reduceOrcControlPlaneEvent } from "./orc-events/index.js";
+import { OrcRuntimePersistenceCoordinator } from "./orc-runtime/persistence.js";
 import {
 	buildLaunchInput,
 	createInitialState,
 	createResumeLaunchRequest,
 	createResumeState,
 } from "./orc-runtime/state-bootstrap.js";
-import { bindTransport, publishRuntimeEvent, startTransport } from "./orc-runtime/transport-supervisor.js";
+import { OrcRuntimeTransportSupervisor, bindTransport, publishRuntimeEvent, startTransport } from "./orc-runtime/transport-supervisor.js";
 import { createThreadContext } from "./orc-runtime/thread-context-factory.js";
 import type {
 	OrcRuntime,
@@ -61,6 +62,8 @@ export class OrcRuntimeSkeleton implements OrcRuntime {
 	private readonly storage: OrcStorage;
 	private readonly activeThreads = new Map<string, OrcRuntimeThreadContext>();
 	private readonly transportHealth = new Map<string, OrcPythonTransportHealth>();
+	private readonly persistenceCoordinator = new OrcRuntimePersistenceCoordinator();
+	private readonly transportSupervisor = new OrcRuntimeTransportSupervisor();
 
 	constructor(
 		readonly adapters: OrcRuntimeAdapters = {},
@@ -166,6 +169,12 @@ export class OrcRuntimeSkeleton implements OrcRuntime {
 		securityPolicy: OrcSecurityPolicy;
 		state: OrcControlPlaneState;
 	}): Promise<OrcRuntimeThreadContext> {
+		await cleanupExistingThread({
+			threadId: input.threadId,
+			reason: "thread_replaced",
+			activeThreads: this.activeThreads,
+			cleanupThread: (context, reason) => this.cleanupThread(context, reason),
+		});
 		const context = await createThreadContext({
 			...input,
 			adapters: this.adapters,
@@ -173,11 +182,11 @@ export class OrcRuntimeSkeleton implements OrcRuntime {
 			checkpointStore: this.checkpoints,
 			storage: this.storage,
 			sessionFactory: this.sessionFactory,
-			activeThreads: this.activeThreads,
-			cleanupThread: (context, reason) => this.cleanupThread(context, reason),
-			createSessionHooks: (context) => this.createSessionHooks(context),
-			transportHealth: this.transportHealth,
 		});
+		context.session.attachRuntimeHooks(this.createSessionHooks(context));
+		context.session.updateState(context.state);
+		this.activeThreads.set(context.threadId, context);
+		this.transportHealth.set(context.threadId, context.live.transport.getHealth());
 		this.bindTransport(context);
 		await this.persistTrackerState(context);
 		return context;
@@ -229,17 +238,23 @@ export class OrcRuntimeSkeleton implements OrcRuntime {
 			context,
 			transportHealth: this.transportHealth,
 			publishRuntimeEvent: (runtimeContext, busEvent) => this.publishRuntimeEvent(runtimeContext, busEvent),
-			persistTrackerState: (runtimeContext) => this.persistTrackerState(runtimeContext),
-			cleanupThread: (runtimeContext, reason) => this.cleanupThread(runtimeContext, reason),
+			handleTerminalLifecycle: (runtimeContext, event) => void this.handleTerminalLifecycle(runtimeContext, event),
 		});
 	}
 
 	private publishRuntimeEvent(context: OrcRuntimeThreadContext, busEvent: Parameters<typeof publishRuntimeEvent>[0]["busEvent"]): void {
-		publishRuntimeEvent({
+		const published = this.transportSupervisor.publishRuntimeEvent({
 			context,
 			busEvent,
-			persistTrackerState: (runtimeContext) => this.persistTrackerState(runtimeContext),
 		});
+		if (!published) {
+			return;
+		}
+		context.state = reduceOrcControlPlaneEvent(context.state, busEvent);
+		context.session.updateState(context.state);
+		if (this.persistenceCoordinator.shouldPersistAfterEvent(context, busEvent)) {
+			void this.persistTrackerState(context);
+		}
 	}
 
 	private async cleanupThread(context: OrcRuntimeThreadContext, reason: string): Promise<void> {
@@ -262,7 +277,12 @@ export class OrcRuntimeSkeleton implements OrcRuntime {
 		return nextState;
 	}
 
+	private async handleTerminalLifecycle(context: OrcRuntimeThreadContext, event: OrcPythonTransportLifecycleEvent): Promise<void> {
+		await this.persistTrackerState(context);
+		await this.cleanupThread(context, `transport_${event.stage}`);
+	}
+
 	private async persistTrackerState(context: OrcRuntimeThreadContext): Promise<void> {
-		await persistTrackerState(context);
+		await this.persistenceCoordinator.persistTrackerState(context);
 	}
 }
