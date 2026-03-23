@@ -17,12 +17,19 @@ export interface PlasmaOptions {
 	hueRangeEndStep?: number;
 	hueShiftEnabled?: boolean;
 	hueShiftSpeed?: number;
+	hueRotateEnabled?: boolean;
+	hueRotateSpeed?: number;
 	glyphCount?: number;
 	fractalCenterX?: number;
 	fractalCenterY?: number;
 	fractalJuliaX?: number;
 	fractalJuliaY?: number;
 	fractalZoomSpeed?: number;
+	fractalIterations?: number;
+	fractalPower?: number;
+	fractalEscapeRadius?: number;
+	fractalRotation?: number;
+	fractalAspect?: number;
 	mode?: "classic" | "radial" | "interference" | "warp" | "fractal";
 }
 
@@ -40,12 +47,19 @@ export interface PlasmaResolvedOptions {
 	hueRangeEndStep: number;
 	hueShiftEnabled: boolean;
 	hueShiftSpeed: number;
+	hueRotateEnabled: boolean;
+	hueRotateSpeed: number;
 	glyphCount: number;
 	fractalCenterX: number;
 	fractalCenterY: number;
 	fractalJuliaX: number;
 	fractalJuliaY: number;
 	fractalZoomSpeed: number;
+	fractalIterations: number;
+	fractalPower: number;
+	fractalEscapeRadius: number;
+	fractalRotation: number;
+	fractalAspect: number;
 	mode: "classic" | "radial" | "interference" | "warp" | "fractal";
 }
 
@@ -77,12 +91,18 @@ export const PLASMA_NUMBER_OPTION_SPECS = Object.freeze({
 	hueRangeStartStep: { defaultValue: 135, min: 0, max: 256, step: 1, integer: true },
 	hueRangeEndStep: { defaultValue: 156, min: 0, max: 256, step: 1, integer: true },
 	hueShiftSpeed: { defaultValue: 1, min: 0, max: 48, step: 0.05 },
+	hueRotateSpeed: { defaultValue: 1, min: 0, max: 48, step: 0.05 },
 	glyphCount: { defaultValue: 11, min: 1, max: 4096, step: 1, integer: true },
 	fractalCenterX: { defaultValue: 0, min: -2, max: 2, step: 0.001 },
 	fractalCenterY: { defaultValue: 0, min: -2, max: 2, step: 0.001 },
 	fractalJuliaX: { defaultValue: 1, min: 0.25, max: 2, step: 0.01 },
 	fractalJuliaY: { defaultValue: 1, min: 0.25, max: 2, step: 0.01 },
 	fractalZoomSpeed: { defaultValue: 1, min: 0, max: 8, step: 0.01 },
+	fractalIterations: { defaultValue: 72, min: 8, max: 256, step: 1, integer: true },
+	fractalPower: { defaultValue: 2, min: 1.25, max: 6, step: 0.01 },
+	fractalEscapeRadius: { defaultValue: 4, min: 2, max: 32, step: 0.1 },
+	fractalRotation: { defaultValue: 0, min: -3.1416, max: 3.1416, step: 0.01 },
+	fractalAspect: { defaultValue: 1, min: 0.25, max: 4, step: 0.01 },
 } satisfies Record<string, PlasmaNumberOptionSpec>);
 
 export const PLASMA_DEFAULTS: Readonly<PlasmaResolvedOptions> = Object.freeze({
@@ -99,12 +119,19 @@ export const PLASMA_DEFAULTS: Readonly<PlasmaResolvedOptions> = Object.freeze({
 	hueRangeEndStep: PLASMA_NUMBER_OPTION_SPECS.hueRangeEndStep.defaultValue,
 	hueShiftEnabled: false,
 	hueShiftSpeed: PLASMA_NUMBER_OPTION_SPECS.hueShiftSpeed.defaultValue,
+	hueRotateEnabled: false,
+	hueRotateSpeed: PLASMA_NUMBER_OPTION_SPECS.hueRotateSpeed.defaultValue,
 	glyphCount: PLASMA_NUMBER_OPTION_SPECS.glyphCount.defaultValue,
 	fractalCenterX: PLASMA_NUMBER_OPTION_SPECS.fractalCenterX.defaultValue,
 	fractalCenterY: PLASMA_NUMBER_OPTION_SPECS.fractalCenterY.defaultValue,
 	fractalJuliaX: PLASMA_NUMBER_OPTION_SPECS.fractalJuliaX.defaultValue,
 	fractalJuliaY: PLASMA_NUMBER_OPTION_SPECS.fractalJuliaY.defaultValue,
 	fractalZoomSpeed: PLASMA_NUMBER_OPTION_SPECS.fractalZoomSpeed.defaultValue,
+	fractalIterations: PLASMA_NUMBER_OPTION_SPECS.fractalIterations.defaultValue,
+	fractalPower: PLASMA_NUMBER_OPTION_SPECS.fractalPower.defaultValue,
+	fractalEscapeRadius: PLASMA_NUMBER_OPTION_SPECS.fractalEscapeRadius.defaultValue,
+	fractalRotation: PLASMA_NUMBER_OPTION_SPECS.fractalRotation.defaultValue,
+	fractalAspect: PLASMA_NUMBER_OPTION_SPECS.fractalAspect.defaultValue,
 	mode: "classic",
 });
 
@@ -175,6 +202,13 @@ function getHueShiftOffset(animState: AnimationState, enabled: boolean, speed: n
 		return 0;
 	}
 	return wrapUnit((animState.tickCount * speed) / 256);
+}
+
+function getHueRotateOffset(animState: AnimationState, enabled: boolean, speed: number): number {
+	if (!enabled) {
+		return 0;
+	}
+	return animState.tickCount * speed;
 }
 
 function getPaletteGlyphs(palette: PlasmaResolvedOptions["palette"]): readonly string[] {
@@ -254,43 +288,73 @@ function sampleWarp(nx: number, ny: number, freq: number, t: number): number {
 	return normalizeWave(raw, 3);
 }
 
+interface FractalFieldConfig {
+	resolution: number;
+	fractalCenterX: number;
+	fractalCenterY: number;
+	fractalJuliaX: number;
+	fractalJuliaY: number;
+	fractalZoomSpeed: number;
+	fractalIterations: number;
+	fractalPower: number;
+	fractalEscapeRadius: number;
+	fractalRotation: number;
+	fractalAspect: number;
+	tickCount: number;
+	frequencyWarp: number;
+	frequencyWarpSpeed: number;
+}
+
+interface FieldSampleConfig {
+	mode: PlasmaResolvedOptions["mode"];
+	nx: number;
+	ny: number;
+	freq: number;
+	t: number;
+	fractal: FractalFieldConfig;
+}
+
 function sampleFractal(
 	nx: number,
 	ny: number,
-	resolution: number,
-	fractalCenterX: number,
-	fractalCenterY: number,
-	fractalJuliaX: number,
-	fractalJuliaY: number,
-	fractalZoomSpeed: number,
-	tickCount: number,
-	frequencyWarp: number,
-	frequencyWarpSpeed: number,
+	fractal: FractalFieldConfig,
 ): number {
 	const baseViewport = 2.8;
-	const zoomTravel = tickCount * fractalZoomSpeed * 0.045;
+	const zoomTravel = fractal.tickCount * fractal.fractalZoomSpeed * 0.045;
 	const loopPhase = wrapUnit(zoomTravel / FRACTAL_ZOOM_LOOP_SPAN);
 	const localZoom = loopPhase * FRACTAL_ZOOM_LOOP_SPAN;
-	const warpPhase = wrapUnit((tickCount * frequencyWarpSpeed) / 256);
-	const warpScale = 1 / (1 + frequencyWarp * warpPhase * 0.6);
-	const actualJulia = resolveFractalJuliaConstant(fractalJuliaX, fractalJuliaY);
-	const maxIterations = Math.max(24, Math.min(160, Math.round(24 + resolution * 20)));
-	const resolutionScale = Math.max(0.1, resolution);
+	const warpPhase = wrapUnit((fractal.tickCount * fractal.frequencyWarpSpeed) / 256);
+	const warpScale = 1 / (1 + fractal.frequencyWarp * warpPhase * 0.6);
+	const actualJulia = resolveFractalJuliaConstant(fractal.fractalJuliaX, fractal.fractalJuliaY);
+	const maxIterations = Math.max(8, Math.min(256, Math.round(fractal.fractalIterations)));
+	const escapeRadiusSquared = fractal.fractalEscapeRadius * fractal.fractalEscapeRadius;
+	const resolutionScale = Math.max(0.1, fractal.resolution);
+	const aspectScale = Math.max(0.01, fractal.fractalAspect);
+	const rotationCos = Math.cos(fractal.fractalRotation);
+	const rotationSin = Math.sin(fractal.fractalRotation);
 
 	const sampleJuliaAtScale = (zoomOffset: number): number => {
 		const viewportScale = (baseViewport * Math.exp(-zoomOffset) * warpScale) / resolutionScale;
-		let zx = fractalCenterX + nx * viewportScale;
-		let zy = fractalCenterY + ny * viewportScale;
+		const scaledX = nx * viewportScale * aspectScale;
+		const scaledY = ny * viewportScale / aspectScale;
+		const rotatedX = scaledX * rotationCos - scaledY * rotationSin;
+		const rotatedY = scaledX * rotationSin + scaledY * rotationCos;
+		let zx = fractal.fractalCenterX + rotatedX;
+		let zy = fractal.fractalCenterY + rotatedY;
 		let iteration = 0;
 		let magnitudeSquared = 0;
 
 		while (iteration < maxIterations) {
-			const nextX = zx * zx - zy * zy + actualJulia.x;
-			const nextY = 2 * zx * zy + actualJulia.y;
+			const radius = Math.sqrt(zx * zx + zy * zy);
+			const angle = Math.atan2(zy, zx);
+			const poweredRadius = Math.pow(radius, fractal.fractalPower);
+			const poweredAngle = angle * fractal.fractalPower;
+			const nextX = poweredRadius * Math.cos(poweredAngle) + actualJulia.x;
+			const nextY = poweredRadius * Math.sin(poweredAngle) + actualJulia.y;
 			zx = nextX;
 			zy = nextY;
 			magnitudeSquared = zx * zx + zy * zy;
-			if (magnitudeSquared > 16) {
+			if (magnitudeSquared > escapeRadiusSquared) {
 				break;
 			}
 			iteration++;
@@ -313,48 +377,18 @@ function sampleFractal(
 	return clampUnit(regenerated * 0.55 + bandPhase * 0.45);
 }
 
-function samplePlasmaValue(
-	mode: PlasmaResolvedOptions["mode"],
-	nx: number,
-	ny: number,
-	resolution: number,
-	freq: number,
-	t: number,
-	fractalConfig?: {
-		resolution: number;
-		fractalCenterX: number;
-		fractalCenterY: number;
-		fractalJuliaX: number;
-		fractalJuliaY: number;
-		fractalZoomSpeed: number;
-		tickCount: number;
-		frequencyWarp: number;
-		frequencyWarpSpeed: number;
-	},
-): number {
-	switch (mode) {
+function sampleModeField(config: FieldSampleConfig): number {
+	switch (config.mode) {
 		case "radial":
-			return sampleRadial(nx, ny, freq, t);
+			return sampleRadial(config.nx, config.ny, config.freq, config.t);
 		case "interference":
-			return sampleInterference(nx, ny, freq, t);
+			return sampleInterference(config.nx, config.ny, config.freq, config.t);
 		case "warp":
-			return sampleWarp(nx, ny, freq, t);
+			return sampleWarp(config.nx, config.ny, config.freq, config.t);
 		case "fractal":
-			return sampleFractal(
-				nx,
-				ny,
-				fractalConfig?.resolution ?? PLASMA_DEFAULTS.resolution,
-				fractalConfig?.fractalCenterX ?? PLASMA_DEFAULTS.fractalCenterX,
-				fractalConfig?.fractalCenterY ?? PLASMA_DEFAULTS.fractalCenterY,
-				fractalConfig?.fractalJuliaX ?? PLASMA_DEFAULTS.fractalJuliaX,
-				fractalConfig?.fractalJuliaY ?? PLASMA_DEFAULTS.fractalJuliaY,
-				fractalConfig?.fractalZoomSpeed ?? PLASMA_DEFAULTS.fractalZoomSpeed,
-				fractalConfig?.tickCount ?? 0,
-				fractalConfig?.frequencyWarp ?? PLASMA_DEFAULTS.frequencyWarp,
-				fractalConfig?.frequencyWarpSpeed ?? PLASMA_DEFAULTS.frequencyWarpSpeed,
-			);
+			return sampleFractal(config.nx, config.ny, config.fractal);
 		default:
-			return sampleClassic(nx, ny, freq, t);
+			return sampleClassic(config.nx, config.ny, config.freq, config.t);
 	}
 }
 
@@ -373,12 +407,19 @@ export function normalizePlasmaOptions(opts?: PlasmaOptions): PlasmaResolvedOpti
 		hueRangeEndStep: normalizeNumberOption(opts?.hueRangeEndStep, PLASMA_NUMBER_OPTION_SPECS.hueRangeEndStep),
 		hueShiftEnabled: normalizeBooleanOption(opts?.hueShiftEnabled, PLASMA_DEFAULTS.hueShiftEnabled),
 		hueShiftSpeed: normalizeNumberOption(opts?.hueShiftSpeed, PLASMA_NUMBER_OPTION_SPECS.hueShiftSpeed),
+		hueRotateEnabled: normalizeBooleanOption(opts?.hueRotateEnabled, PLASMA_DEFAULTS.hueRotateEnabled),
+		hueRotateSpeed: normalizeNumberOption(opts?.hueRotateSpeed, PLASMA_NUMBER_OPTION_SPECS.hueRotateSpeed),
 		glyphCount: normalizeNumberOption(opts?.glyphCount, PLASMA_NUMBER_OPTION_SPECS.glyphCount),
 		fractalCenterX: normalizeNumberOption(opts?.fractalCenterX, PLASMA_NUMBER_OPTION_SPECS.fractalCenterX),
 		fractalCenterY: normalizeNumberOption(opts?.fractalCenterY, PLASMA_NUMBER_OPTION_SPECS.fractalCenterY),
 		fractalJuliaX: normalizeNumberOption(opts?.fractalJuliaX, PLASMA_NUMBER_OPTION_SPECS.fractalJuliaX),
 		fractalJuliaY: normalizeNumberOption(opts?.fractalJuliaY, PLASMA_NUMBER_OPTION_SPECS.fractalJuliaY),
 		fractalZoomSpeed: normalizeNumberOption(opts?.fractalZoomSpeed, PLASMA_NUMBER_OPTION_SPECS.fractalZoomSpeed),
+		fractalIterations: normalizeNumberOption(opts?.fractalIterations, PLASMA_NUMBER_OPTION_SPECS.fractalIterations),
+		fractalPower: normalizeNumberOption(opts?.fractalPower, PLASMA_NUMBER_OPTION_SPECS.fractalPower),
+		fractalEscapeRadius: normalizeNumberOption(opts?.fractalEscapeRadius, PLASMA_NUMBER_OPTION_SPECS.fractalEscapeRadius),
+		fractalRotation: normalizeNumberOption(opts?.fractalRotation, PLASMA_NUMBER_OPTION_SPECS.fractalRotation),
+		fractalAspect: normalizeNumberOption(opts?.fractalAspect, PLASMA_NUMBER_OPTION_SPECS.fractalAspect),
 		mode: normalizeMode(opts?.mode),
 	};
 }
@@ -402,12 +443,19 @@ export function isPlasmaOptionsPresetValid(opts: unknown): opts is PlasmaResolve
 		isValidNumberOption(candidate.hueRangeEndStep, PLASMA_NUMBER_OPTION_SPECS.hueRangeEndStep) &&
 		typeof candidate.hueShiftEnabled === "boolean" &&
 		isValidNumberOption(candidate.hueShiftSpeed, PLASMA_NUMBER_OPTION_SPECS.hueShiftSpeed) &&
+		typeof candidate.hueRotateEnabled === "boolean" &&
+		isValidNumberOption(candidate.hueRotateSpeed, PLASMA_NUMBER_OPTION_SPECS.hueRotateSpeed) &&
 		isValidNumberOption(candidate.glyphCount, PLASMA_NUMBER_OPTION_SPECS.glyphCount) &&
 		isValidNumberOption(candidate.fractalCenterX, PLASMA_NUMBER_OPTION_SPECS.fractalCenterX) &&
 		isValidNumberOption(candidate.fractalCenterY, PLASMA_NUMBER_OPTION_SPECS.fractalCenterY) &&
 		isValidNumberOption(candidate.fractalJuliaX, PLASMA_NUMBER_OPTION_SPECS.fractalJuliaX) &&
 		isValidNumberOption(candidate.fractalJuliaY, PLASMA_NUMBER_OPTION_SPECS.fractalJuliaY) &&
 		isValidNumberOption(candidate.fractalZoomSpeed, PLASMA_NUMBER_OPTION_SPECS.fractalZoomSpeed) &&
+		isValidNumberOption(candidate.fractalIterations, PLASMA_NUMBER_OPTION_SPECS.fractalIterations) &&
+		isValidNumberOption(candidate.fractalPower, PLASMA_NUMBER_OPTION_SPECS.fractalPower) &&
+		isValidNumberOption(candidate.fractalEscapeRadius, PLASMA_NUMBER_OPTION_SPECS.fractalEscapeRadius) &&
+		isValidNumberOption(candidate.fractalRotation, PLASMA_NUMBER_OPTION_SPECS.fractalRotation) &&
+		isValidNumberOption(candidate.fractalAspect, PLASMA_NUMBER_OPTION_SPECS.fractalAspect) &&
 		(candidate.mode === "classic" || candidate.mode === "radial" || candidate.mode === "interference" || candidate.mode === "warp" || candidate.mode === "fractal")
 	);
 }
@@ -431,19 +479,27 @@ export function renderPlasma(
 		hueRangeEndStep,
 		hueShiftEnabled,
 		hueShiftSpeed,
+		hueRotateEnabled,
+		hueRotateSpeed,
 		glyphCount,
 		fractalCenterX,
 		fractalCenterY,
 		fractalJuliaX,
 		fractalJuliaY,
 		fractalZoomSpeed,
+		fractalIterations,
+		fractalPower,
+		fractalEscapeRadius,
+		fractalRotation,
+		fractalAspect,
 		mode,
 	} = normalizePlasmaOptions(opts);
 
 	const paletteGlyphs = getPaletteGlyphs(palette);
 	const glyphSubset = getGlyphSubset(paletteGlyphs, glyphCount);
-	const startHex = stepToHex(hueRangeStartStep);
-	const endHex = stepToHex(hueRangeEndStep);
+	const hueRotateOffset = getHueRotateOffset(animState, hueRotateEnabled, hueRotateSpeed);
+	const startHex = stepToHex(hueRangeStartStep + hueRotateOffset);
+	const endHex = stepToHex(hueRangeEndStep + hueRotateOffset);
 	const hueShiftOffset = getHueShiftOffset(animState, hueShiftEnabled, hueShiftSpeed);
 	const t = animState.tickCount * timeScale;
 	const modulation = Math.sin(t * Math.max(freqModulation, 0.001)) * 0.1 * freqModulation;
@@ -452,6 +508,22 @@ export function renderPlasma(
 	const modFreq = Math.max(0.01, (freq + modulation) * warpScale);
 	const centerX = (cols - 1) / 2;
 	const centerY = (rows - 1) / 2;
+	const fractalFieldConfig: FractalFieldConfig = {
+		resolution,
+		fractalCenterX,
+		fractalCenterY,
+		fractalJuliaX,
+		fractalJuliaY,
+		fractalZoomSpeed,
+		fractalIterations,
+		fractalPower,
+		fractalEscapeRadius,
+		fractalRotation,
+		fractalAspect,
+		tickCount: animState.tickCount,
+		frequencyWarp,
+		frequencyWarpSpeed,
+	};
 
 	const outputRows: string[] = [];
 	for (let y = 0; y < rows; y++) {
@@ -461,20 +533,29 @@ export function renderPlasma(
 			const ny = (y - centerY) / Math.max(rows, 1);
 			const sampleX = nx * cols * resolution;
 			const sampleY = ny * rows * resolution;
-			const value = samplePlasmaValue(mode, sampleX, sampleY, resolution, modFreq, t, {
-				resolution,
-				fractalCenterX,
-				fractalCenterY,
-				fractalJuliaX,
-				fractalJuliaY,
-				fractalZoomSpeed,
-				tickCount: animState.tickCount,
-				frequencyWarp,
-				frequencyWarpSpeed,
+			const value = sampleModeField({
+				mode,
+				nx: sampleX,
+				ny: sampleY,
+				freq: modFreq,
+				t,
+				fractal: fractalFieldConfig,
+			});
+			const glyphValue = sampleModeField({
+				mode,
+				nx: sampleX + 17.3,
+				ny: sampleY - 11.7,
+				freq: modFreq,
+				t: t + 2.35,
+				fractal: {
+					...fractalFieldConfig,
+					fractalRotation: clamp(fractalRotation + 0.42, PLASMA_NUMBER_OPTION_SPECS.fractalRotation.min, PLASMA_NUMBER_OPTION_SPECS.fractalRotation.max),
+					fractalPower: clamp(fractalPower + 0.18, PLASMA_NUMBER_OPTION_SPECS.fractalPower.min, PLASMA_NUMBER_OPTION_SPECS.fractalPower.max),
+				},
 			});
 			const shiftedValue = wrapUnit(value + hueShiftOffset);
 			const color = lerpColor(startHex, endHex, shiftedValue);
-			const glyphIndex = Math.min(glyphSubset.length - 1, Math.floor(value * glyphSubset.length));
+			const glyphIndex = Math.min(glyphSubset.length - 1, Math.floor(glyphValue * glyphSubset.length));
 			row += style({ fg: color })(glyphSubset[glyphIndex] ?? glyphSubset[glyphSubset.length - 1] ?? "@");
 		}
 		outputRows.push(row);
