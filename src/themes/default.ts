@@ -7,4 +7,10 @@ export const defaultTheme: ThemeConfig = {
 	hueLightness: 0.55,
 	breathBaseColor: "#254560",
 	breathPeakColor: "#60d2ff",
+	ornateFrame: {
+		shade1: "#0d2035",
+		shade2: "#254560",
+		shade3: "#3a7ab0",
+		shade4: "#60d2ff",
+	},
 };

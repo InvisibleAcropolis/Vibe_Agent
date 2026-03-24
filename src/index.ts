@@ -16,3 +16,8 @@ export { WorkbenchInventoryService } from "./durable/workbench-inventory-service
 export { agentTheme } from "./theme.js";
 export type { Artifact, ArtifactType } from "./types.js";
 export { ensureVibeDurableStorage, getVibeConfigPath, getVibeDurableRoot, getVibeDurableTree } from "./durable/durable-paths.js";
+export { OrnateFrame } from "./components/ornate-frame.js";
+export type { OrnateFrameOptions } from "./components/ornate-frame.js";
+export type { OrnateFrameVariant, FrameTileSet } from "./ornate-frame-tiles/index.js";
+export { loadAllTileSets, getTileSet, getRegisteredVariants } from "./ornate-frame-tiles/index.js";
+export type { OrnateFrameColors } from "./themes/index.js";

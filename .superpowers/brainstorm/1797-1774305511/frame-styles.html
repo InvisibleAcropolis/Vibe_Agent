@@ -1,0 +1,111 @@
+<h2>Frame Style Series — Pick Your Set</h2>
+<p class="subtitle">Select which ornate styles to include in the initial series (multi-select). Each is a complete 9-patch design.</p>
+
+<style>
+  .style-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin-top: 18px; }
+  .style-card { background: #050c14; border: 1px solid #1e3550; border-radius: 6px; overflow: hidden; cursor: pointer; transition: border-color 0.2s; }
+  .style-card:hover { border-color: #5cd4ff66; }
+  .style-card.selected { border-color: #5cd4ff; box-shadow: 0 0 10px #5cd4ff33; }
+  .style-card-label { padding: 8px 12px; background: #0d1c2e; border-bottom: 1px solid #1e3550; }
+  .style-card-label h3 { margin: 0 0 2px; font-size: 12px; color: #5cd4ff; }
+  .style-card-label p { margin: 0; font-size: 10px; color: #7a9bb5; }
+  pre.demo { margin: 0; padding: 10px; font-family: 'Courier New', monospace; font-size: 9.5px; line-height: 1.4; background: #060e18; }
+  .badge { display: inline-block; background: #1a3550; color: #5cd4ff; font-weight: bold; padding: 1px 6px; border-radius: 3px; font-size: 10px; margin-right: 5px; }
+  .tag-ref { display: inline-block; background: #2a3010; color: #a0cc50; font-size: 9px; padding: 1px 5px; border-radius: 3px; margin-left: 4px; }
+</style>
+
+<div class="style-grid" data-multiselect>
+
+  <!-- 1: Baroque -->
+  <div class="style-card" data-choice="baroque" onclick="toggleSelect(this)">
+    <div class="style-card-label">
+      <h3><span class="badge">1</span> Baroque <span class="tag-ref">your reference</span></h3>
+      <p>Dense organic scrollwork, ░▒▓█ depth</p>
+    </div>
+    <pre class="demo"><span style="color:#a07020"> ░░░  ░▒           ▒  ▓█▓</span>
+<span style="color:#c8952a"> ▓░░██      █░     ▒▒░  ▓█</span>
+<span style="color:#e8b84b">▒█▓█ ████████ ░▒▒░    ██</span>
+<span style="color:#a07020">  ██▓ ░░░░░░░░░░░░░░░░░░░</span>
+<span style="color:#c8952a">   ▓█ ▓░█░▓▓███████████▒</span>
+<span style="color:#e8b84b">   ▒█ ▓░█ ░░           ░██</span>
+<span style="color:#c8952a">  ▓██░▓░█ ░█ ██▒▓  ██▓█</span></pre>
+  </div>
+
+  <!-- 2: Gothic -->
+  <div class="style-card" data-choice="gothic" onclick="toggleSelect(this)">
+    <div class="style-card-label">
+      <h3><span class="badge">2</span> Gothic</h3>
+      <p>Pointed arches, tracery, lancet forms</p>
+    </div>
+    <pre class="demo"><span style="color:#7a9bb5">╔╦═══╦╦══════════════╦╦═══╦╗</span>
+<span style="color:#5cd4ff">║╠═══╬╣              ╠╬═══╬║</span>
+<span style="color:#a8d8f0">║╠   ╠╣  /\    /\   ╠╣   ╠║</span>
+<span style="color:#7a9bb5">║╠   ╠╣ /  \  /  \  ╠╣   ╠║</span>
+<span style="color:#5cd4ff">║╠   ╚╣/    \/    \╠╝   ╠║</span>
+<span style="color:#a8d8f0">║╠════╬╦══════════╦╬════╠║</span>
+<span style="color:#7a9bb5">╚╩═══╩╩══════════════╩╩═══╩╝</span></pre>
+  </div>
+
+  <!-- 3: Art Nouveau -->
+  <div class="style-card" data-choice="art-nouveau" onclick="toggleSelect(this)">
+    <div class="style-card-label">
+      <h3><span class="badge">3</span> Art Nouveau</h3>
+      <p>Flowing vines, lily pads, organic curves</p>
+    </div>
+    <pre class="demo"><span style="color:#6a9a60">░░▒░░░░░░░░░░░░░░░░░░░░▒░░░░</span>
+<span style="color:#8aba70">▒██▓░  ~~~~~~~~~~~~~~~  ░▓██</span>
+<span style="color:#60c850">░█░▓█  (   ~  ~  ~   )  █▓░█</span>
+<span style="color:#8aba70">░█░ █  )               (  █ ░█</span>
+<span style="color:#6a9a60">░█░ █  (               )  █ ░█</span>
+<span style="color:#8aba70">░█░▓█  ~~~~~~~~~~~~~~~   █▓░█</span>
+<span style="color:#60c850">▒██▓░                   ░▓██▒</span></pre>
+  </div>
+
+  <!-- 4: Celtic Knotwork -->
+  <div class="style-card" data-choice="celtic" onclick="toggleSelect(this)">
+    <div class="style-card-label">
+      <h3><span class="badge">4</span> Celtic Knotwork</h3>
+      <p>Geometric interlace, over-under weave</p>
+    </div>
+    <pre class="demo"><span style="color:#8060a0">╔═╦═╦═╦═╦═╦═╦═╦═╦═╦═╦═╗</span>
+<span style="color:#a080c0">╠═╬═╝ ╚═╬═╝ ╚═╬═╝ ╚═╬═╣</span>
+<span style="color:#c0a0e0">╠═╝   ╔═╬═╗   ╔═╬═╗  ╚═╣</span>
+<span style="color:#8060a0">║     ║ ╚═╝ ║  ║ ╚═╝ ║    ║</span>
+<span style="color:#a080c0">╠═╗   ╚═╦═╝   ╚═╦═╝  ╔═╣</span>
+<span style="color:#c0a0e0">╠═╬═╗ ╔═╬═╗ ╔═╬═╗ ╔═╬═╣</span>
+<span style="color:#8060a0">╚═╩═╩═╩═╩═╩═╩═╩═╩═╩═╩═╝</span></pre>
+  </div>
+
+  <!-- 5: Art Deco -->
+  <div class="style-card" data-choice="art-deco" onclick="toggleSelect(this)">
+    <div class="style-card-label">
+      <h3><span class="badge">5</span> Art Deco</h3>
+      <p>Chevrons, sunburst corners, bold geometry</p>
+    </div>
+    <pre class="demo"><span style="color:#c89020">█▓▒░░░░░░░░░░░░░░░░░░░░░░▒▓█</span>
+<span style="color:#e8b840"> ██▓▒░░░░░░░░░░░░░░░░░▒▓██</span>
+<span style="color:#f8d860">  ███▓▒░░░░░░░░░░░▒▓███</span>
+<span style="color:#e8b840">   ████▓▒░░░░░▒▓████</span>
+<span style="color:#c89020">    █████▓▒▒▓█████</span>
+<span style="color:#e8b840">     ███████████</span>
+<span style="color:#c89020">▓▒░░░░░░░░░░░░░░░░░░░░░░░░░░▒▓</span></pre>
+  </div>
+
+  <!-- 6: Egyptian / Classical -->
+  <div class="style-card" data-choice="egyptian" onclick="toggleSelect(this)">
+    <div class="style-card-label">
+      <h3><span class="badge">6</span> Egyptian / Classical</h3>
+      <p>Columns, lotus motifs, cartouche-style header</p>
+    </div>
+    <pre class="demo"><span style="color:#c89060">▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓</span>
+<span style="color:#e8b080">█ ∩∩∩ ████████████████ ∩∩∩ █</span>
+<span style="color:#c89060">█ ║║║ █                █ ║║║ █</span>
+<span style="color:#a07040">█ ║║║ █                █ ║║║ █</span>
+<span style="color:#c89060">█ ║║║ █                █ ║║║ █</span>
+<span style="color:#e8b080">█ ∪∪∪ ████████████████ ∪∪∪ █</span>
+<span style="color:#c89060">▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓</span></pre>
+  </div>
+
+</div>
+
+<p style="margin-top: 14px; color: #7a9bb5; font-size: 11px;">Select all that you want in the initial series. "Baroque" is your reference — highly recommended as the first. Others can be added iteratively.</p>

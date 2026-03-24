@@ -1,9 +1,9 @@
 {
   "width": 98,
-  "speed": 0.89,
-  "sigma": 10,
-  "phaseOffset": 0,
-  "waveCount": 6,
+  "speed": 0.74,
+  "sigma": 4,
+  "phaseOffset": 3,
+  "waveCount": 4,
   "interference": "max",
-  "damping": 1.28
+  "damping": 0.45
 }
