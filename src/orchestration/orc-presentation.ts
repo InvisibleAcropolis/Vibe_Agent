@@ -1,4 +1,4 @@
-import type { OrcBusEvent } from "./orc-events.js";
+import type { OrcBusEvent } from "./orc-events/index.js";
 import { getOrcSecurityTelemetryDisposition, isBlockingOrcSecurityEvent, type OrcSecurityEvent } from "./orc-security.js";
 import type { OrcControlPlaneState, OrcReducedTransportHealth, OrcWorkerResultStatus } from "./orc-state.js";
 

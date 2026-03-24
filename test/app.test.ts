@@ -33,7 +33,12 @@ import type {
 	OrcPythonTransportHealth,
 	OrcPythonTransportLifecycleEvent,
 } from "../src/orchestration/orc-python-transport.js";
-import { OrcPythonChildProcessTransport } from "../src/orchestration/orc-python-transport.js";
+import {
+	DEFAULT_FATAL_PARSE_FAILURE_COUNT,
+	evaluateParseFailurePolicy,
+	evaluateTransportTimeoutPolicy,
+	OrcPythonChildProcessTransport,
+} from "../src/orchestration/orc-python-transport.js";
 import {
 	createDefaultOrcSecurityPolicy,
 	mapCommandInterceptorResultToOrcSecurityEvent,
@@ -990,6 +995,74 @@ test("attachOrcDurableEventLogWriter keeps persistence failures non-fatal to the
 	bus.dispose();
 });
 
+
+
+test("evaluateParseFailurePolicy escalates repeated parse noise into a restart-requesting fault", () => {
+	const policy = evaluateParseFailurePolicy({
+		message: "Failed to parse stdout JSONL line 3.",
+		line: "{not-json}",
+		byteLength: 10,
+		detail: "Unexpected token n in JSON",
+		lineSequence: 3,
+		consecutiveParseFailures: DEFAULT_FATAL_PARSE_FAILURE_COUNT,
+		fatalParseFailureCount: DEFAULT_FATAL_PARSE_FAILURE_COUNT,
+		stdoutBufferedBytes: 10,
+		lastStdoutSequence: 2,
+		recentStderr: [{ at: "2026-03-23T00:00:00.000Z", line: "stderr hint", truncated: false }],
+	});
+
+	assert.strictEqual(policy.action, "restart");
+	assert.strictEqual(policy.emissions[0]?.kind, "warning");
+	assert.strictEqual(policy.emissions[1]?.kind, "fault");
+	assert.strictEqual(policy.emissions[1]?.code, "transport_corrupt_stream");
+});
+
+test("evaluateTransportTimeoutPolicy emits recoverable idle warnings before fatal stall faults", () => {
+	const idleHealth: OrcPythonTransportHealth = {
+		threadId: "thread-timeout",
+		runCorrelationId: "run-timeout",
+		stage: "spawned",
+		status: "healthy",
+		args: [],
+		spawnedAt: "2026-03-23T00:00:00.000Z",
+		stdoutLines: 0,
+		stderrLines: 0,
+		stdoutBufferedBytes: 0,
+		stderrBufferedBytes: 0,
+		diagnosticsDropped: 0,
+		warningEvents: 0,
+		faultEvents: 0,
+		parseFailures: 0,
+		consecutiveParseFailures: 0,
+		timeouts: {
+			idleWarningMs: 5_000,
+			stallTimeoutMs: 15_000,
+			readyTimeoutMs: 10_000,
+			lastProgressAt: "2026-03-23T00:00:00.000Z",
+		},
+	};
+	const idlePolicy = evaluateTransportTimeoutPolicy({
+		health: idleHealth,
+		recentStderr: [],
+		idleWarningMs: 5_000,
+		stallTimeoutMs: 15_000,
+		readyTimeoutMs: 10_000,
+		now: Date.parse("2026-03-23T00:00:06.000Z"),
+	});
+	assert.strictEqual(idlePolicy.action, "continue");
+	assert.strictEqual(idlePolicy.emissions[0]?.code, "transport_idle_timeout");
+
+	const stallPolicy = evaluateTransportTimeoutPolicy({
+		health: idleHealth,
+		recentStderr: [],
+		idleWarningMs: 5_000,
+		stallTimeoutMs: 15_000,
+		readyTimeoutMs: 10_000,
+		now: Date.parse("2026-03-23T00:00:16.000Z"),
+	});
+	assert.strictEqual(stallPolicy.action, "restart");
+	assert.ok(stallPolicy.emissions.some((emission) => emission.kind === "fault" && emission.code === "transport_stall_timeout"));
+});
 test("OrcPythonChildProcessTransport writes opt-in debug artifacts for stderr, raw-event mirrors, parser warnings, and transport diagnostics", async () => {
 	const durableRoot = mkdtempSync(path.join(tempRoot, "orc-debug-"));
 	const threadId = "thread-debug";
