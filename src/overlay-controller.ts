@@ -1,7 +1,7 @@
 import { type Component, type OverlayHandle, type OverlayOptions, type TUI } from "@mariozechner/pi-tui";
 import type { PiMonoAppDebugger } from "./app-debugger.js";
 import type { AppStateStore } from "./app-state-store.js";
-import { FloatWindow, adaptHostedComponent } from "./components/float_window.js";
+import { FloatWindow, adaptHostedComponent, type FloatWindowModel } from "./components/float_window.js";
 import { EditorOverlay } from "./components/editor-overlay.js";
 import { FilterSelectOverlay, type OverlaySelectItem } from "./components/filter-select-overlay.js";
 import { ShellMenuOverlay, type ShellMenuDefinition } from "./components/shell-menu-overlay.js";
@@ -11,6 +11,14 @@ import type { MouseEvent, Rect } from "./mouse.js";
 import { pointInRect } from "./mouse.js";
 import { resolveOverlayRect } from "./overlay-layout.js";
 import type { OverlayMousePolicy, OverlayOutsideClickPolicy, OverlayRecord } from "./types.js";
+import type { HostedViewportDimensions } from "./types.js";
+
+interface FramedOverlayComponent extends Component {
+	getOverlayRect(): Rect;
+	isPointerCaptureActive?(): boolean;
+	setOverlayActive?(active: boolean, zIndex: number): void;
+	setHostedViewportSize?(viewport: HostedViewportDimensions): void;
+}
 
 interface FloatingOverlayGeometry {
 	row: number;
@@ -24,6 +32,10 @@ type OverlayOptionsWithMousePolicy = OverlayOptions & {
 	minHeight?: number;
 	maxWidth?: number;
 	mousePolicy?: OverlayMousePolicy;
+	floatingTitle?: string;
+	floatingContentViewport?: HostedViewportDimensions;
+	onHide?: () => void;
+	onFloatingWindowStateChange?: (model: FloatWindowModel) => void;
 };
 
 export interface OverlayController {
@@ -45,6 +57,8 @@ export interface OverlayController {
 	openEditorPrompt(title: string, prefill: string, onSubmit: (value: string) => void, onCancel: () => void): void;
 	openMenuOverlay(id: string, definition: ShellMenuDefinition): void;
 	showCustomOverlay(id: string, component: Component, options: OverlayOptionsWithMousePolicy): OverlayHandle;
+	showFramedOverlay(id: string, component: Component, options: OverlayOptionsWithMousePolicy): OverlayHandle;
+	updateFloatingOverlayGeometry(id: string, geometry: { row?: number; col?: number; width?: number; height?: number }): void;
 	closeTopOverlay(): void;
 	closeOverlay(id: string): void;
 	closeAllOverlays(): void;
@@ -55,6 +69,7 @@ export interface OverlayController {
 export class DefaultOverlayController implements OverlayController {
 	private readonly overlays: OverlayRecord[] = [];
 	private readonly floatingGeometry = new Map<string, FloatingOverlayGeometry>();
+	private capturedFloatingOverlayId?: string;
 
 	constructor(
 		private readonly tui: TUI,
@@ -163,7 +178,45 @@ export class DefaultOverlayController implements OverlayController {
 	}
 
 	showCustomOverlay(id: string, component: Component, options: OverlayOptionsWithMousePolicy): OverlayHandle {
-		return this.showOverlay(id, component, options, { floating: true, title: id });
+		return this.showOverlay(id, component, options, { floating: true, title: options.floatingTitle ?? id });
+	}
+
+	showFramedOverlay(id: string, component: Component, options: OverlayOptionsWithMousePolicy): OverlayHandle {
+		return this.showOverlay(id, component, options, { framed: true });
+	}
+
+	updateFloatingOverlayGeometry(id: string, geometry: { row?: number; col?: number; width?: number; height?: number }): void {
+		const overlay = this.overlays.find((entry) => entry.id === id);
+		if (!overlay) {
+			return;
+		}
+		if (typeof geometry.row === "number") {
+			if (overlay.window) {
+				overlay.window.model.row = geometry.row;
+			}
+			overlay.options.row = geometry.row;
+		}
+		if (typeof geometry.col === "number") {
+			if (overlay.window) {
+				overlay.window.model.col = geometry.col;
+			}
+			overlay.options.col = geometry.col;
+		}
+		if (typeof geometry.width === "number") {
+			if (overlay.window) {
+				overlay.window.model.width = geometry.width;
+			}
+			overlay.options.width = geometry.width;
+		}
+		if (typeof geometry.height === "number") {
+			if (overlay.window) {
+				overlay.window.model.height = geometry.height;
+			}
+			overlay.options.maxHeight = geometry.height;
+		}
+		this.syncOverlayViewport(overlay);
+		this.captureFloatingGeometry(overlay);
+		this.tui.requestRender();
 	}
 
 	closeTopOverlay(): void {
@@ -171,9 +224,11 @@ export class DefaultOverlayController implements OverlayController {
 		if (!overlay) {
 			return;
 		}
+		this.releaseFloatingCaptureIfMatches(overlay.id);
 		this.captureFloatingGeometry(overlay);
 		this.debuggerSink.log("overlay.hide", { id: overlay.id, mode: "top" });
 		overlay.hide();
+		overlay.onHide?.();
 		this.stateStore.removeOverlay(overlay.id);
 		this.setFocus(this.overlays[this.overlays.length - 1]?.component ?? this.getFocusRestoreTarget(), "overlay.closeTop");
 	}
@@ -184,9 +239,11 @@ export class DefaultOverlayController implements OverlayController {
 			return;
 		}
 		const [overlay] = this.overlays.splice(index, 1);
+		this.releaseFloatingCaptureIfMatches(id);
 		this.captureFloatingGeometry(overlay);
 		this.debuggerSink.log("overlay.hide", { id, mode: "specific" });
 		overlay.hide();
+		overlay.onHide?.();
 		this.stateStore.removeOverlay(id);
 		this.setFocus(this.overlays[this.overlays.length - 1]?.component ?? this.getFocusRestoreTarget(), `overlay.close:${id}`);
 	}
@@ -197,20 +254,28 @@ export class DefaultOverlayController implements OverlayController {
 			if (!overlay) {
 				continue;
 			}
+			this.releaseFloatingCaptureIfMatches(overlay.id);
 			this.captureFloatingGeometry(overlay);
 			this.debuggerSink.log("overlay.hide", { id: overlay.id, mode: "all" });
 			overlay.hide();
+			overlay.onHide?.();
 		}
 		this.stateStore.clearOverlays();
 	}
 
 	dispatchMouse(event: MouseEvent): boolean {
+		if (this.shouldRouteToCapturedFloatingOverlay(event)) {
+			const captured = this.dispatchToCapturedFloatingOverlay(event);
+			if (captured !== undefined) {
+				this.tui.requestRender();
+				return captured;
+			}
+		}
+
 		for (let index = this.overlays.length - 1; index >= 0; index--) {
 			let overlay = this.overlays[index];
-			if (overlay.window) {
-				overlay.window.setViewportSize({ width: this.tui.terminal.columns, height: this.tui.terminal.rows });
-			}
-			const rect = resolveOverlayRect(overlay.component, overlay.options, this.tui.terminal.columns, this.tui.terminal.rows);
+			this.syncOverlayViewport(overlay);
+			const rect = this.getOverlayRect(overlay);
 			if (!pointInRect(event, rect)) {
 				continue;
 			}
@@ -219,8 +284,12 @@ export class DefaultOverlayController implements OverlayController {
 			}
 			this.activateOverlay(this.overlays.indexOf(overlay));
 			const handled = (overlay.component as { handleMouse?: (evt: MouseEvent, rect: Rect) => boolean }).handleMouse?.(event, rect) ?? true;
+			this.syncFloatingCapture(overlay);
 			this.tui.requestRender();
 			return handled;
+		}
+		if (this.capturedFloatingOverlayId) {
+			return false;
 		}
 		const outsideResult = this.applyOutsideClickPolicy(event);
 		if (outsideResult !== "ignored") {
@@ -236,19 +305,25 @@ export class DefaultOverlayController implements OverlayController {
 	private activateOverlay(activeIndex: number): void {
 		for (let index = 0; index < this.overlays.length; index++) {
 			const entry = this.overlays[index];
-			if (!entry.window) {
+			if (entry.window) {
+				entry.window.model.active = index === activeIndex;
+				entry.window.model.zIndex = index;
+				if (index === activeIndex) {
+					this.captureFloatingGeometry(entry);
+				}
 				continue;
 			}
-			entry.window.model.active = index === activeIndex;
-			entry.window.model.zIndex = index;
-			if (index === activeIndex) {
-				this.captureFloatingGeometry(entry);
+			if (entry.framed) {
+				(entry.component as FramedOverlayComponent).setOverlayActive?.(index === activeIndex, index);
+				if (index === activeIndex) {
+					this.captureFloatingGeometry(entry);
+				}
 			}
 		}
 	}
 
 	private shouldBringToFront(overlay: OverlayRecord, event: MouseEvent): boolean {
-		return !!overlay.window && (overlay.mousePolicy?.activateOnLeftClick ?? true) && event.action === "down" && event.button === "left";
+		return this.isFramedLikeOverlay(overlay) && (overlay.mousePolicy?.activateOnLeftClick ?? true) && event.action === "down" && event.button === "left";
 	}
 
 	private bringOverlayToFront(index: number): OverlayRecord {
@@ -279,27 +354,72 @@ export class DefaultOverlayController implements OverlayController {
 	}
 
 	private getDefaultOutsideClickPolicy(overlay: OverlayRecord): OverlayOutsideClickPolicy {
-		return overlay.window ? "clear-focus" : "noop";
+		return this.isFramedLikeOverlay(overlay) ? "clear-focus" : "noop";
+	}
+
+	private shouldRouteToCapturedFloatingOverlay(event: MouseEvent): boolean {
+		return !!this.capturedFloatingOverlayId && (event.action === "drag" || event.action === "up");
+	}
+
+	private dispatchToCapturedFloatingOverlay(event: MouseEvent): boolean | undefined {
+		const captured = this.overlays.find((overlay) => overlay.id === this.capturedFloatingOverlayId);
+		if (!captured || !this.isFramedLikeOverlay(captured)) {
+			this.capturedFloatingOverlayId = undefined;
+			return undefined;
+		}
+		this.syncOverlayViewport(captured);
+		const rect = this.getOverlayRect(captured);
+		this.activateOverlay(this.overlays.indexOf(captured));
+		const handled = (captured.component as { handleMouse?: (evt: MouseEvent, rect: Rect) => boolean }).handleMouse?.(event, rect) ?? true;
+		this.syncFloatingCapture(captured);
+		return handled;
+	}
+
+	private syncFloatingCapture(overlay: OverlayRecord): void {
+		if (!this.isFramedLikeOverlay(overlay)) {
+			return;
+		}
+		if (this.isOverlayPointerCaptureActive(overlay)) {
+			this.capturedFloatingOverlayId = overlay.id;
+			return;
+		}
+		this.releaseFloatingCaptureIfMatches(overlay.id);
+	}
+
+	private releaseFloatingCaptureIfMatches(id: string): void {
+		if (this.capturedFloatingOverlayId === id) {
+			this.capturedFloatingOverlayId = undefined;
+		}
+	}
+
+	private getOverlayRect(overlay: OverlayRecord): Rect {
+		if (overlay.window) {
+			return {
+				row: overlay.window.model.row,
+				col: overlay.window.model.col,
+				width: overlay.window.model.width,
+				height: overlay.window.model.height,
+			};
+		}
+		if (overlay.framed) {
+			return (overlay.component as FramedOverlayComponent).getOverlayRect();
+		}
+		return resolveOverlayRect(overlay.component, overlay.options, this.tui.terminal.columns, this.tui.terminal.rows);
 	}
 
 	private captureFloatingGeometry(overlay: OverlayRecord): void {
-		if (!overlay.window) {
+		if (!this.isFramedLikeOverlay(overlay)) {
 			return;
 		}
-		this.floatingGeometry.set(overlay.id, {
-			row: overlay.window.model.row,
-			col: overlay.window.model.col,
-			width: overlay.window.model.width,
-			height: overlay.window.model.height,
-			active: overlay.window.model.active,
-		});
+		const rect = this.getOverlayRect(overlay);
+		this.floatingGeometry.set(overlay.id, { row: rect.row, col: rect.col, width: rect.width, height: rect.height, active: true });
 	}
 
 	private showOverlay(
 		id: string,
 		component: Component,
 		options: OverlayOptionsWithMousePolicy,
-		config?: { floating?: boolean; title?: string },
+		config?: { floating?: boolean; framed?: boolean; title?: string },
 	): OverlayHandle {
 		this.closeOverlay(id);
 		this.debuggerSink.log("overlay.show", { id, floating: config?.floating ?? false });
@@ -310,6 +430,10 @@ export class DefaultOverlayController implements OverlayController {
 
 		if (config?.floating) {
 			const initialRect = this.floatingGeometry.get(id) ?? resolveOverlayRect(component, renderedOptions, this.tui.terminal.columns, this.tui.terminal.rows);
+			if (options.floatingContentViewport) {
+				initialRect.width = Math.max(10, options.floatingContentViewport.width + 2);
+				initialRect.height = Math.max(8, options.floatingContentViewport.height + 4);
+			}
 			window = new FloatWindow({
 				title: config.title ?? id,
 				content: adaptHostedComponent(component),
@@ -337,6 +461,7 @@ export class DefaultOverlayController implements OverlayController {
 						height: model.height,
 						active: model.active,
 					});
+					options.onFloatingWindowStateChange?.(model);
 					this.tui.requestRender();
 				},
 			});
@@ -347,6 +472,15 @@ export class DefaultOverlayController implements OverlayController {
 			renderedOptions.col = window.model.col;
 			renderedOptions.width = window.model.width;
 			renderedOptions.maxHeight = window.model.height;
+		} else if (config?.framed) {
+			const framedComponent = component as FramedOverlayComponent;
+			framedComponent.setHostedViewportSize?.({ width: this.tui.terminal.columns, height: this.tui.terminal.rows });
+			const rect = framedComponent.getOverlayRect();
+			renderedOptions.anchor = "top-left";
+			renderedOptions.row = rect.row;
+			renderedOptions.col = rect.col;
+			renderedOptions.width = rect.width;
+			renderedOptions.maxHeight = rect.height;
 		}
 
 		const handle = this.tui.showOverlay(renderedComponent, renderedOptions);
@@ -356,7 +490,10 @@ export class DefaultOverlayController implements OverlayController {
 			options: renderedOptions,
 			handle,
 			window,
+			framed: config?.framed ?? false,
 			mousePolicy: options.mousePolicy,
+			onHide: options.onHide,
+			onFloatingWindowStateChange: options.onFloatingWindowStateChange,
 			hide: () => handle.hide(),
 		};
 		this.overlays.push(record);
@@ -367,5 +504,32 @@ export class DefaultOverlayController implements OverlayController {
 			setHidden: (hidden) => handle.setHidden(hidden),
 			isHidden: () => handle.isHidden(),
 		};
+	}
+
+	private syncOverlayViewport(overlay: OverlayRecord): void {
+		if (overlay.window) {
+			overlay.window.setViewportSize({ width: this.tui.terminal.columns, height: this.tui.terminal.rows });
+			return;
+		}
+		if (overlay.framed) {
+			(overlay.component as FramedOverlayComponent).setHostedViewportSize?.({
+				width: this.tui.terminal.columns,
+				height: this.tui.terminal.rows,
+			});
+		}
+	}
+
+	private isFramedLikeOverlay(overlay: OverlayRecord): boolean {
+		return !!overlay.window || !!overlay.framed;
+	}
+
+	private isOverlayPointerCaptureActive(overlay: OverlayRecord): boolean {
+		if (overlay.window) {
+			return !!overlay.window.model.dragState || !!overlay.window.model.resizeState;
+		}
+		if (overlay.framed) {
+			return (overlay.component as FramedOverlayComponent).isPointerCaptureActive?.() ?? false;
+		}
+		return false;
 	}
 }

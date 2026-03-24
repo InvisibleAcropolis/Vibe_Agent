@@ -1,0 +1,99 @@
+<h2>Ornate ASCII Border Styles</h2>
+<p class="subtitle">Which visual direction feels right for your renaissance / antique frame borders?</p>
+
+<style>
+  .border-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 20px; }
+  .border-card { background: #0a1520; border: 1px solid #1e3550; border-radius: 6px; padding: 0; overflow: hidden; cursor: pointer; transition: border-color 0.2s; }
+  .border-card:hover { border-color: #5cd4ff; }
+  .border-card.selected { border-color: #5cd4ff; box-shadow: 0 0 12px #5cd4ff44; }
+  .border-card-label { padding: 10px 14px; background: #0d1c2e; border-bottom: 1px solid #1e3550; }
+  .border-card-label h3 { margin: 0 0 3px 0; font-size: 13px; color: #5cd4ff; }
+  .border-card-label p { margin: 0; font-size: 11px; color: #7a9bb5; }
+  .border-card pre { margin: 0; padding: 14px; font-family: 'Courier New', Courier, monospace; font-size: 11.5px; line-height: 1.45; color: #a8d8f0; background: transparent; overflow: auto; }
+  .letter-badge { display: inline-block; background: #1a3550; color: #5cd4ff; font-weight: bold; padding: 2px 8px; border-radius: 3px; font-size: 12px; margin-right: 6px; }
+</style>
+
+<div class="border-grid">
+
+  <!-- Option A -->
+  <div class="border-card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="border-card-label">
+      <h3><span class="letter-badge">A</span> Multi-Layer Molding</h3>
+      <p>Concentric frames suggest carved wooden depth — outer shell, inner reveal, content well</p>
+    </div>
+    <pre>╔══╦══════════════════════╦══╗
+║  ║                      ║  ║
+╠╦═╩╦══════════════════╦═╩╦═╣
+║║  ║  ╔══════════════╗ ║  ║║
+║║  ║  ║  TITLE       ║ ║  ║║
+║║  ║  ╠══════════════╣ ║  ║║
+║║  ║  ║  Content     ║ ║  ║║
+║║  ║  ║  goes here   ║ ║  ║║
+║║  ║  ╚══════════════╝ ║  ║║
+╠╩═╦╩══════════════════╩╦═╝╠╣
+║  ║                      ║  ║
+╚══╩══════════════════════╩══╝</pre>
+  </div>
+
+  <!-- Option B -->
+  <div class="border-card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="border-card-label">
+      <h3><span class="letter-badge">B</span> Corner Medallions</h3>
+      <p>Elaborate ornamental corners with simpler edge runs — like gilded frame rosettes</p>
+    </div>
+    <pre>╔═╦═╦═══════════════╦═╦═╗
+╠═╬═╣               ╠═╬═╣
+╠═╝ ╚═══════════════╝ ╚═╣
+║                         ║
+║  ┌─────────────────┐    ║
+║  │  TITLE          │    ║
+║  ├─────────────────┤    ║
+║  │  Content here   │    ║
+║  └─────────────────┘    ║
+╠═╗ ╔═══════════════╗ ╔═╣
+╠═╬═╣               ╠═╬═╣
+╚═╩═╩═══════════════╩═╩═╝</pre>
+  </div>
+
+  <!-- Option C -->
+  <div class="border-card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="border-card-label">
+      <h3><span class="letter-badge">C</span> Shaded Relief / Shadowbox</h3>
+      <p>Block-shade characters (░▒▓█) create the illusion of raised molding and depth</p>
+    </div>
+    <pre>████████████████████████████
+███╔════════════════════╗███
+███║▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒║███
+███║▒╔══════════════╗▒║███
+███║▒║  TITLE       ║▒║███
+███║▒╠══════════════╣▒║███
+███║▒║  Content     ║▒║███
+███║▒║  goes here   ║▒║███
+███║▒╚══════════════╝▒║███
+███║▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒║███
+███╚════════════════════╝███
+████████████████████████████</pre>
+  </div>
+
+  <!-- Option D -->
+  <div class="border-card" data-choice="d" onclick="toggleSelect(this)">
+    <div class="border-card-label">
+      <h3><span class="letter-badge">D</span> Repeating Pattern Frieze</h3>
+      <p>Ornamental edge pattern repeats like an engraved border — egg-and-dart, wave, or leafwork feel</p>
+    </div>
+    <pre>╔╦╦╦╦╦╦╦╦╦╦╦╦╦╦╦╦╦╦╦╦╦╦╦╦╗
+╠╬╝                       ╚╬╣
+╠╬╗                       ╔╬╣
+╠╬╬╗  ╔════════════╗  ╔╬╬╣
+╠╬╬╣  ║  TITLE     ║  ╠╬╬╣
+╠╬╬╣  ╠════════════╣  ╠╬╬╣
+╠╬╬╣  ║  Content   ║  ╠╬╬╣
+╠╬╬╝  ╚════════════╝  ╚╬╬╣
+╠╬╗                       ╔╬╣
+╠╬╝                       ╚╬╣
+╚╩╩╩╩╩╩╩╩╩╩╩╩╩╩╩╩╩╩╩╩╩╩╩╩╝</pre>
+  </div>
+
+</div>
+
+<p style="margin-top:18px; color:#7a9bb5; font-size:12px;">Click a style to select it. You can also describe a mix or variation in the terminal.</p>

@@ -19,7 +19,7 @@ export interface HostedLayoutCapable extends Component {
 	setHostedViewportSize?(viewport: HostedViewportDimensions): void;
 }
 import type { PiMonoAppDebugger } from "./app-debugger.js";
-import type { FloatWindow } from "./components/float_window.js";
+import type { FloatWindow, FloatWindowModel } from "./components/float_window.js";
 import type { ArtifactCatalogService } from "./durable/artifacts/artifact-catalog-service.js";
 import type { LogCatalogService } from "./durable/logs/log-catalog-service.js";
 import type { MemoryStoreService } from "./durable/memory/memory-store-service.js";
@@ -36,7 +36,10 @@ export interface OverlayRecord {
 	options: OverlayOptions;
 	handle: OverlayHandle;
 	window?: FloatWindow;
+	framed?: boolean;
 	mousePolicy?: OverlayMousePolicy;
+	onHide?: () => void;
+	onFloatingWindowStateChange?: (model: FloatWindowModel) => void;
 	hide: () => void;
 }
 

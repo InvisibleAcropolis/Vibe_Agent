@@ -202,6 +202,26 @@ async function main(): Promise<void> {
 		rmSync(tempPresetRoot, { recursive: true, force: true });
 	}
 
+	const repoDemos = await buildDemoCatalog();
+	assert.ok(
+		!repoDemos.some((demo) => demo.sourceFile === "src/components/animpreload-service.ts"),
+		"files that only export non-renderable zero-arg service classes should be excluded from the catalog",
+	);
+	const repoRenderFailures: Array<{ id: string; error: string }> = [];
+	for (const demo of repoDemos) {
+		try {
+			const runtime = demo.createRuntime(createRuntimeContext(), getDefaultDemoValues(demo));
+			const rendered = runtime.render(80, 20);
+			assert.ok(Array.isArray(rendered), `demo ${demo.id} should render a string array`);
+		} catch (error) {
+			repoRenderFailures.push({
+				id: demo.id,
+				error: error instanceof Error ? error.stack ?? error.message : String(error),
+			});
+		}
+	}
+	assert.deepStrictEqual(repoRenderFailures, [], "all discovered repo demos should render without throwing");
+
 	const terminal = new VirtualTerminal(130, 40);
 	const plasmaPresetPath = path.resolve("tools", "TUIstyletest", "presets", "src", "components", "anim_plasma.ts", "renderPlasma.json");
 	const plasmaOriginalPreset = readFileSync(plasmaPresetPath, "utf-8");

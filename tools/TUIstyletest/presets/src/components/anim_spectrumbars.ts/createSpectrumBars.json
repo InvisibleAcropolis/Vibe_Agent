@@ -1,6 +1,6 @@
 {
-  "cols": 50,
-  "rows": 20,
+  "cols": 37,
+  "rows": 11,
   "speed": 1.04,
   "decay": 0.45,
   "peakHold": false,
@@ -9,7 +9,7 @@
   "barGap": 1,
   "hueRangeStartStep": 135,
   "hueRangeEndStep": 156,
-  "hueShiftEnabled": false,
-  "hueShiftSpeed": 1,
+  "hueShiftEnabled": true,
+  "hueShiftSpeed": 8,
   "glyphCount": 128
 }
