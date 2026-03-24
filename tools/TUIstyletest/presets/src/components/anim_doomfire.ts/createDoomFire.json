@@ -1,14 +1,14 @@
 {
   "width": 106,
-  "height": 20,
-  "coolingStrength": 0.45,
+  "height": 8,
+  "coolingStrength": 0.5,
   "coolingPattern": "random",
   "bottomHueStep": 50,
   "topHueStep": 0,
   "saturation": 1,
   "lightness": 0.5,
   "renderMode": "glyph",
-  "glyphPalette": "lava",
+  "glyphPalette": "dense",
   "windStrength": 0.03,
   "windDirection": 0,
   "seedInterval": 2

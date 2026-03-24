@@ -1,0 +1,121 @@
+<h2>Implementation Approach</h2>
+<p class="subtitle">One strong approach recommended — here's how it works. Approve or adjust before we write the spec.</p>
+
+<style>
+  .section { background: #050c14; border: 1px solid #1e3550; border-radius: 6px; margin-bottom: 16px; overflow: hidden; }
+  .section-header { background: #0d1c2e; padding: 10px 16px; border-bottom: 1px solid #1e3550; }
+  .section-header h3 { margin: 0 0 3px; font-size: 13px; color: #5cd4ff; }
+  .section-header p { margin: 0; font-size: 11px; color: #7a9bb5; }
+  .section-body { padding: 14px 16px; font-size: 12px; color: #a8c8e8; line-height: 1.7; }
+  pre.code { background: #020810; border: 1px solid #1a3050; border-radius: 4px; padding: 10px 12px; font-size: 10.5px; line-height: 1.5; color: #a8d8f0; overflow-x: auto; margin: 8px 0 0; }
+  .row { display: flex; gap: 14px; margin-bottom: 16px; }
+  .col { flex: 1; }
+  .patch-diagram { font-family: 'Courier New', monospace; font-size: 11px; line-height: 1.5; color: #7a9bb5; }
+  .patch-diagram .corner { color: #e8b84b; }
+  .patch-diagram .edge { color: #5cd4ff; }
+  .patch-diagram .content { color: #4a6a8a; }
+  .depth-row { display: flex; align-items: center; gap: 10px; margin: 6px 0; font-family: 'Courier New', monospace; }
+  .depth-char { font-size: 18px; width: 24px; text-align: center; }
+  .depth-label { font-size: 11px; color: #7a9bb5; }
+  .arrow { color: #3a5a7a; }
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 3px; font-size: 10px; margin-left: 6px; }
+  .tag-green { background: #1a3020; color: #66dd96; }
+  .tag-yellow { background: #302010; color: #f0c058; }
+</style>
+
+<div class="row">
+  <div class="col">
+    <div class="section">
+      <div class="section-header">
+        <h3>Architecture: 9-Patch Tile Registry</h3>
+        <p>Frame art stored as TypeScript string arrays — no file I/O, consistent with codebase patterns</p>
+      </div>
+      <div class="section-body">
+        <div class="patch-diagram">
+<span class="corner">┌─ TL corner (fixed) ─┐</span>  <span class="edge">topEdge tile (repeats→)</span>  <span class="corner">┌─ TR corner (fixed) ─┐</span>
+<span class="corner">│  ~10w × ~10h chars  │</span>  <span class="edge">─────────────────────</span>  <span class="corner">│  ~10w × ~10h chars  │</span>
+
+<span class="edge">leftEdge (repeats↓)</span>         <span class="content">content lines</span>               <span class="edge">rightEdge (repeats↓)</span>
+<span class="edge">│  ~6w chars          │</span>         <span class="content">string[]</span>                     <span class="edge">│  ~6w chars          │</span>
+
+<span class="corner">└─ BL corner (fixed) ─┘</span>  <span class="edge">bottomEdge tile (repeats→)</span>  <span class="corner">└─ BR corner (fixed) ─┘</span>
+        </div>
+        <p style="margin-top:10px; font-size:11px;">Each of the 6 variants is a <code style="color:#5cd4ff">FrameTileSet</code> object. The renderer composes them at any width/height by tiling edges between fixed corners.</p>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-header">
+        <h3>Color System: Depth Mapping</h3>
+        <p>Block density automatically maps to 4 theme color slots — no per-char configuration needed</p>
+      </div>
+      <div class="section-body">
+        <div class="depth-row"><span class="depth-char" style="color:#2a4060">░</span><span class="arrow">→</span><span style="color:#2a4060">shade1</span><span class="depth-label"> — shadow / darkest</span></div>
+        <div class="depth-row"><span class="depth-char" style="color:#4a7090">▒</span><span class="arrow">→</span><span style="color:#4a7090">shade2</span><span class="depth-label"> — mid-shadow</span></div>
+        <div class="depth-row"><span class="depth-char" style="color:#c8952a">▓</span><span class="arrow">→</span><span style="color:#c8952a">shade3</span><span class="depth-label"> — mid-highlight</span></div>
+        <div class="depth-row"><span class="depth-char" style="color:#f5d88a">█</span><span class="arrow">→</span><span style="color:#f5d88a">shade4</span><span class="depth-label"> — brightest / foreground</span></div>
+        <div class="depth-row"><span class="depth-char" style="color:#7a9bb5">─│╔</span><span class="arrow">→</span><span style="color:#7a9bb5">shade3</span><span class="depth-label"> — box-drawing chars</span></div>
+        <p style="font-size:11px; margin-top:8px;">Each theme defines its own shade1–shade4 defaults. Users can override any slot per-frame instance.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="section">
+      <div class="section-header">
+        <h3>New Files</h3>
+        <p>Clean separation — no existing components modified</p>
+      </div>
+      <div class="section-body" style="font-family:'Courier New',monospace; font-size:11px; line-height:1.9;">
+        <div style="color:#66dd96">src/components/ornate-frame.ts</div>
+        <div style="color:#7a9bb5; padding-left:16px; font-size:10px;">OrnateFrame class, render(), color mapper</div>
+        <div style="color:#66dd96">src/ornate-frame-tiles/index.ts</div>
+        <div style="color:#7a9bb5; padding-left:16px; font-size:10px;">Registry + FrameTileSet interface</div>
+        <div style="color:#5cd4ff">src/ornate-frame-tiles/baroque.ts</div>
+        <div style="color:#5cd4ff">src/ornate-frame-tiles/gothic.ts</div>
+        <div style="color:#5cd4ff">src/ornate-frame-tiles/art-nouveau.ts</div>
+        <div style="color:#5cd4ff">src/ornate-frame-tiles/celtic.ts</div>
+        <div style="color:#5cd4ff">src/ornate-frame-tiles/art-deco.ts</div>
+        <div style="color:#5cd4ff">src/ornate-frame-tiles/egyptian.ts</div>
+        <div style="color:#7a9bb5; padding-left:16px; font-size:10px;">The 6 tile art definitions</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-header">
+        <h3>Modified Files</h3>
+        <p>Theme integration only</p>
+      </div>
+      <div class="section-body" style="font-family:'Courier New',monospace; font-size:11px; line-height:1.9;">
+        <div style="color:#f0c058">src/themes/index.ts</div>
+        <div style="color:#7a9bb5; padding-left:16px; font-size:10px;">Add OrnateFrameColors to ThemeConfig</div>
+        <div style="color:#f0c058">src/themes/default.ts</div>
+        <div style="color:#f0c058">src/themes/cyberpunk.ts</div>
+        <div style="color:#f0c058">src/themes/matrix.ts</div>
+        <div style="color:#f0c058">src/themes/synthwave.ts</div>
+        <div style="color:#f0c058">src/themes/amber.ts</div>
+        <div style="color:#7a9bb5; padding-left:16px; font-size:10px;">Each gets ornateFrame shade1–shade4 defaults</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-header">
+        <h3>Usage API</h3>
+      </div>
+      <div class="section-body">
+<pre class="code">const frame = new OrnateFrame({
+  variant: 'baroque',
+  colors: { shade4: '#ffd700' } // optional override
+});
+
+const output: string[] = frame.render(
+  contentLines,  // string[]
+  80,            // width
+  24             // height (optional)
+);</pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p style="color:#7a9bb5; font-size:11px;">The biggest effort is crafting the 6 sets of tile art. Baroque comes from your reference. The other 5 will be designed to match their aesthetic. Does this architecture look right?</p>

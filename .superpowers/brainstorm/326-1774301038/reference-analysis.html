@@ -1,0 +1,107 @@
+<h2>Reference Art Analysis</h2>
+<p class="subtitle">Your reference uses dense block characters (░▒▓█) — this changes the approach significantly. Key question below.</p>
+
+<style>
+  .ref-container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 16px 0; }
+  .ref-box { background: #050c14; border: 1px solid #1a3550; border-radius: 6px; overflow: hidden; }
+  .ref-box-header { background: #0d1c2e; padding: 8px 14px; border-bottom: 1px solid #1a3550; }
+  .ref-box-header h3 { margin: 0 0 2px; font-size: 13px; color: #5cd4ff; }
+  .ref-box-header p { margin: 0; font-size: 11px; color: #7a9bb5; }
+  pre.ref { margin: 0; padding: 10px 12px; font-family: 'Courier New', monospace; font-size: 9px; line-height: 1.35; color: #c8d8e8; background: transparent; overflow: hidden; white-space: pre; }
+  pre.ref.gold { color: #c8952a; }
+
+  .approach-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 20px; }
+  .approach-card { background: #0a1520; border: 1px solid #1e3550; border-radius: 6px; padding: 0; cursor: pointer; transition: border-color 0.2s; overflow: hidden; }
+  .approach-card:hover { border-color: #5cd4ff66; }
+  .approach-card.selected { border-color: #5cd4ff; box-shadow: 0 0 10px #5cd4ff33; }
+  .approach-card-label { padding: 10px 14px; background: #0d1c2e; border-bottom: 1px solid #1e3550; }
+  .approach-card-label h3 { margin: 0 0 3px; font-size: 13px; color: #5cd4ff; }
+  .approach-card-label p { margin: 0; font-size: 11px; color: #7a9bb5; }
+  pre.demo { margin: 0; padding: 12px; font-family: 'Courier New', monospace; font-size: 10.5px; line-height: 1.5; color: #c8952a; background: transparent; }
+  .badge { display: inline-block; background: #1a3550; color: #5cd4ff; font-weight: bold; padding: 2px 7px; border-radius: 3px; font-size: 11px; margin-right: 6px; }
+  .tag { display: inline-block; background: #1e3020; color: #66dd96; font-size: 10px; padding: 1px 6px; border-radius: 3px; margin-left: 6px; }
+  .tag.warn { background: #302010; color: #f0c058; }
+</style>
+
+<div class="ref-container">
+  <div class="ref-box">
+    <div class="ref-box-header">
+      <h3>Your Reference (excerpt, top section)</h3>
+      <p>Dense ░▒▓█ block art — corners are organic, edges are structural columns</p>
+    </div>
+    <pre class="ref gold"> ░░░  ░▒                     ▒  ▓█▓ ░░░
+ ▓░░██          █      ░     ▒▒░  ▓█▓░█▓█▓▒░
+▒█▓█ █▓▓█▓███████   ░█▓░░▒▒░      █▒ ██
+  ██▓   ░░░░░░░░░░░░░░░░░▒▒▒▒░░░░░░░░░░░░░░░
+   ▓█ █░░░▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+   ▓█ ▓░█░▓▓████████████████████████████▒▓▒█▒▓
+   ▒█ ▓░█ ░░                           ░██
+  ▓██░▓░█ ░█ █▓░   ██▒▓▒▒▓  ██▓███▒▒█░
+ ██░ ░▓░█░ █░▓░░▓   ▓ ▒░████▒      ██▒░</pre>
+  </div>
+  <div class="ref-box">
+    <div class="ref-box-header">
+      <h3>Key Insight</h3>
+      <p>The reference has 3 distinct zones that behave differently</p>
+    </div>
+    <div style="padding: 14px; font-size: 12px; color: #a8c8e8; line-height: 1.8;">
+      <div style="margin-bottom: 10px;">
+        <span style="color:#f0c058">⬛ Corners</span> — elaborate organic art (scrollwork, flowers) — <strong>fixed pixel art</strong>, never scale
+      </div>
+      <div style="margin-bottom: 10px;">
+        <span style="color:#5cd4ff">▬ Horizontal edges</span> — repeating band pattern — <strong>tiles horizontally</strong> to fill width
+      </div>
+      <div style="margin-bottom: 10px;">
+        <span style="color:#66dd96">▮ Vertical edges</span> — repeating column pattern — <strong>tiles vertically</strong> to fill height
+      </div>
+      <div style="margin-top: 14px; padding: 10px; background: #0d1c2e; border-radius: 4px; border-left: 2px solid #5cd4ff; font-size: 11px; color: #7a9bb5;">
+        This is a "9-patch" approach — like Android/CSS border-image. Corners are fixed art; edges stretch. The challenge is making the corners look right at your exact terminal dimensions.
+      </div>
+    </div>
+  </div>
+</div>
+
+<p style="margin: 0 0 6px; font-size: 13px; color: #e4edf5; font-weight: bold;">How should the frame scale to fill different window sizes?</p>
+
+<div class="approach-grid">
+  <div class="approach-card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="approach-card-label">
+      <h3><span class="badge">A</span> Fixed Sizes <span class="tag">Simpler</span></h3>
+      <p>A small set of pre-drawn full frames (S / M / L / XL) — exact pixel-art fidelity, no stretching</p>
+    </div>
+    <pre class="demo">Frame: LARGE (80×40)
+┌────────────────────────┐
+│ [corner art, 12 wide]  │
+│ [fixed center space]   │
+│ [corner art, 12 wide]  │
+└────────────────────────┘
+Use: snap window to nearest size</pre>
+  </div>
+
+  <div class="approach-card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="approach-card-label">
+      <h3><span class="badge">B</span> 9-Patch Scalable <span class="tag warn">Complex</span></h3>
+      <p>Fixed corner tiles + tiling edge strips — frame adapts to any terminal size</p>
+    </div>
+    <pre class="demo">Any width / height:
+[corner] [edge repeats...]  [corner]
+[edge ]  [   content    ]  [edge  ]
+[edge ]  [   area       ]  [edge  ]
+[corner] [edge repeats...]  [corner]
+Corner art is always exact; edges tile</pre>
+  </div>
+
+  <div class="approach-card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="approach-card-label">
+      <h3><span class="badge">C</span> Hybrid — fixed + one scalable size</h3>
+      <p>One artisanal frame for the main window; simpler scalable variant for smaller panels</p>
+    </div>
+    <pre class="demo">Main window: full-art (your reference)
+Panels / overlays: simpler scalable
+  ╔══╦══[repeat]══╦══╗
+  ║ ░║            ║░ ║  ← thin
+  ╚══╩══[repeat]══╩══╝    ornate edge</pre>
+  </div>
+</div>
+
+<p style="margin-top: 16px; color: #7a9bb5; font-size: 11px;">Click to select. Or describe in terminal — no wrong answer here.</p>
