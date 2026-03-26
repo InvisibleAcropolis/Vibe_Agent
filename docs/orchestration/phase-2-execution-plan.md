@@ -203,6 +203,15 @@ These items are intentionally deferred and should not rely on conversational mem
 - wire live command/tool interception so canonical security telemetry is emitted by real worker runtime hooks; and
 - connect the subscriber-owned `subagentSurfaces` state to the main application overlay/pane controllers everywhere Orc is presented live.
 
+## Scribe publication gate for completion
+
+Phase 2 now treats documentation publication as a completion prerequisite instead of best-effort follow-up work.
+
+- Orc hands finalized implementation context (including AST/context references and feature scope) to the Scribe subgraph.
+- Scribe must update public-interface documentation (docstrings/API docs) plus the README and architecture notes for the feature.
+- Scribe must emit a diff-summary artifact that enumerates documentation paths changed for the run.
+- Orc is not allowed to emit final `done` unless Scribe returns an explicit success signal.
+
 ## Completion checklist mapped to Phase 2 criteria and design mandates
 
 | Exit criterion / mandate | Phase 2 status | Evidence / reference |
