@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams, type SpawnOptionsWithoutStdio } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
+import { JsonLfStreamParser } from "./stream_parser.js";
 
 export type RpcAgentRole = "orc" | "inquisitor" | "alchemist";
 
@@ -84,7 +85,7 @@ interface AgentProcessHandle {
 	restartCount: number;
 	status: RpcAgentRuntimeState["status"];
 	lastExit?: RpcAgentRuntimeState["lastExit"];
-	stdoutBuffer: string;
+	stdoutParser: JsonLfStreamParser<RpcTelemetryEnvelope>;
 	stopRequested: boolean;
 }
 
@@ -119,7 +120,7 @@ export class RpcProcessLauncher {
 				identity: createIdentity(config.role, config.agentId, 0),
 				restartCount: 0,
 				status: "idle",
-				stdoutBuffer: "",
+				stdoutParser: createTelemetryParser(),
 				stopRequested: false,
 			});
 		}
@@ -147,6 +148,7 @@ export class RpcProcessLauncher {
 		}
 		handle.stopRequested = false;
 		handle.identity = createIdentity(role, handle.config.agentId, handle.restartCount);
+		handle.stdoutParser = createTelemetryParser();
 		handle.status = "starting";
 		this.emitLifecycle(handle);
 
@@ -199,13 +201,31 @@ export class RpcProcessLauncher {
 			return;
 		}
 		child.stdout.on("data", (chunk: Buffer) => {
-			handle.stdoutBuffer += chunk.toString("utf8");
-			this.consumeStdoutBuffer(handle);
+			const drained = handle.stdoutParser.pushChunk(chunk);
+			for (const envelope of drained.parsed) {
+				this.onTelemetry?.(envelope);
+			}
+			for (const quarantined of drained.quarantined) {
+				this.onStderr?.(
+					handle.config.role,
+					`Telemetry frame quarantined (${quarantined.reason}): ${quarantined.detail}. Raw frame: ${quarantined.rawFrame}`
+				);
+			}
 		});
 		child.stderr.on("data", (chunk: Buffer) => {
 			this.onStderr?.(handle.config.role, chunk.toString("utf8"));
 		});
 		child.once("exit", (code, signal) => {
+			const finalDrain = handle.stdoutParser.finish();
+			for (const envelope of finalDrain.parsed) {
+				this.onTelemetry?.(envelope);
+			}
+			for (const quarantined of finalDrain.quarantined) {
+				this.onStderr?.(
+					handle.config.role,
+					`Telemetry frame quarantined (${quarantined.reason}): ${quarantined.detail}. Raw frame: ${quarantined.rawFrame}`
+				);
+			}
 			handle.lastExit = {
 				code,
 				signal,
@@ -239,32 +259,6 @@ export class RpcProcessLauncher {
 				this.startAgent(handle.config.role);
 			}
 		}, this.restartPolicy.restartDelayMs);
-	}
-
-	private consumeStdoutBuffer(handle: AgentProcessHandle): void {
-		let newlineIndex = handle.stdoutBuffer.indexOf("\n");
-		while (newlineIndex >= 0) {
-			const line = handle.stdoutBuffer.slice(0, newlineIndex).trim();
-			handle.stdoutBuffer = handle.stdoutBuffer.slice(newlineIndex + 1);
-			if (line.length > 0) {
-				this.parseTelemetryLine(handle, line);
-			}
-			newlineIndex = handle.stdoutBuffer.indexOf("\n");
-		}
-	}
-
-	private parseTelemetryLine(handle: AgentProcessHandle, line: string): void {
-		try {
-			const parsed = JSON.parse(line) as RpcTelemetryEnvelope;
-			if (isTelemetryEnvelope(parsed)) {
-				this.onTelemetry?.(parsed);
-				return;
-			}
-			this.onStderr?.(handle.config.role, `Malformed telemetry envelope: ${line}`);
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			this.onStderr?.(handle.config.role, `Telemetry parse error: ${message}. Raw line: ${line}`);
-		}
 	}
 
 	private requireHandle(role: RpcAgentRole): AgentProcessHandle {
@@ -315,4 +309,8 @@ function isTelemetryEnvelope(value: unknown): value is RpcTelemetryEnvelope {
 		&& typeof candidate.emittedAt === "string"
 		&& !!candidate.source
 		&& !!candidate.telemetry;
+}
+
+function createTelemetryParser(): JsonLfStreamParser<RpcTelemetryEnvelope> {
+	return new JsonLfStreamParser<RpcTelemetryEnvelope>({ validate: isTelemetryEnvelope });
 }
