@@ -2,6 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams, type SpawnOptionsWithoutStd
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { JsonLfStreamParser } from "./stream_parser.js";
+import { UnifiedOrchestrationError, createCorrelationContext } from "../errors/unified-error.js";
 
 export type RpcAgentRole = "orc" | "inquisitor" | "alchemist";
 
@@ -76,6 +77,7 @@ export interface RpcLauncherOptions {
 	onTelemetry?: (envelope: RpcTelemetryEnvelope) => void;
 	onStderr?: (role: RpcAgentRole, chunk: string) => void;
 	onLifecycle?: (role: RpcAgentRole, state: RpcAgentRuntimeState) => void;
+	onDiagnostic?: (entry: Record<string, unknown>) => void;
 }
 
 interface AgentProcessHandle {
@@ -111,6 +113,7 @@ export class RpcProcessLauncher {
 	private readonly onTelemetry?: RpcLauncherOptions["onTelemetry"];
 	private readonly onStderr?: RpcLauncherOptions["onStderr"];
 	private readonly onLifecycle?: RpcLauncherOptions["onLifecycle"];
+	private readonly onDiagnostic?: RpcLauncherOptions["onDiagnostic"];
 
 	constructor(options: RpcLauncherOptions = {}) {
 		const configs = options.agents ?? DEFAULT_AGENT_CONFIGS;
@@ -133,6 +136,7 @@ export class RpcProcessLauncher {
 		this.onTelemetry = options.onTelemetry;
 		this.onStderr = options.onStderr;
 		this.onLifecycle = options.onLifecycle;
+		this.onDiagnostic = options.onDiagnostic;
 	}
 
 	async startAll(): Promise<void> {
@@ -206,6 +210,22 @@ export class RpcProcessLauncher {
 				this.onTelemetry?.(envelope);
 			}
 			for (const quarantined of drained.quarantined) {
+				const malformedFrameError = new UnifiedOrchestrationError({
+					kind: "malformed_jsonl_line",
+					message: `Malformed telemetry JSONL frame from ${handle.config.role}.`,
+					recoveryAction: "quarantine",
+					context: createCorrelationContext({
+						agentId: handle.identity.agentId,
+						pid: handle.identity.pid,
+					}),
+					detail: {
+						role: handle.config.role,
+						reason: quarantined.reason,
+						detail: quarantined.detail,
+						byteLength: quarantined.byteLength,
+					},
+				});
+				this.onDiagnostic?.(malformedFrameError.toStructuredLog("rpc.telemetry.quarantine"));
 				this.onStderr?.(
 					handle.config.role,
 					`Telemetry frame quarantined (${quarantined.reason}): ${quarantined.detail}. Raw frame: ${quarantined.rawFrame}`
@@ -221,6 +241,22 @@ export class RpcProcessLauncher {
 				this.onTelemetry?.(envelope);
 			}
 			for (const quarantined of finalDrain.quarantined) {
+				const malformedFrameError = new UnifiedOrchestrationError({
+					kind: "malformed_jsonl_line",
+					message: `Malformed telemetry JSONL frame from ${handle.config.role} during process shutdown.`,
+					recoveryAction: "quarantine",
+					context: createCorrelationContext({
+						agentId: handle.identity.agentId,
+						pid: handle.identity.pid,
+					}),
+					detail: {
+						role: handle.config.role,
+						reason: quarantined.reason,
+						detail: quarantined.detail,
+						byteLength: quarantined.byteLength,
+					},
+				});
+				this.onDiagnostic?.(malformedFrameError.toStructuredLog("rpc.telemetry.final_quarantine"));
 				this.onStderr?.(
 					handle.config.role,
 					`Telemetry frame quarantined (${quarantined.reason}): ${quarantined.detail}. Raw frame: ${quarantined.rawFrame}`
@@ -253,6 +289,22 @@ export class RpcProcessLauncher {
 		if (!shouldRestart || handle.restartCount >= this.restartPolicy.maxRestarts) {
 			return;
 		}
+		const crashError = new UnifiedOrchestrationError({
+			kind: "crashed_subagent_process",
+			message: `Subagent process '${handle.config.role}' exited unexpectedly and will be restarted.`,
+			recoveryAction: "restart",
+			context: createCorrelationContext({
+				agentId: handle.identity.agentId,
+				pid: handle.identity.pid,
+			}),
+			detail: {
+				role: handle.config.role,
+				code,
+				signal,
+				restartCount: handle.restartCount + 1,
+			},
+		});
+		this.onDiagnostic?.(crashError.toStructuredLog("rpc.process.restart"));
 		handle.restartCount += 1;
 		setTimeout(() => {
 			if (!handle.stopRequested) {
