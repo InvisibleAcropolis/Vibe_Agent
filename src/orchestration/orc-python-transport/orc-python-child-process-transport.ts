@@ -6,6 +6,7 @@ import type { OrcTransportFaultCode, OrcTransportWarningCode } from "../orc-even
 import type { OrcDebugArtifactsWriter } from "../orc-debug.js";
 import type { OrcCanonicalEventEnvelope, OrcPythonRunnerSpawnContract, OrcRunnerLaunchInput } from "../orc-io.js";
 import { defaultBuildPythonRunnerSpawnContract } from "./spawn-contract.js";
+import { getTerminalSessionManager } from "../terminal/session_manager.js";
 import { drainTerminatedLines, flushResidualStream, guardBuffer } from "./line-assembler.js";
 import { extractObservedSequenceHint, handleStdoutLine, previewLine } from "./protocol-parser.js";
 import type { OrcTransportPolicyResult } from "./policy-results.js";
@@ -70,6 +71,7 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 	private activeTerminationReason?: string;
 	private monitorInterval?: NodeJS.Timeout;
 	private readonly supervisor: OrcPythonTransportSupervisor;
+	private readonly terminalSessionManager = getTerminalSessionManager();
 
 	constructor(options: OrcPythonTransportOptions = {}) {
 		this.buildSpawnContract = options.buildSpawnContract ?? defaultBuildPythonRunnerSpawnContract;
@@ -92,8 +94,8 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 		});
 	}
 
-	async launch(input: OrcRunnerLaunchInput): Promise<void> { await this.start(input); }
-	async resume(input: OrcRunnerLaunchInput): Promise<void> { await this.start(input); }
+	async launch(input: OrcRunnerLaunchInput): Promise<void> { await this.start(input, "launch"); }
+	async resume(input: OrcRunnerLaunchInput): Promise<void> { await this.start(input, "resume"); }
 	async cancel(reason = "cancel_requested"): Promise<void> { await this.stop("SIGTERM", "cancelling", reason); }
 	async shutdown(reason = "shutdown_requested"): Promise<void> { await this.stop("SIGTERM", "shutting_down", reason); }
 	getHealth(): OrcPythonTransportHealth { return this.healthStore.clone(); }
@@ -120,7 +122,8 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 		this.emitter.removeAllListeners();
 	}
 
-	private async start(input: OrcRunnerLaunchInput): Promise<void> {
+	private async start(input: OrcRunnerLaunchInput, mode: "launch" | "resume"): Promise<void> {
+		await this.ensureTerminalSession(mode);
 		if (this.child) {
 			throw new Error(`Python transport is already active for thread ${this.health.threadId ?? "unknown-thread"}; refusing double-spawn.`);
 		}
@@ -357,6 +360,18 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 
 	private startMonitors(): void {
 		this.monitorInterval = startMonitors(() => { this.evaluateTransportTimeouts(); }, () => this.stopMonitors());
+	}
+
+	private async ensureTerminalSession(mode: "launch" | "resume"): Promise<void> {
+		try {
+			if (mode === "resume") {
+				await this.terminalSessionManager.recoverCoreSession();
+				return;
+			}
+			await this.terminalSessionManager.ensureCoreSessionDetached();
+		} catch {
+			// psmux can be absent in dev/test environments; transport remains functional without it.
+		}
 	}
 
 	private stopMonitors(): void {
