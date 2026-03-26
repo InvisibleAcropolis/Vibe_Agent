@@ -786,6 +786,10 @@ Use [docs/orchestration/phase-1-scaffold.md](docs/orchestration/phase-1-scaffold
 
 Use [docs/orchestration/phase-2-execution-plan.md](docs/orchestration/phase-2-execution-plan.md) as the planning guide for the next Orc implementation wave. It enumerates the Phase 2 backlog for the Python LangGraph runner, JSONL stdout transport, async Global Event Bus, TUI telemetry subscribers, durable event logging, and the error-handling/debug work needed before live worker execution can be considered robust.
 
+### [docs/orchestration/bootstrap-rpc-curator-runbook.md](docs/orchestration/bootstrap-rpc-curator-runbook.md)
+
+Use [docs/orchestration/bootstrap-rpc-curator-runbook.md](docs/orchestration/bootstrap-rpc-curator-runbook.md) for outside-engineer onboarding to bootstrap prerequisites, psmux lifecycle commands, LF-only JSONL RPC framing, curator event/state transitions, subagent-memory file protocol, and incident recovery actions by failure type.
+
 ### [styleguide.md](styleguide.md) — LIVING DOCUMENT
 
 The [styleguide.md](styleguide.md) is a **LIVING DOCUMENT** covering UI and animation implementation details:
