@@ -184,6 +184,20 @@ async function checkpointAndHook(
 	return state;
 }
 
+function shouldBlockMechanicRouting(state: {
+	targetGuildMember: string;
+	contractPayload: OrcContractPayloadHandoff;
+}): state is { targetGuildMember: "mechanic"; contractPayload: OrcContractPayloadHandoff } {
+	return state.targetGuildMember === "mechanic" && state.contractPayload.contractId !== "StructuralBlueprint";
+}
+
+function shouldBlockArchitectContract(state: {
+	targetGuildMember: string;
+	contractPayload: OrcContractPayloadHandoff;
+}): state is { targetGuildMember: "architect"; contractPayload: OrcContractPayloadHandoff } {
+	return state.targetGuildMember === "architect" && state.contractPayload.contractId !== "StructuralBlueprint";
+}
+
 /**
  * Single orchestration graph factory with deterministic middleware layering:
  * 1) `subagent_dispatch_guard` (built-in)
@@ -204,6 +218,40 @@ export function build_orc_graph(config: OrcGraphFactoryConfig): OrcCompiledGraph
 		const blueprintValidation = validateOrcContractPayload(route.contractPayload.contractId, route.contractPayload.payload);
 		if (!blueprintValidation.ok) {
 			const errored = routeContractError(state, "route", route.contractPayload.contractId, blueprintValidation.issues, now);
+			return checkpointAndHook(errored, config.checkpointer, config.storeHooks?.onContractError);
+		}
+		if (shouldBlockArchitectContract(route)) {
+			const errored = routeContractError(
+				state,
+				"route",
+				route.contractPayload.contractId,
+				[
+					{
+						path: "route.contractPayload.contractId",
+						expected: "StructuralBlueprint",
+						received: route.contractPayload.contractId,
+						message: "Architect must emit StructuralBlueprint contract output only.",
+					},
+				],
+				now,
+			);
+			return checkpointAndHook(errored, config.checkpointer, config.storeHooks?.onContractError);
+		}
+		if (shouldBlockMechanicRouting(route)) {
+			const errored = routeContractError(
+				state,
+				"route",
+				route.contractPayload.contractId,
+				[
+					{
+						path: "route.contractPayload.contractId",
+						expected: "StructuralBlueprint",
+						received: route.contractPayload.contractId,
+						message: "Routing to Mechanic is blocked unless StructuralBlueprint validation passes.",
+					},
+				],
+				now,
+			);
 			return checkpointAndHook(errored, config.checkpointer, config.storeHooks?.onContractError);
 		}
 		const next = route.decision === "dispatch" ? ORC_GRAPH_EDGES.route : "failed";

@@ -82,7 +82,8 @@ describe("subagent configs", () => {
 		assert.equal(ORC_GUILD_SUBAGENT_REGISTRY_ENTRIES.length, 9);
 		assert.deepEqual(INQUISITOR_SUBAGENT_CONFIG.toolset, ["write", "execute"]);
 		assert.deepEqual(ALCHEMIST_SUBAGENT_CONFIG.toolset, ["write", "refactor", "execute"]);
-		assert.match(ARCHITECT_SUBAGENT_CONFIG.prompt.system, /systems design specialist/i);
+		assert.deepEqual(ARCHITECT_SUBAGENT_CONFIG.toolset, ["read", "search", "write", "scaffold", "typegen"]);
+		assert.match(ARCHITECT_SUBAGENT_CONFIG.prompt.system, /emit only valid StructuralBlueprint contracts/i);
 		assert.match(MECHANIC_SUBAGENT_CONFIG.prompt.system, /reliability engineer/i);
 		assert.equal(VIBE_CURATOR_SUBAGENT_CONFIG.displayName, "Vibe Curator");
 	});
@@ -90,14 +91,22 @@ describe("subagent configs", () => {
 	it("validates policy map as pure data and classifies tool domains deterministically", () => {
 		validateSubagentToolPolicyRegistry(ORC_GUILD_SUBAGENT_REGISTRY);
 		assert.deepEqual(ORC_SUBAGENT_TOOL_POLICY_MAP.scout.allowedDomains, ["read", "recon", "lsp"]);
+		assert.deepEqual(ORC_SUBAGENT_TOOL_POLICY_MAP.architect.allowedDomains, ["read", "recon", "lsp", "scaffold", "typegen"]);
 		assert.equal(classifyToolDomain("lsp_definition"), "lsp");
+		assert.equal(classifyToolDomain("scaffold_directory_tree"), "scaffold");
+		assert.equal(classifyToolDomain("create_type_definitions"), "typegen");
 		assert.equal(classifyToolDomain("vitest"), "test");
 		assert.equal(classifyToolDomain("totally_unknown_tool"), undefined);
 		assert.equal(
 			evaluateToolPolicyViolation({ role: "scout", toolName: "vitest" })?.detectedDomain,
 			"test",
 		);
+		assert.equal(
+			evaluateToolPolicyViolation({ role: "architect", toolName: "edit_file_lines" })?.detectedDomain,
+			"edit",
+		);
 		assert.equal(evaluateToolPolicyViolation({ role: "scout", toolName: "grep" }), undefined);
+		assert.equal(evaluateToolPolicyViolation({ role: "architect", toolName: "scaffold_directory_tree" }), undefined);
 	});
 });
 
