@@ -188,3 +188,59 @@ it("blocks dispatch when subagent handoff is incomplete", async () => {
 	);
 	assert.equal(checkpointer.snapshots.length, 0);
 });
+
+it("blocks architect routing when contract is not StructuralBlueprint", async () => {
+	const checkpointer = new RecordingCheckpointer();
+	const graph = build_orc_graph({
+		checkpointer,
+		executors: {
+			route: async () => ({
+				targetGuildMember: "architect",
+				reason: "planning handoff",
+				activeGuildMember: { memberId: "a1", role: "architect", sessionId: "s-a1", activatedAt: "2026-03-26T00:00:00.000Z" },
+				contractPayload: {
+					contractId: "ReconReport",
+					taskId: "task-a1",
+					handoffToken: "tok-a1",
+					payload: { summary: "x", findings: ["f1"], recommendations: ["r1"] },
+				},
+				decision: "dispatch" as const,
+			}),
+			dispatch: async () => ({ notes: "should not run" }),
+			verify: async () => ({ decision: "complete", notes: "n/a" }),
+			complete: async () => ({ summary: "done" }),
+		},
+	});
+	const state = await graph.step(createBaseState());
+	assert.equal(state.next, "contract_error");
+	assert.equal(state.contractValidationFailure?.contractId, "ReconReport");
+	assert.match(state.failureSummary ?? "", /Architect must emit StructuralBlueprint/);
+});
+
+it("blocks routing to mechanic when contract is not StructuralBlueprint", async () => {
+	const checkpointer = new RecordingCheckpointer();
+	const graph = build_orc_graph({
+		checkpointer,
+		executors: {
+			route: async () => ({
+				targetGuildMember: "mechanic",
+				reason: "execution handoff",
+				activeGuildMember: { memberId: "m1", role: "mechanic", sessionId: "s-m1", activatedAt: "2026-03-26T00:00:00.000Z" },
+				contractPayload: {
+					contractId: "ReconReport",
+					taskId: "task-m1",
+					handoffToken: "tok-m1",
+					payload: { summary: "x", findings: ["f1"], recommendations: ["r1"] },
+				},
+				decision: "dispatch" as const,
+			}),
+			dispatch: async () => ({ notes: "should not run" }),
+			verify: async () => ({ decision: "complete", notes: "n/a" }),
+			complete: async () => ({ summary: "done" }),
+		},
+	});
+	const state = await graph.step(createBaseState());
+	assert.equal(state.next, "contract_error");
+	assert.equal(state.contractValidationFailure?.contractId, "ReconReport");
+	assert.match(state.failureSummary ?? "", /Routing to Mechanic is blocked unless StructuralBlueprint validation passes/);
+});

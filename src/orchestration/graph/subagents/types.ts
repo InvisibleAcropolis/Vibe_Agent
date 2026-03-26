@@ -9,7 +9,15 @@ export type OrcTaskType =
 	| "execution"
 	| "general";
 
-export type SubagentToolsetCapabilities = "index" | "search" | "read" | "write" | "refactor" | "execute";
+export type SubagentToolsetCapabilities =
+	| "index"
+	| "search"
+	| "read"
+	| "write"
+	| "refactor"
+	| "execute"
+	| "scaffold"
+	| "typegen";
 
 export type GuildSubagentRole = Exclude<RpcAgentRole, "orc">;
 

@@ -6,6 +6,8 @@ export type SubagentToolDomain =
 	| "read"
 	| "recon"
 	| "lsp"
+	| "scaffold"
+	| "typegen"
 	| "edit"
 	| "lint"
 	| "test"
@@ -30,8 +32,8 @@ export interface SubagentToolPolicyViolation {
 
 export const ORC_SUBAGENT_TOOL_POLICY_MAP: Readonly<Record<GuildSubagentRole, SubagentToolPolicy>> = {
 	architect: {
-		allowedCapabilities: ["read", "search"],
-		allowedDomains: ["read", "recon", "lsp"],
+		allowedCapabilities: ["read", "search", "write", "scaffold", "typegen"],
+		allowedDomains: ["read", "recon", "lsp", "scaffold", "typegen"],
 	},
 	scout: {
 		allowedCapabilities: ["index", "search", "read"],
@@ -68,6 +70,14 @@ export const ORC_SUBAGENT_TOOL_POLICY_MAP: Readonly<Record<GuildSubagentRole, Su
 };
 
 const TOOL_DOMAIN_MATCHERS: ReadonlyArray<{ domain: SubagentToolDomain; matches: (toolName: string) => boolean }> = [
+	{
+		domain: "scaffold",
+		matches: (tool) => /scaffold|mkdir|directory[_-]?tree|generate[_-]?structure/.test(tool),
+	},
+	{
+		domain: "typegen",
+		matches: (tool) => /type[_-]?gen|type[_-]?def|type[_-]?declaration|interface|schema/.test(tool),
+	},
 	{ domain: "lsp", matches: (tool) => /lsp|symbol|definition|references?/.test(tool) },
 	{ domain: "recon", matches: (tool) => /scan|index|search|grep|find|list|glob|recon/.test(tool) },
 	{ domain: "read", matches: (tool) => /read|cat|view|open|peek/.test(tool) },
