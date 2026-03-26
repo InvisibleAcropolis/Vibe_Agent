@@ -1,4 +1,4 @@
-export type MechanicSubgraphNodeId = "edit" | "verify" | "escalate" | "complete";
+export type MechanicSubgraphNodeId = "edit" | "verify" | "warden" | "escalate" | "complete";
 
 export interface MechanicVerificationDiagnostic {
 	tool: "lint" | "compile";
@@ -21,6 +21,15 @@ export interface MechanicEscalationPayload {
 	escalatedAt: string;
 }
 
+export type MechanicVerifyFailureClassifier = "environment" | "code";
+
+export interface MechanicEnvironmentStateUpdate {
+	updatedFiles: string[];
+	installedDependencies: string[];
+	resolvedEnvironmentVariables: string[];
+	notes?: string;
+}
+
 export interface MechanicSubgraphState {
 	threadId: string;
 	taskId: string;
@@ -30,6 +39,8 @@ export interface MechanicSubgraphState {
 	lastError?: string;
 	changedFiles: string[];
 	verificationDiagnostics: MechanicVerificationDiagnostic[];
+	verifyFailureClass?: MechanicVerifyFailureClassifier;
+	environmentStateUpdate?: MechanicEnvironmentStateUpdate;
 	escalation?: MechanicEscalationPayload;
 	completionSummary?: string;
 }
@@ -37,6 +48,10 @@ export interface MechanicSubgraphState {
 export interface MechanicSubgraphExecutors {
 	edit(state: Readonly<MechanicSubgraphState>): Promise<{ changedFiles: string[] }>;
 	verify(state: Readonly<MechanicSubgraphState>): Promise<{ success: boolean; diagnostics: MechanicVerificationDiagnostic[] }>;
+	routeToWardenForRemediation?(
+		state: Readonly<MechanicSubgraphState>,
+		diagnostics: MechanicVerificationDiagnostic[],
+	): Promise<{ environmentStateUpdate: MechanicEnvironmentStateUpdate }>;
 	escalateToOrc?(state: Readonly<MechanicSubgraphState>, payload: MechanicEscalationPayload): Promise<void>;
 }
 
@@ -54,6 +69,33 @@ function formatLastError(diagnostics: MechanicVerificationDiagnostic[]): string 
 	if (diagnostics.length === 0) return "Verification failed with no diagnostics.";
 	const first = diagnostics[0];
 	return `${first.tool}:${first.code ?? "UNKNOWN"}: ${first.message}`;
+}
+
+const ENVIRONMENT_FAILURE_PATTERNS = [
+	/module not found/i,
+	/cannot find module/i,
+	/unresolved import/i,
+	/could not resolve/i,
+	/missing env(?:ironment)? variable/i,
+	/environment variable .+ (is )?(missing|undefined|not set)/i,
+	/process\.env\.[A-Z0-9_]+/i,
+	/import .* could not be resolved/i,
+];
+
+const ENVIRONMENT_FAILURE_CODES = new Set(["TS2307", "MODULE_NOT_FOUND", "ERR_MODULE_NOT_FOUND", "UNRESOLVED_IMPORT"]);
+
+export function classifyMechanicVerifyFailure(diagnostics: MechanicVerificationDiagnostic[]): MechanicVerifyFailureClassifier {
+	for (const diagnostic of diagnostics) {
+		if (diagnostic.code && ENVIRONMENT_FAILURE_CODES.has(diagnostic.code.toUpperCase())) {
+			return "environment";
+		}
+		for (const pattern of ENVIRONMENT_FAILURE_PATTERNS) {
+			if (pattern.test(diagnostic.message)) {
+				return "environment";
+			}
+		}
+	}
+	return "code";
 }
 
 export function createMechanicSubgraph(config: {
@@ -86,7 +128,19 @@ export function createMechanicSubgraph(config: {
 				...state,
 				next: "complete",
 				verificationDiagnostics: verification.diagnostics,
+				verifyFailureClass: undefined,
 				completionSummary: `Mechanic verification passed on attempt ${state.attemptCount}.`,
+			};
+		}
+
+		const verifyFailureClass = classifyMechanicVerifyFailure(verification.diagnostics);
+		if (verifyFailureClass === "environment" && config.executors.routeToWardenForRemediation) {
+			return {
+				...state,
+				next: "warden",
+				verifyFailureClass,
+				verificationDiagnostics: verification.diagnostics,
+				lastError: formatLastError(verification.diagnostics),
 			};
 		}
 
@@ -94,8 +148,26 @@ export function createMechanicSubgraph(config: {
 		return {
 			...state,
 			next: retryAllowed ? "edit" : "escalate",
+			verifyFailureClass,
 			verificationDiagnostics: verification.diagnostics,
 			lastError: formatLastError(verification.diagnostics),
+		};
+	}
+
+	async function runWardenNode(state: MechanicSubgraphState): Promise<MechanicSubgraphState> {
+		if (!config.executors.routeToWardenForRemediation) {
+			return {
+				...state,
+				next: "edit",
+			};
+		}
+		const remediation = await config.executors.routeToWardenForRemediation(state, state.verificationDiagnostics);
+		const changedFiles = normalizeChangedFiles([...state.changedFiles, ...remediation.environmentStateUpdate.updatedFiles]);
+		return {
+			...state,
+			next: "verify",
+			changedFiles,
+			environmentStateUpdate: remediation.environmentStateUpdate,
 		};
 	}
 
@@ -130,6 +202,8 @@ export function createMechanicSubgraph(config: {
 					return runEditNode(normalizedState);
 				case "verify":
 					return runVerifyNode(normalizedState);
+				case "warden":
+					return runWardenNode(normalizedState);
 				case "escalate":
 					return runEscalateNode(normalizedState);
 				case "complete":
