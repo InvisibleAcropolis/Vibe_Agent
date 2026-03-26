@@ -63,3 +63,13 @@ export {
 	type InquisitorSubgraphNodeId,
 	type InquisitorSubgraphState,
 } from "./inquisitor-subgraph.js";
+
+export {
+	createScribeSubgraph,
+	type ScribeDiffSummaryArtifact,
+	type ScribeImplementationContext,
+	type ScribeSubgraph,
+	type ScribeSubgraphExecutors,
+	type ScribeSubgraphNodeId,
+	type ScribeSubgraphState,
+} from "./scribe-subgraph.js";
