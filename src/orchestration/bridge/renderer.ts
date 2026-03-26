@@ -78,6 +78,7 @@ export function renderCuratorDashboardFrame(
 			const timing = `${snapshot.timing.currentTurnDurationMs}ms turn / ${snapshot.timing.taskDurationMs}ms task`;
 			lines.push(`| ${truncate(`agent=${snapshot.agentId} pane=${snapshot.paneId}`, 49).padEnd(49, " ")} |`);
 			lines.push(`| ${truncate(`status=${status} turn=${turn}`, 49).padEnd(49, " ")} |`);
+			lines.push(`| ${truncate(`signal=${snapshot.signal.key} retry=${snapshot.signal.retryAttempt}`, 49).padEnd(49, " ")} |`);
 			lines.push(`| ${truncate(`tools=${toolSummary}`, 49).padEnd(49, " ")} |`);
 			lines.push(`| ${truncate(`timing=${timing}`, 49).padEnd(49, " ")} |`);
 			if (snapshot.finishReason) {

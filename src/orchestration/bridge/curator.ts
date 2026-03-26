@@ -6,7 +6,15 @@ import {
 	type OrcGlobalPlanState,
 } from "../memory/index.js";
 
-export type CuratorRpcEventType = "agent_start" | "turn_start" | "message_update" | "tool_execution_update" | "agent_end";
+export type CuratorRpcEventType =
+	| "agent_start"
+	| "turn_start"
+	| "message_update"
+	| "tool_execution_update"
+	| "agent_end"
+	| "auto_retry_start"
+	| "auto_retry_end"
+	| "extension_error";
 
 export interface CuratorEventBase {
 	type: CuratorRpcEventType;
@@ -58,12 +66,62 @@ export interface CuratorAgentEndEvent extends CuratorEventBase {
 	error?: string;
 }
 
+export interface CuratorAutoRetryStartEvent extends CuratorEventBase {
+	type: "auto_retry_start";
+	attempt?: number;
+	maxAttempts?: number;
+	delayMs?: number;
+	errorMessage?: string;
+}
+
+export interface CuratorAutoRetryEndEvent extends CuratorEventBase {
+	type: "auto_retry_end";
+	success?: boolean;
+	attempt?: number;
+	finalError?: string;
+}
+
+export interface CuratorExtensionErrorEvent extends CuratorEventBase {
+	type: "extension_error";
+	event?: string;
+	error?: string;
+	extensionPath?: string;
+}
+
 export type CuratorRpcEvent =
 	| CuratorAgentStartEvent
 	| CuratorTurnStartEvent
 	| CuratorMessageUpdateEvent
 	| CuratorToolExecutionUpdateEvent
-	| CuratorAgentEndEvent;
+	| CuratorAgentEndEvent
+	| CuratorAutoRetryStartEvent
+	| CuratorAutoRetryEndEvent
+	| CuratorExtensionErrorEvent;
+
+export type CuratorTelemetrySignalElement = "water" | "fire";
+export type CuratorTelemetrySignalStage =
+	| "idle"
+	| "active"
+	| "retrying"
+	| "recovering"
+	| "completed"
+	| "cancelled"
+	| "failed"
+	| "fault"
+	| "timed_out";
+
+export interface CuratorTelemetrySignal {
+	version: "curator.signal.v1";
+	key: `${CuratorTelemetrySignalElement}:${CuratorTelemetrySignalStage}`;
+	element: CuratorTelemetrySignalElement;
+	stage: CuratorTelemetrySignalStage;
+	retryActive: boolean;
+	retryAttempt: number;
+	retryMaxAttempts?: number;
+	failureActive: boolean;
+	recoveryActive: boolean;
+	detail?: string;
+}
 
 interface CuratorToolCallState {
 	id: string;
@@ -103,6 +161,12 @@ interface CuratorPaneState {
 	graphNodeId?: string;
 	processPid?: number;
 	correlationId?: string;
+	retryActive: boolean;
+	retryAttempt: number;
+	retryMaxAttempts?: number;
+	failureActive: boolean;
+	recoveryActive: boolean;
+	lastError?: string;
 }
 
 export interface CuratorSnapshot {
@@ -140,6 +204,7 @@ export interface CuratorSnapshot {
 		updatedAt: string;
 	}>;
 	globalPlanState?: OrcGlobalPlanState;
+	signal: CuratorTelemetrySignal;
 }
 
 export interface CuratorOptions {
@@ -149,6 +214,7 @@ export interface CuratorOptions {
 	onSnapshot?: (snapshot: CuratorSnapshot) => void;
 	memoryRootDir?: string;
 	onDiagnostic?: (entry: Record<string, unknown>) => void;
+	onQueueDrainError?: (error: Error) => void;
 }
 
 const DEFAULT_WATCHDOG_MS = 45_000;
@@ -162,8 +228,11 @@ export class RpcEventCurator {
 	private readonly now: () => number;
 	private readonly onSnapshot?: (snapshot: CuratorSnapshot) => void;
 	private readonly onDiagnostic?: (entry: Record<string, unknown>) => void;
+	private readonly onQueueDrainError?: (error: Error) => void;
 	private readonly memoryStore: OrcMemoryStore;
 	private readonly globalPlanByAgent = new Map<string, OrcGlobalPlanState>();
+	private readonly queuedEvents: CuratorRpcEvent[] = [];
+	private drainScheduled = false;
 
 	constructor(options: CuratorOptions = {}) {
 		this.watchdogMs = options.watchdogMs ?? DEFAULT_WATCHDOG_MS;
@@ -171,7 +240,33 @@ export class RpcEventCurator {
 		this.now = options.now ?? (() => Date.now());
 		this.onSnapshot = options.onSnapshot;
 		this.onDiagnostic = options.onDiagnostic;
+		this.onQueueDrainError = options.onQueueDrainError;
 		this.memoryStore = new OrcMemoryStore(options.memoryRootDir ?? resolve(process.cwd(), ".vibe", "orchestration-memory"));
+	}
+
+	/**
+	 * Non-blocking ingestion path for streamed events.
+	 * Events are drained on the next microtask tick in FIFO order.
+	 */
+	enqueueRpcEvent(event: CuratorRpcEvent): void {
+		this.queuedEvents.push(event);
+		if (this.drainScheduled) {
+			return;
+		}
+		this.drainScheduled = true;
+		queueMicrotask(() => {
+			this.drainScheduled = false;
+			try {
+				while (this.queuedEvents.length > 0) {
+					const next = this.queuedEvents.shift();
+					if (next) {
+						this.handleRpcEvent(next);
+					}
+				}
+			} catch (error) {
+				this.onQueueDrainError?.(error instanceof Error ? error : new Error(String(error)));
+			}
+		});
 	}
 
 	handleRpcEvent(event: CuratorRpcEvent): CuratorSnapshot {
@@ -198,6 +293,15 @@ export class RpcEventCurator {
 				break;
 			case "agent_end":
 				this.handleAgentEnd(pane, event, timestampMs);
+				break;
+			case "auto_retry_start":
+				this.handleAutoRetryStart(pane, event);
+				break;
+			case "auto_retry_end":
+				this.handleAutoRetryEnd(pane, event);
+				break;
+			case "extension_error":
+				this.handleExtensionError(pane, event);
 				break;
 		}
 
@@ -264,6 +368,10 @@ export class RpcEventCurator {
 				toolCalls: new Map<string, CuratorToolCallState>(),
 				toolExecutions: new Map<string, CuratorToolExecutionState>(),
 				timedOut: false,
+				retryActive: false,
+				retryAttempt: 0,
+				failureActive: false,
+				recoveryActive: false,
 			};
 			byPane.set(paneId, pane);
 		}
@@ -285,6 +393,12 @@ export class RpcEventCurator {
 		pane.lastTurnDurationMs = undefined;
 		pane.toolCalls.clear();
 		pane.toolExecutions.clear();
+		pane.retryActive = false;
+		pane.retryAttempt = 0;
+		pane.retryMaxAttempts = undefined;
+		pane.failureActive = false;
+		pane.recoveryActive = false;
+		pane.lastError = undefined;
 	}
 
 	private handleTurnStart(pane: CuratorPaneState, event: CuratorTurnStartEvent, timestampMs: number): void {
@@ -336,6 +450,10 @@ export class RpcEventCurator {
 		existing.error = event.error ?? existing.error;
 		existing.updatedAt = updatedAt;
 		pane.toolExecutions.set(event.toolCallId, existing);
+		if (existing.status === "failed") {
+			pane.failureActive = true;
+			pane.lastError = existing.error ?? pane.lastError;
+		}
 	}
 
 	private handleAgentEnd(pane: CuratorPaneState, event: CuratorAgentEndEvent, timestampMs: number): void {
@@ -350,7 +468,37 @@ export class RpcEventCurator {
 			pane.turnStartedAt = undefined;
 		}
 		pane.finishReason = event.finishReason ?? event.reason ?? event.error ?? "unknown";
+		pane.lastError = event.error ?? pane.lastError;
 		this.captureMemoryArtifacts(pane, timestampMs);
+	}
+
+	private handleAutoRetryStart(pane: CuratorPaneState, event: CuratorAutoRetryStartEvent): void {
+		pane.retryActive = true;
+		pane.retryAttempt = event.attempt ?? pane.retryAttempt;
+		pane.retryMaxAttempts = event.maxAttempts ?? pane.retryMaxAttempts;
+		pane.failureActive = true;
+		pane.recoveryActive = false;
+		pane.lastError = event.errorMessage ?? pane.lastError;
+	}
+
+	private handleAutoRetryEnd(pane: CuratorPaneState, event: CuratorAutoRetryEndEvent): void {
+		pane.retryActive = false;
+		pane.retryAttempt = event.attempt ?? pane.retryAttempt;
+		if (event.success === true) {
+			pane.failureActive = false;
+			pane.recoveryActive = true;
+			return;
+		}
+		if (event.success === false) {
+			pane.failureActive = true;
+			pane.recoveryActive = false;
+			pane.lastError = event.finalError ?? pane.lastError;
+		}
+	}
+
+	private handleExtensionError(pane: CuratorPaneState, event: CuratorExtensionErrorEvent): void {
+		pane.failureActive = true;
+		pane.lastError = event.error ?? pane.lastError;
 	}
 
 	private captureMemoryArtifacts(pane: CuratorPaneState, timestampMs: number): void {
@@ -514,6 +662,7 @@ export class RpcEventCurator {
 			},
 			toolExecutions: [...pane.toolExecutions.values()].map((execution) => ({ ...execution })),
 			globalPlanState: this.globalPlanByAgent.get(pane.agentId),
+			signal: mapPaneToSignal(pane),
 		};
 	}
 }
@@ -544,6 +693,22 @@ export function parseCuratorRpcEvent(value: unknown): CuratorRpcEvent | undefine
 	if (candidate.processPid !== undefined && typeof candidate.processPid !== "number") {
 		return undefined;
 	}
+	if (candidate.type === "auto_retry_start") {
+		if (candidate.attempt !== undefined && typeof candidate.attempt !== "number") return undefined;
+		if (candidate.maxAttempts !== undefined && typeof candidate.maxAttempts !== "number") return undefined;
+		if (candidate.delayMs !== undefined && typeof candidate.delayMs !== "number") return undefined;
+		if (candidate.errorMessage !== undefined && typeof candidate.errorMessage !== "string") return undefined;
+	}
+	if (candidate.type === "auto_retry_end") {
+		if (candidate.success !== undefined && typeof candidate.success !== "boolean") return undefined;
+		if (candidate.attempt !== undefined && typeof candidate.attempt !== "number") return undefined;
+		if (candidate.finalError !== undefined && typeof candidate.finalError !== "string") return undefined;
+	}
+	if (candidate.type === "extension_error") {
+		if (candidate.event !== undefined && typeof candidate.event !== "string") return undefined;
+		if (candidate.error !== undefined && typeof candidate.error !== "string") return undefined;
+		if (candidate.extensionPath !== undefined && typeof candidate.extensionPath !== "string") return undefined;
+	}
 	return candidate as CuratorRpcEvent;
 }
 
@@ -552,7 +717,10 @@ function isCuratorEventType(type: string): type is CuratorRpcEventType {
 		|| type === "turn_start"
 		|| type === "message_update"
 		|| type === "tool_execution_update"
-		|| type === "agent_end";
+		|| type === "agent_end"
+		|| type === "auto_retry_start"
+		|| type === "auto_retry_end"
+		|| type === "extension_error";
 }
 
 function parseEventTime(timestamp: string | undefined): number | undefined {
@@ -561,4 +729,52 @@ function parseEventTime(timestamp: string | undefined): number | undefined {
 	}
 	const parsed = Date.parse(timestamp);
 	return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+/**
+ * Deterministic event -> signal mapping used by frontend and TUI renderers.
+ * Priority order is strict to keep transitions stable:
+ * timed_out > retrying > terminal end states > recovering > fault > active > idle.
+ */
+function mapPaneToSignal(pane: CuratorPaneState): CuratorTelemetrySignal {
+	if (pane.status === "timed_out") {
+		return buildSignal("fire", "timed_out", pane);
+	}
+	if (pane.retryActive) {
+		return buildSignal("fire", "retrying", pane);
+	}
+	if (pane.status === "ended") {
+		if (pane.finishReason === "completed") return buildSignal("water", "completed", pane);
+		if (pane.finishReason === "cancelled") return buildSignal("water", "cancelled", pane);
+		return buildSignal("fire", "failed", pane);
+	}
+	if (pane.recoveryActive) {
+		return buildSignal("water", "recovering", pane);
+	}
+	if (pane.failureActive) {
+		return buildSignal("fire", "fault", pane);
+	}
+	if (pane.status === "running") {
+		return buildSignal("water", "active", pane);
+	}
+	return buildSignal("water", "idle", pane);
+}
+
+function buildSignal(
+	element: CuratorTelemetrySignalElement,
+	stage: CuratorTelemetrySignalStage,
+	pane: CuratorPaneState,
+): CuratorTelemetrySignal {
+	return {
+		version: "curator.signal.v1",
+		key: `${element}:${stage}`,
+		element,
+		stage,
+		retryActive: pane.retryActive,
+		retryAttempt: pane.retryAttempt,
+		retryMaxAttempts: pane.retryMaxAttempts,
+		failureActive: pane.failureActive,
+		recoveryActive: pane.recoveryActive,
+		detail: pane.lastError ?? pane.finishReason,
+	};
 }
