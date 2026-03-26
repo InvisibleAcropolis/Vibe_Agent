@@ -8,7 +8,7 @@ export { SCRIBE_SUBAGENT_CONFIG } from "./scribe.js";
 export { ARCHIVIST_SUBAGENT_CONFIG } from "./archivist.js";
 export { VIBE_CURATOR_SUBAGENT_CONFIG } from "./vibe_curator.js";
 export { ORC_GUILD_SUBAGENT_REGISTRY, ORC_GUILD_SUBAGENT_REGISTRY_ENTRIES } from "./registry.js";
-export { OrcMalformedSubagentTaskRequestError, OrcUnknownSubagentError } from "./errors.js";
+export { OrcMalformedSubagentTaskRequestError, OrcSubagentToolPolicyViolationError, OrcUnknownSubagentError } from "./errors.js";
 export {
 	composeSubAgentMiddleware,
 	createSubAgentRegistryGuardMiddleware,
@@ -19,6 +19,17 @@ export {
 	type SubAgentMiddleware,
 } from "./middleware.js";
 export { OrcSubagentRouter } from "./router.js";
+export {
+	ORC_SUBAGENT_TOOL_POLICY_MAP,
+	classifyToolDomain,
+	createPolicyViolationDetail,
+	evaluateToolPolicyViolation,
+	extractTelemetryToolName,
+	validateSubagentToolPolicyRegistry,
+	type SubagentToolDomain,
+	type SubagentToolPolicy,
+	type SubagentToolPolicyViolation,
+} from "./tool_policy.js";
 export type {
 	GuildSubagentRole,
 	OrcTaskType,

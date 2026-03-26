@@ -9,6 +9,6 @@ export const INQUISITOR_SUBAGENT_CONFIG: SubagentConfig = {
 		operatorHint:
 			"Use this subagent for high-signal codebase exploration: build index context, run focused searches, and summarize file evidence before escalating to mutation tasks.",
 	},
-	toolset: ["index", "search", "read"],
+	toolset: ["write", "execute"],
 	taskTypes: ["repo_index", "semantic_search", "read_analysis", "general"],
 };

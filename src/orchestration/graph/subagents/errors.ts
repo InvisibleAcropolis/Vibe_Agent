@@ -23,3 +23,15 @@ export class OrcMalformedSubagentTaskRequestError extends UnifiedOrchestrationEr
 		});
 	}
 }
+
+export class OrcSubagentToolPolicyViolationError extends UnifiedOrchestrationError {
+	constructor(message: string, detail?: Record<string, unknown>) {
+		super({
+			kind: "subagent_tool_policy_violation",
+			message,
+			recoveryAction: "abort",
+			context: createCorrelationContext({}),
+			detail,
+		});
+	}
+}

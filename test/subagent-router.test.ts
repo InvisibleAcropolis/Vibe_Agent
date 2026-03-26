@@ -5,12 +5,18 @@ import type { TerminalPaneMetadata, TerminalPaneOrchestrator } from "../src/orch
 import {
 	ALCHEMIST_SUBAGENT_CONFIG,
 	ARCHITECT_SUBAGENT_CONFIG,
+	classifyToolDomain,
+	evaluateToolPolicyViolation,
 	INQUISITOR_SUBAGENT_CONFIG,
 	MECHANIC_SUBAGENT_CONFIG,
+	ORC_SUBAGENT_TOOL_POLICY_MAP,
+	ORC_GUILD_SUBAGENT_REGISTRY,
 	ORC_GUILD_SUBAGENT_REGISTRY_ENTRIES,
 	OrcMalformedSubagentTaskRequestError,
 	OrcSubagentRouter,
+	OrcSubagentToolPolicyViolationError,
 	OrcUnknownSubagentError,
+	validateSubagentToolPolicyRegistry,
 	VIBE_CURATOR_SUBAGENT_CONFIG,
 } from "../src/orchestration/graph/subagents/index.js";
 
@@ -74,11 +80,24 @@ class FakePaneOrchestrator implements Pick<TerminalPaneOrchestrator, "splitVerti
 describe("subagent configs", () => {
 	it("defines explicit guild registry entries and dedicated prompts/toolsets", () => {
 		assert.equal(ORC_GUILD_SUBAGENT_REGISTRY_ENTRIES.length, 9);
-		assert.deepEqual(INQUISITOR_SUBAGENT_CONFIG.toolset, ["index", "search", "read"]);
+		assert.deepEqual(INQUISITOR_SUBAGENT_CONFIG.toolset, ["write", "execute"]);
 		assert.deepEqual(ALCHEMIST_SUBAGENT_CONFIG.toolset, ["write", "refactor", "execute"]);
 		assert.match(ARCHITECT_SUBAGENT_CONFIG.prompt.system, /systems design specialist/i);
 		assert.match(MECHANIC_SUBAGENT_CONFIG.prompt.system, /reliability engineer/i);
 		assert.equal(VIBE_CURATOR_SUBAGENT_CONFIG.displayName, "Vibe Curator");
+	});
+
+	it("validates policy map as pure data and classifies tool domains deterministically", () => {
+		validateSubagentToolPolicyRegistry(ORC_GUILD_SUBAGENT_REGISTRY);
+		assert.deepEqual(ORC_SUBAGENT_TOOL_POLICY_MAP.scout.allowedDomains, ["read", "recon", "lsp"]);
+		assert.equal(classifyToolDomain("lsp_definition"), "lsp");
+		assert.equal(classifyToolDomain("vitest"), "test");
+		assert.equal(classifyToolDomain("totally_unknown_tool"), undefined);
+		assert.equal(
+			evaluateToolPolicyViolation({ role: "scout", toolName: "vitest" })?.detectedDomain,
+			"test",
+		);
+		assert.equal(evaluateToolPolicyViolation({ role: "scout", toolName: "grep" }), undefined);
 	});
 });
 
@@ -166,5 +185,43 @@ describe("OrcSubagentRouter", () => {
 
 		const bound = router.bindTelemetry(telemetry);
 		assert.equal(bound?.session.sessionId, session.sessionId);
+	});
+
+	it("rejects disallowed runtime tool calls with explicit policy errors", async () => {
+		const diagnostics: Record<string, unknown>[] = [];
+		const router = new OrcSubagentRouter({
+			rpcLauncher: new FakeRpcLauncher(),
+			paneOrchestrator: new FakePaneOrchestrator(),
+			onDiagnostic(entry) {
+				diagnostics.push(entry);
+			},
+			routerNow: () => new Date("2026-03-26T01:02:03.000Z"),
+		});
+
+		await router.routeTask({ taskId: "task-scout", taskType: "repo_index" });
+		const violatingToolCall: RpcTelemetryEnvelope = {
+			schema: "pi.rpc.telemetry.v1",
+			eventId: "evt-tool-1",
+			emittedAt: "2026-03-26T01:02:05.000Z",
+			source: {
+				agentRole: "inquisitor",
+				agentId: "inquisitor-main",
+				instanceId: "inq-instance",
+				launchAttempt: 0,
+			},
+			telemetry: {
+				kind: "tool_call",
+				severity: "warning",
+				payload: {
+					toolName: "npm install",
+				},
+			},
+		};
+
+		assert.throws(
+			() => router.bindTelemetry(violatingToolCall),
+			(error: unknown) => error instanceof OrcSubagentToolPolicyViolationError,
+		);
+		assert.equal(diagnostics.some((entry) => entry.event === "subagent.policy_violation"), true);
 	});
 });
