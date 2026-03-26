@@ -41,3 +41,12 @@ export type {
 	SubagentToolsetCapabilities,
 	TaskRoutingDecision,
 } from "./types.js";
+export {
+	createMechanicSubgraph,
+	type MechanicEscalationPayload,
+	type MechanicSubgraph,
+	type MechanicSubgraphExecutors,
+	type MechanicSubgraphNodeId,
+	type MechanicSubgraphState,
+	type MechanicVerificationDiagnostic,
+} from "./mechanic-subgraph.js";
