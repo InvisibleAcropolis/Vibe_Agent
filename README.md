@@ -235,6 +235,7 @@ graph LR
 #### Phase 2 operational boundaries
 
 - Phase 2 supports supervised launch/resume, event normalization, durable logging, operator summaries, and fault classification.
+- Orc completion now includes a Scribe documentation gate: finalized implementation context must be handed to Scribe, docs/docstrings/README + architecture notes must be updated, and a documentation diff-summary artifact must be emitted before Orc can emit final `done`.
 - Phase 2 does **not** yet provide replay-aware in-flight worker resurrection; that remains Phase 3 durability work.
 - Security/approval telemetry is normalized into the same event stream, but fully live upstream interception still depends on follow-on wiring where worker/tool execution emits those canonical events.
 
@@ -894,6 +895,7 @@ All Orc durable data still roots at `~/Vibe_Agent/`. When debug mode is enabled 
 
 | Date | Version | Changes |
 |------|---------|---------|
+| 2026-03-26 | 1.0.6 | Added Scribe documentation-subgraph requirements (docstrings/API docs/README + architecture updates), enforced Scribe success before Orc final `done`, and documented doc-diff summary artifact expectations |
 | 2026-03-23 | 1.0.5 | Added opt-in Orc debug-mode documentation, durable artifact locations, and troubleshooting guidance for transport/parser failures |
 | 2026-03-22 | 1.0.4 | Added the stable Orc Python runner location, local execution assumptions, and stdin/stdout/stderr contract documentation for outside engineers |
 | 2026-03-22 | 1.0.2 | Added Phase 1 orchestration scaffold documentation for outside engineers and linked the README to the new Orc architecture guide |

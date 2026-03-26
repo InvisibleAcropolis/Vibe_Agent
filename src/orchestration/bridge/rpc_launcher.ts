@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { JsonLfStreamParser } from "./stream_parser.js";
 import { UnifiedOrchestrationError, createCorrelationContext } from "../errors/unified-error.js";
 
-export type RpcAgentRole = "orc" | "inquisitor" | "alchemist";
+export type RpcAgentRole = "orc" | "architect" | "scout" | "mechanic" | "inquisitor" | "warden" | "alchemist" | "scribe" | "archivist" | "vibe_curator";
 
 export type RpcCommandKind = "initialize" | "execute" | "cancel" | "shutdown" | (string & {});
 export type RpcTelemetryKind = "ready" | "progress" | "result" | "fault" | "heartbeat" | (string & {});

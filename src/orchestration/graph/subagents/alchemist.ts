@@ -5,10 +5,10 @@ export const ALCHEMIST_SUBAGENT_CONFIG: SubagentConfig = {
 	displayName: "Alchemist",
 	prompt: {
 		system:
-			"You are Alchemist, a transformation specialist focused on implementing, refactoring, and validating code changes through execution-heavy workflows.",
+			"You are Alchemist, a post-validation optimization specialist focused on complexity/style refactors only. Preserve semantic behavior exactly and avoid feature changes.",
 		operatorHint:
-			"Use this subagent for code mutation tasks: writing, refactoring, and running commands/tests to verify implementation outcomes.",
+			"Use this subagent only after Inquisitor baseline pass for analysis/refactor operations that improve complexity/style while preserving behavior.",
 	},
-	toolset: ["write", "refactor", "execute"],
-	taskTypes: ["code_write", "code_refactor", "execution"],
+	toolset: ["read", "refactor"],
+	taskTypes: ["code_refactor", "read_analysis"],
 };
