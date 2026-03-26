@@ -82,6 +82,7 @@ describe("subagent configs", () => {
 	it("defines explicit guild registry entries and dedicated prompts/toolsets", () => {
 		assert.equal(ORC_GUILD_SUBAGENT_REGISTRY_ENTRIES.length, 9);
 		assert.deepEqual(INQUISITOR_SUBAGENT_CONFIG.toolset, ["write", "execute"]);
+		assert.deepEqual(INQUISITOR_SUBAGENT_CONFIG.taskTypes, ["execution"]);
 		assert.deepEqual(ALCHEMIST_SUBAGENT_CONFIG.toolset, ["write", "refactor", "execute"]);
 		assert.deepEqual(ARCHITECT_SUBAGENT_CONFIG.toolset, ["read", "search", "write", "scaffold", "typegen"]);
 		assert.match(ARCHITECT_SUBAGENT_CONFIG.prompt.system, /emit only valid StructuralBlueprint contracts/i);
@@ -127,17 +128,17 @@ describe("OrcSubagentRouter", () => {
 		const executeResult = await router.invokeSpawnTask({
 			taskId: "task-exec",
 			taskType: "execution",
-			subagentName: "mechanic",
+			subagentName: "inquisitor",
 		});
 
 		assert.equal(readSession.subagentRole, "scout");
-		assert.equal(executeResult.session.subagentRole, "mechanic");
+		assert.equal(executeResult.session.subagentRole, "inquisitor");
 		assert.equal(executeResult.structuredOutput.kind, "subagent_dispatch_v1");
-		assert.deepEqual(rpcLauncher.startCalls, ["scout", "mechanic"]);
+		assert.deepEqual(rpcLauncher.startCalls, ["scout", "inquisitor"]);
 		assert.deepEqual(router.getMiddlewareOrder(), ["request_validation", "registry_guard", "structured_output"]);
 		assert.deepEqual(paneOrchestrator.calls, [
 			{ role: "secondary", agentId: "scout-main" },
-			{ role: "secondary", agentId: "mechanic-main" },
+			{ role: "secondary", agentId: "inquisitor-main" },
 		]);
 	});
 

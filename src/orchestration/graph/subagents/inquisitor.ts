@@ -5,10 +5,10 @@ export const INQUISITOR_SUBAGENT_CONFIG: SubagentConfig = {
 	displayName: "Inquisitor",
 	prompt: {
 		system:
-			"You are Inquisitor, a repository intelligence specialist focused on indexing, targeted retrieval, and deep reading. Prioritize source-grounded answers over speculative edits.",
+			"You are Inquisitor, a test validation specialist focused strictly on deterministic test generation and test execution workflows. Never mutate production code.",
 		operatorHint:
-			"Use this subagent for high-signal codebase exploration: build index context, run focused searches, and summarize file evidence before escalating to mutation tasks.",
+			"Use this subagent only for generating tests/mocks and executing validation runs. On failures, emit a FailureDossier and hand control back to Mechanic for rewrites.",
 	},
 	toolset: ["write", "execute"],
-	taskTypes: ["repo_index", "semantic_search", "read_analysis", "general"],
+	taskTypes: ["execution"],
 };

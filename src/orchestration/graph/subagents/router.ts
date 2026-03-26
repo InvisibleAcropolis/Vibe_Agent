@@ -46,7 +46,7 @@ const TASK_TYPE_TO_ROLE: Readonly<Record<OrcTaskType, GuildSubagentRole>> = {
 	read_analysis: "scout",
 	code_write: "alchemist",
 	code_refactor: "alchemist",
-	execution: "mechanic",
+	execution: "inquisitor",
 	general: "scribe",
 };
 
