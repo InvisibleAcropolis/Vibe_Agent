@@ -20,6 +20,9 @@ function createBaseState(overrides: Partial<OrcMasterState> = {}): OrcMasterStat
 		threadId: "thread-1",
 		runCorrelationId: "run-1",
 		next: "route",
+		memoryRoute: {
+			mode: "filesystem",
+		},
 		routing: {
 			taskType: "code_write",
 			requestedBy: "orchestrator",
@@ -150,6 +153,65 @@ describe("build_orc_graph", () => {
 		assert.equal(state.retries.attempt, 1);
 		assert.equal(state.retries.lastFailureCode, "E_RETRY");
 		assert.equal(state.routing.chainOfCustody.length, 2);
+	});
+
+	it("injects archivist context with bounded summary/snippet limits", async () => {
+		const checkpointer = new RecordingCheckpointer();
+		const graph = build_orc_graph({
+			checkpointer,
+			now: () => new Date("2026-03-26T04:00:00.000Z"),
+			executors: {
+				route: async () => ({
+					targetGuildMember: "archivist",
+					reason: "semantic retrieval",
+					activeGuildMember: {
+						memberId: "guild-archivist-1",
+						role: "archivist",
+						sessionId: "sess-archivist",
+						activatedAt: "2026-03-26T04:00:00.000Z",
+					},
+					contractPayload: {
+						contractId: "StructuralBlueprint",
+						taskId: "task-memory",
+						payload: {
+							objective: "Retrieve context",
+							scope: ["history"],
+							constraints: ["bounded"],
+							deliverables: ["summary"],
+						},
+						handoffToken: "token-memory",
+					},
+					decision: "dispatch",
+				}),
+				dispatch: async () => ({
+					notes: "injected context",
+					archivistContext: {
+						summary: "x".repeat(2000),
+						charBudget: 2000,
+						truncated: false,
+						snippets: Array.from({ length: 9 }, (_, index) => ({
+							id: `s${index}`,
+							summary: `snippet-${index}`,
+							confidenceHint: "medium" as const,
+							provenance: {
+								backend: "vector" as const,
+								threadId: "thread-1",
+								sourcePath: `memory/doc-${index}.md`,
+							},
+						})),
+					},
+				}),
+				verify: async () => ({ decision: "complete", notes: "verified" }),
+				complete: async () => ({ summary: "done" }),
+			},
+		});
+
+		let state = createBaseState({ memoryRoute: { mode: "vector", namespace: "orc-thread-1" } });
+		state = await graph.step(state);
+		state = await graph.step(state);
+		assert.equal(state.archivistContext?.charBudget, 1600);
+		assert.equal(state.archivistContext?.snippets.length, 6);
+		assert.equal(state.archivistContext?.truncated, true);
 	});
 });
 

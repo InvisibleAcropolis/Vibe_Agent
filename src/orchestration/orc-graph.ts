@@ -1,4 +1,6 @@
 import { type OrcContractModelName, type OrcContractValidationIssue, validateOrcContractPayload } from "./contracts.js";
+import type { OrcArchivistContextInjection } from "./graph/subagents/archivist-subgraph.js";
+import type { OrcMemoryBackendRoute } from "./memory/index.js";
 
 export type OrcGraphNodeId = "route" | "dispatch" | "verify" | "complete" | "failed" | "contract_error";
 
@@ -55,6 +57,7 @@ export interface OrcMasterState {
 	threadId: string;
 	runCorrelationId: string;
 	next: OrcGraphNodeId;
+	memoryRoute: OrcMemoryBackendRoute;
 	routing: OrcRoutingState;
 	retries: OrcRetryState;
 	activeGuildMember?: OrcActiveGuildMember;
@@ -63,6 +66,7 @@ export interface OrcMasterState {
 	completionSummary?: string;
 	failureSummary?: string;
 	reconReport?: Record<string, unknown>;
+	archivistContext?: OrcArchivistContextInjection;
 	failureDossier?: Record<string, unknown>;
 	contractValidationFailure?: OrcContractValidationFailure;
 }
@@ -88,7 +92,7 @@ export interface OrcGraphExecutors {
 		contractPayload: OrcContractPayloadHandoff;
 		decision: OrcRouteDecision;
 	}>;
-	dispatch(state: Readonly<OrcMasterState>): Promise<{ notes?: string; reconReport?: Record<string, unknown> }>;
+	dispatch(state: Readonly<OrcMasterState>): Promise<{ notes?: string; reconReport?: Record<string, unknown>; archivistContext?: OrcArchivistContextInjection }>;
 	verify(state: Readonly<OrcMasterState>): Promise<{
 		decision: "route" | "complete" | "failed";
 		notes: string;
@@ -96,6 +100,22 @@ export interface OrcGraphExecutors {
 		failureDossier?: Record<string, unknown>;
 	}>;
 	complete(state: Readonly<OrcMasterState>): Promise<{ summary: string }>;
+}
+
+function clampArchivistContext(context: OrcArchivistContextInjection | undefined): OrcArchivistContextInjection | undefined {
+	if (!context) {
+		return undefined;
+	}
+	const maxChars = Math.max(120, Math.min(context.charBudget, 1_600));
+	const maxSnippets = 6;
+	const summary = context.summary.length > maxChars ? `${context.summary.slice(0, maxChars - 1).trimEnd()}…` : context.summary;
+	return {
+		...context,
+		summary,
+		snippets: context.snippets.slice(0, maxSnippets),
+		truncated: context.truncated || context.summary.length > maxChars || context.snippets.length > maxSnippets,
+		charBudget: maxChars,
+	};
 }
 
 export interface OrcGraphMiddleware {
@@ -305,6 +325,7 @@ export function build_orc_graph(config: OrcGraphFactoryConfig): OrcCompiledGraph
 			next: ORC_GRAPH_EDGES.dispatch,
 			verificationNotes: dispatched.notes ?? state.verificationNotes,
 			reconReport: dispatched.reconReport ?? state.reconReport,
+			archivistContext: clampArchivistContext(dispatched.archivistContext ?? state.archivistContext),
 		};
 		return checkpointAndHook(dispatchedState, config.checkpointer, config.storeHooks?.onDispatch);
 	}
