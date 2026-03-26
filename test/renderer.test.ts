@@ -31,6 +31,16 @@ function createSnapshot(overrides: Partial<CuratorSnapshot> = {}): CuratorSnapsh
 		toolExecutions: [
 			{ toolCallId: "t-1", toolName: "read", status: "running", output: "", updatedAt: "2026-03-26T00:00:00.000Z" },
 		],
+		signal: {
+			version: "curator.signal.v1",
+			key: "water:active",
+			element: "water",
+			stage: "active",
+			retryActive: false,
+			retryAttempt: 0,
+			failureActive: false,
+			recoveryActive: false,
+		},
 		...overrides,
 	};
 }
@@ -47,6 +57,7 @@ test("renderCuratorDashboardFrame renders deterministic ASCII rows with compacti
 	assert.match(frame.body, /CURATOR DASHBOARD/);
 	assert.match(frame.body, /agent=alchemist pane=%11/);
 	assert.match(frame.body, /agent=orc pane=%10/);
+	assert.match(frame.body, /signal=water:active retry=0/);
 	assert.match(frame.body, /tools=read:running/);
 	assert.match(frame.body, /COMPACTION ALERT pending=3 reason=context budget/);
 });
