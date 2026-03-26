@@ -1,8 +1,10 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
 import {
+	classifyMechanicVerifyFailure,
 	createMechanicSubgraph,
 	type MechanicEscalationPayload,
+	type MechanicEnvironmentStateUpdate,
 	type MechanicSubgraphState,
 	type MechanicVerificationDiagnostic,
 } from "../src/orchestration/graph/subagents/mechanic-subgraph.js";
@@ -107,5 +109,94 @@ describe("createMechanicSubgraph", () => {
 
 		assert.equal(state.escalation?.maxAttempts, 3);
 		assert.equal(state.attemptCount, 3);
+	});
+
+	it("routes environment/dependency verify failures to Warden and resumes verify path", async () => {
+		const visited: string[] = [];
+		const wardenUpdates: MechanicEnvironmentStateUpdate[] = [];
+		const graph = createMechanicSubgraph({
+			executors: {
+				async edit() {
+					visited.push("edit");
+					return { changedFiles: ["src/app.ts"] };
+				},
+				async verify(state) {
+					visited.push("verify");
+					if (state.environmentStateUpdate) {
+						return { success: true, diagnostics: [] };
+					}
+					return {
+						success: false,
+						diagnostics: [{ tool: "compile", severity: "error", code: "TS2307", message: "Cannot find module 'zod'." }],
+					};
+				},
+				async routeToWardenForRemediation() {
+					visited.push("warden");
+					const environmentStateUpdate: MechanicEnvironmentStateUpdate = {
+						updatedFiles: ["package.json", "package-lock.json", ".env.example"],
+						installedDependencies: ["zod"],
+						resolvedEnvironmentVariables: ["OPENAI_API_KEY"],
+						notes: "Installed missing package and documented required env vars.",
+					};
+					wardenUpdates.push(environmentStateUpdate);
+					return { environmentStateUpdate };
+				},
+			},
+		});
+
+		let state = createBaseState();
+		for (let i = 0; i < 6; i += 1) {
+			if (state.next === "complete") break;
+			state = await graph.step(state);
+		}
+
+		assert.equal(state.next, "complete");
+		assert.equal(state.attemptCount, 1);
+		assert.deepEqual(visited, ["edit", "verify", "warden", "verify"]);
+		assert.equal(state.verifyFailureClass, undefined);
+		assert.equal(wardenUpdates.length, 1);
+		assert.equal(state.environmentStateUpdate?.installedDependencies[0], "zod");
+		assert.ok((state.changedFiles ?? []).includes("package.json"));
+	});
+
+	it("does not misroute non-environment failures to Warden", async () => {
+		let wardenCalls = 0;
+		const graph = createMechanicSubgraph({
+			executors: {
+				async edit() {
+					return { changedFiles: [] };
+				},
+				async verify() {
+					return { success: false, diagnostics: [{ tool: "compile", severity: "error", code: "TS2322", message: "Type 'string' is not assignable to type 'number'." }] };
+				},
+				async routeToWardenForRemediation() {
+					wardenCalls += 1;
+					return { environmentStateUpdate: { updatedFiles: [], installedDependencies: [], resolvedEnvironmentVariables: [] } };
+				},
+			},
+		});
+
+		let state = createBaseState();
+		state = await graph.step(state);
+		state = await graph.step(state);
+
+		assert.equal(state.next, "edit");
+		assert.equal(state.verifyFailureClass, "code");
+		assert.equal(wardenCalls, 0);
+	});
+
+	it("classifies module/import/env errors as environment failures", () => {
+		assert.equal(
+			classifyMechanicVerifyFailure([{ tool: "compile", severity: "error", message: "Cannot find module '@scope/pkg'." }]),
+			"environment",
+		);
+		assert.equal(
+			classifyMechanicVerifyFailure([{ tool: "compile", severity: "error", message: "Missing environment variable: OPENAI_API_KEY" }]),
+			"environment",
+		);
+		assert.equal(
+			classifyMechanicVerifyFailure([{ tool: "compile", severity: "error", code: "TS2322", message: "Type mismatch." }]),
+			"code",
+		);
 	});
 });

@@ -44,11 +44,14 @@ export type {
 export {
 	createMechanicSubgraph,
 	type MechanicEscalationPayload,
+	type MechanicEnvironmentStateUpdate,
+	type MechanicVerifyFailureClassifier,
 	type MechanicSubgraph,
 	type MechanicSubgraphExecutors,
 	type MechanicSubgraphNodeId,
 	type MechanicSubgraphState,
 	type MechanicVerificationDiagnostic,
+	classifyMechanicVerifyFailure,
 } from "./mechanic-subgraph.js";
 
 export {
