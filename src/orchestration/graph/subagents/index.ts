@@ -50,3 +50,13 @@ export {
 	type MechanicSubgraphState,
 	type MechanicVerificationDiagnostic,
 } from "./mechanic-subgraph.js";
+
+export {
+	createInquisitorSubgraph,
+	type FailureDossier,
+	type InquisitorFailureCategory,
+	type InquisitorSubgraph,
+	type InquisitorSubgraphExecutors,
+	type InquisitorSubgraphNodeId,
+	type InquisitorSubgraphState,
+} from "./inquisitor-subgraph.js";
