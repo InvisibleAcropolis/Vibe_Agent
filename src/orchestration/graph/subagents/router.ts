@@ -2,21 +2,37 @@ import { randomUUID } from "node:crypto";
 import type { RpcProcessLauncher, RpcTelemetryEnvelope } from "../../bridge/rpc_launcher.js";
 import type { TerminalPaneOrchestrator } from "../../terminal/pane_orchestrator.js";
 import { createCorrelationContext } from "../../errors/unified-error.js";
-import { ALCHEMIST_SUBAGENT_CONFIG } from "./alchemist.js";
-import { INQUISITOR_SUBAGENT_CONFIG } from "./inquisitor.js";
-import type { OrcTaskType, RoutedSubagentSession, TaskRoutingDecision } from "./types.js";
-
-interface RouteTaskInput {
-	taskId: string;
-	taskType: OrcTaskType;
-	graphNodeId?: string;
-}
+import { OrcSubagentToolPolicyViolationError } from "./errors.js";
+import { ORC_GUILD_SUBAGENT_REGISTRY } from "./registry.js";
+import {
+	composeSubAgentMiddleware,
+	createSubAgentRegistryGuardMiddleware,
+	createSubAgentRequestValidationMiddleware,
+	createSubAgentStructuredOutputMiddleware,
+	type SubAgentDispatchHandler,
+	type SubAgentMiddleware,
+} from "./middleware.js";
+import {
+	type GuildSubagentRole,
+	type OrcTaskType,
+	type RoutedSubagentSession,
+	type SpawnSubagentTaskRequest,
+	type SpawnSubagentTaskResult,
+	type TaskRoutingDecision,
+} from "./types.js";
+import {
+	createPolicyViolationDetail,
+	evaluateToolPolicyViolation,
+	extractTelemetryToolName,
+	validateSubagentToolPolicyRegistry,
+} from "./tool_policy.js";
 
 interface RouteTaskOptions {
 	routerNow?: () => Date;
 	paneOrchestrator: Pick<TerminalPaneOrchestrator, "splitVertical">;
 	rpcLauncher: Pick<RpcProcessLauncher, "startAgent" | "getAgentState">;
 	onDiagnostic?: (entry: Record<string, unknown>) => void;
+	middleware?: ReadonlyArray<SubAgentMiddleware>;
 }
 
 interface BoundTelemetryFrame {
@@ -24,20 +40,15 @@ interface BoundTelemetryFrame {
 	envelope: RpcTelemetryEnvelope;
 }
 
-const TASK_TYPE_TO_ROLE: Readonly<Record<OrcTaskType, TaskRoutingDecision["targetRole"]>> = {
-	repo_index: "inquisitor",
-	semantic_search: "inquisitor",
-	read_analysis: "inquisitor",
+const TASK_TYPE_TO_ROLE: Readonly<Record<OrcTaskType, GuildSubagentRole>> = {
+	repo_index: "scout",
+	semantic_search: "archivist",
+	read_analysis: "scout",
 	code_write: "alchemist",
 	code_refactor: "alchemist",
-	execution: "alchemist",
-	general: "inquisitor",
+	execution: "inquisitor",
+	general: "scribe",
 };
-
-const SUBAGENT_CONFIG_BY_ROLE = {
-	inquisitor: INQUISITOR_SUBAGENT_CONFIG,
-	alchemist: ALCHEMIST_SUBAGENT_CONFIG,
-} as const;
 
 export class OrcSubagentRouter {
 	private readonly now: () => Date;
@@ -46,17 +57,36 @@ export class OrcSubagentRouter {
 	private readonly onDiagnostic?: (entry: Record<string, unknown>) => void;
 	private readonly sessionsByRole = new Map<string, RoutedSubagentSession>();
 	private readonly sessionsByInstance = new Map<string, RoutedSubagentSession>();
+	private readonly dispatch: SubAgentDispatchHandler;
+	private readonly middlewareOrder: ReadonlyArray<string>;
 
 	constructor(options: RouteTaskOptions) {
 		this.now = options.routerNow ?? (() => new Date());
 		this.paneOrchestrator = options.paneOrchestrator;
 		this.rpcLauncher = options.rpcLauncher;
 		this.onDiagnostic = options.onDiagnostic;
+		const middleware = [
+			createSubAgentRequestValidationMiddleware(),
+			createSubAgentRegistryGuardMiddleware(),
+			...(options.middleware ?? []),
+			createSubAgentStructuredOutputMiddleware(),
+		];
+		this.middlewareOrder = Object.freeze(middleware.map((layer) => layer.name));
+		this.dispatch = composeSubAgentMiddleware(middleware, (context) => this.dispatchSpawnTask(context.request));
+		validateSubagentToolPolicyRegistry(ORC_GUILD_SUBAGENT_REGISTRY);
+	}
+
+	getRegisteredSubagents() {
+		return Object.values(ORC_GUILD_SUBAGENT_REGISTRY);
+	}
+
+	getMiddlewareOrder(): ReadonlyArray<string> {
+		return this.middlewareOrder;
 	}
 
 	getRoutingDecision(taskType: OrcTaskType): TaskRoutingDecision {
 		const targetRole = TASK_TYPE_TO_ROLE[taskType];
-		const config = SUBAGENT_CONFIG_BY_ROLE[targetRole];
+		const config = ORC_GUILD_SUBAGENT_REGISTRY[targetRole];
 		return {
 			taskType,
 			targetRole,
@@ -64,17 +94,31 @@ export class OrcSubagentRouter {
 		};
 	}
 
-	async routeTask(input: RouteTaskInput): Promise<RoutedSubagentSession> {
+	async routeTask(input: { taskId: string; taskType: OrcTaskType; graphNodeId?: string }): Promise<RoutedSubagentSession> {
 		const decision = this.getRoutingDecision(input.taskType);
-		const runtimeState = this.rpcLauncher.startAgent(decision.targetRole);
+		const result = await this.invokeSpawnTask({
+			taskId: input.taskId,
+			taskType: input.taskType,
+			subagentName: decision.targetRole,
+			graphNodeId: input.graphNodeId,
+		});
+		return result.session;
+	}
+
+	async invokeSpawnTask(request: SpawnSubagentTaskRequest): Promise<SpawnSubagentTaskResult> {
+		return this.dispatch({ request, registry: ORC_GUILD_SUBAGENT_REGISTRY });
+	}
+
+	private async dispatchSpawnTask(request: SpawnSubagentTaskRequest): Promise<SpawnSubagentTaskResult> {
+		const runtimeState = this.rpcLauncher.startAgent(request.subagentName);
 		const binding = {
 			agentId: runtimeState.identity.agentId,
 			boundAt: this.now(),
 		};
 		const pane = await this.paneOrchestrator.splitVertical("secondary", binding);
-		const verifiedState = this.rpcLauncher.getAgentState(decision.targetRole);
+		const verifiedState = this.rpcLauncher.getAgentState(request.subagentName);
 		const correlation = createCorrelationContext({
-			graphNodeId: input.graphNodeId,
+			graphNodeId: request.graphNodeId,
 			agentId: verifiedState.identity.agentId,
 			paneId: pane.paneId,
 			pid: verifiedState.identity.pid,
@@ -82,10 +126,10 @@ export class OrcSubagentRouter {
 		const session: RoutedSubagentSession = {
 			sessionId: randomUUID(),
 			correlationId: correlation.correlationId,
-			taskId: input.taskId,
-			graphNodeId: input.graphNodeId,
-			taskType: input.taskType,
-			subagentRole: decision.targetRole,
+			taskId: request.taskId,
+			graphNodeId: request.graphNodeId,
+			taskType: request.taskType,
+			subagentRole: request.subagentName,
 			subagentAgentId: verifiedState.identity.agentId,
 			subagentInstanceId: verifiedState.identity.instanceId,
 			processPid: verifiedState.identity.pid,
@@ -96,19 +140,33 @@ export class OrcSubagentRouter {
 			event: "subagent.session.bound",
 			at: this.now().toISOString(),
 			correlation,
-			taskId: input.taskId,
-			taskType: input.taskType,
-			subagentRole: decision.targetRole,
+			taskId: request.taskId,
+			taskType: request.taskType,
+			subagentRole: request.subagentName,
 			subagentInstanceId: verifiedState.identity.instanceId,
 		});
 		this.sessionsByRole.set(session.subagentRole, session);
 		this.sessionsByInstance.set(session.subagentInstanceId, session);
-		return session;
+		return {
+			session,
+			structuredOutput: {
+				kind: "subagent_dispatch_v1",
+				taskId: request.taskId,
+				taskType: request.taskType,
+				targetRole: request.subagentName,
+				sessionId: session.sessionId,
+				correlationId: session.correlationId,
+				paneId: session.paneId,
+				subagentInstanceId: session.subagentInstanceId,
+				boundAt: session.boundAt,
+			},
+		};
 	}
 
 	bindTelemetry(envelope: RpcTelemetryEnvelope): BoundTelemetryFrame | undefined {
 		const byInstance = this.sessionsByInstance.get(envelope.source.instanceId);
 		if (byInstance) {
+			this.enforceToolPolicy(byInstance, envelope);
 			this.onDiagnostic?.({
 				event: "subagent.telemetry.bound",
 				at: this.now().toISOString(),
@@ -131,6 +189,36 @@ export class OrcSubagentRouter {
 		if (byRole.subagentAgentId !== envelope.source.agentId) {
 			return undefined;
 		}
+		this.enforceToolPolicy(byRole, envelope);
 		return { session: byRole, envelope };
+	}
+
+	private enforceToolPolicy(session: RoutedSubagentSession, envelope: RpcTelemetryEnvelope): void {
+		const toolName = extractTelemetryToolName(envelope);
+		if (!toolName) {
+			return;
+		}
+		const violation = evaluateToolPolicyViolation({
+			role: session.subagentRole,
+			toolName,
+		});
+		if (!violation) {
+			return;
+		}
+		const detail = {
+			...createPolicyViolationDetail(violation),
+			sessionId: session.sessionId,
+			taskId: session.taskId,
+			telemetryEventId: envelope.eventId,
+		};
+		this.onDiagnostic?.({
+			event: "subagent.policy_violation",
+			at: this.now().toISOString(),
+			...detail,
+		});
+		throw new OrcSubagentToolPolicyViolationError(
+			`Policy violation by ${session.subagentRole}: ${violation.reason} Route control to Orc for remediation.`,
+			detail,
+		);
 	}
 }

@@ -1,4 +1,4 @@
-export type OrcAgentNodeId = "plan" | "delegate" | "evaluate" | "complete";
+export type OrcAgentNodeId = "plan" | "delegate" | "evaluate" | "scribe" | "complete";
 
 export type OrcTodoStatus = "pending" | "in_progress" | "completed";
 
@@ -43,6 +43,17 @@ export interface OrcPlanningStateStore {
 	save(snapshot: OrcPlanningStateSnapshot): Promise<void>;
 }
 
+/**
+ * Success signal emitted by Scribe after docs/docstrings/README updates land.
+ * Orc must not emit final "done" unless this signal is present and successful.
+ */
+export interface OrcAgentScribeResult {
+	success: boolean;
+	updatedTargets: string[];
+	diffSummaryArtifactPath: string;
+	notes?: string;
+}
+
 export interface OrcAgentState {
 	threadId: string;
 	runCorrelationId: string;
@@ -54,6 +65,7 @@ export interface OrcAgentState {
 	lastDelegationSummary?: string;
 	evaluationNotes?: string;
 	completionSummary?: string;
+	scribeResult?: OrcAgentScribeResult;
 	planningSnapshotRevision?: number;
 	next: OrcAgentNodeId;
 }
@@ -78,6 +90,7 @@ export interface OrcAgentGraphExecutors {
 	plan(state: Readonly<OrcAgentState>): Promise<OrcPlanNodeResult>;
 	delegate(state: Readonly<OrcAgentState>): Promise<OrcDelegateNodeResult>;
 	evaluate(state: Readonly<OrcAgentState>): Promise<OrcEvaluateNodeResult>;
+	scribe(state: Readonly<OrcAgentState>): Promise<OrcAgentScribeResult>;
 	complete?(state: Readonly<OrcAgentState>): Promise<string | undefined>;
 }
 
@@ -92,18 +105,20 @@ const ORC_AGENT_NODES: Readonly<Record<OrcAgentNodeId, OrcAgentNodeId>> = {
 	plan: "plan",
 	delegate: "delegate",
 	evaluate: "evaluate",
+	scribe: "scribe",
 	complete: "complete",
 };
 
 const ORC_AGENT_EDGES: Readonly<Record<Exclude<OrcAgentNodeId, "evaluate">, OrcAgentNodeId>> = {
 	plan: "delegate",
 	delegate: "evaluate",
+	scribe: "complete",
 	complete: "complete",
 };
 
 const ORC_AGENT_DECISION_EDGES: Readonly<Record<OrcEvaluateNodeResult["decision"], OrcAgentNodeId>> = {
 	continue: "plan",
-	complete: "complete",
+	complete: "scribe",
 };
 
 function assertWriteTodosDecomposition(todos: OrcTodoItem[]): void {
@@ -192,11 +207,26 @@ export function createOrcAgentGraph(deps: {
 			...state,
 			iteration: incrementedIteration,
 			evaluationNotes: evaluation.notes,
-			next: forcedCompletion ? "complete" : nextNode,
+			next: forcedCompletion ? "scribe" : nextNode,
+		};
+	}
+
+	async function runScribeNode(state: OrcAgentState): Promise<OrcAgentState> {
+		const scribeResult = await deps.executors.scribe(state);
+		if (!scribeResult.success) {
+			throw new Error("Orc completion blocked: Scribe must succeed before finalizing the run.");
+		}
+		return {
+			...state,
+			next: ORC_AGENT_EDGES.scribe,
+			scribeResult,
 		};
 	}
 
 	async function runCompleteNode(state: OrcAgentState): Promise<OrcAgentState> {
+		if (!state.scribeResult?.success) {
+			throw new Error("Orc completion blocked: Scribe success signal is required before emitting done.");
+		}
 		const completionSummary = deps.executors.complete
 			? await deps.executors.complete(state)
 			: state.evaluationNotes;
@@ -219,6 +249,8 @@ export function createOrcAgentGraph(deps: {
 					return runDelegateNode(state);
 				case "evaluate":
 					return runEvaluateNode(state);
+				case "scribe":
+					return runScribeNode(state);
 				case "complete":
 					return runCompleteNode(state);
 				default: {

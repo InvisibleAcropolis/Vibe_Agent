@@ -1,5 +1,12 @@
 export const ORC_MEMORY_SCHEMA_VERSION = 1 as const;
 
+export type OrcMemoryBackendMode = "filesystem" | "vector";
+
+export interface OrcMemoryBackendRoute {
+	mode: OrcMemoryBackendMode;
+	namespace?: string;
+}
+
 export type OrcMemoryRecordKind =
 	| "subagent_findings"
 	| "intermediate_artifacts"
@@ -69,4 +76,29 @@ export interface OrcGlobalPlanState {
 	summary?: string;
 	completed: string[];
 	pending: string[];
+}
+
+export interface OrcMemorySourceProvenance {
+	backend: OrcMemoryBackendMode;
+	recordKind?: OrcMemoryRecordKind;
+	threadId?: string;
+	agentId?: string;
+	paneId?: string;
+	sourcePath?: string;
+	vectorDocumentId?: string;
+}
+
+export interface OrcMemoryRetrievalHit {
+	id: string;
+	snippet: string;
+	score?: number;
+	confidenceHint: "low" | "medium" | "high";
+	provenance: OrcMemorySourceProvenance;
+}
+
+export interface OrcMemoryRetrievalResult {
+	backend: OrcMemoryBackendMode;
+	query: string;
+	retrievedAt: string;
+	hits: OrcMemoryRetrievalHit[];
 }

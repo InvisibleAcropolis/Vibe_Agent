@@ -62,6 +62,7 @@ test("RpcEventCurator tracks state per agent and pane with accumulated deltas", 
 	assert.equal(final.toolExecutions[0]?.status, "completed");
 	assert.equal(final.timing.taskDurationMs, 100);
 	assert.equal(final.timing.lastTurnDurationMs, 80);
+	assert.equal(final.signal.key, "water:completed");
 });
 
 test("RpcEventCurator keeps agent/pane state isolated", () => {
@@ -81,6 +82,7 @@ test("RpcEventCurator keeps agent/pane state isolated", () => {
 	assert.equal(right?.status, "ended");
 	assert.equal(right?.message.text, "R");
 	assert.equal(right?.finishReason, "cancelled");
+	assert.equal(right?.signal.key, "water:cancelled");
 });
 
 test("RpcEventCurator watchdog marks timed out panes and emits snapshot", async () => {
@@ -110,8 +112,10 @@ test("RpcEventCurator watchdog marks timed out panes and emits snapshot", async 
 
 test("parseCuratorRpcEvent validates required routing keys", () => {
 	assert.equal(parseCuratorRpcEvent({ type: "agent_start", agentId: "a", paneId: "p" })?.type, "agent_start");
+	assert.equal(parseCuratorRpcEvent({ type: "auto_retry_start", agentId: "a", paneId: "p", attempt: 1, maxAttempts: 3 })?.type, "auto_retry_start");
 	assert.equal(parseCuratorRpcEvent({ type: "agent_start", paneId: "p" }), undefined);
 	assert.equal(parseCuratorRpcEvent({ type: "other", agentId: "a", paneId: "p" }), undefined);
+	assert.equal(parseCuratorRpcEvent({ type: "auto_retry_end", agentId: "a", paneId: "p", success: "yes" }), undefined);
 });
 
 test("RpcEventCurator persists and consumes memory artifacts on agent_end", () => {
@@ -136,4 +140,45 @@ test("RpcEventCurator persists and consumes memory artifacts on agent_end", () =
 	assert.equal(snapshot.globalPlanState?.status, "completed");
 	assert.equal(snapshot.globalPlanState?.completed.includes("planner"), true);
 	assert.equal(snapshot.globalPlanState?.summary, "Finished planning.");
+});
+
+test("RpcEventCurator maps retry and recovery events to deterministic signals", () => {
+	const curator = new RpcEventCurator({ now: () => 1_710_000_000_000, watchdogMs: 1_000 });
+	curator.handleRpcEvent({ type: "agent_start", agentId: "orc", paneId: "left" });
+	const retrying = curator.handleRpcEvent({
+		type: "auto_retry_start",
+		agentId: "orc",
+		paneId: "left",
+		attempt: 1,
+		maxAttempts: 3,
+		errorMessage: "overloaded",
+	});
+	assert.equal(retrying.signal.key, "fire:retrying");
+	assert.equal(retrying.signal.retryAttempt, 1);
+
+	const recovering = curator.handleRpcEvent({
+		type: "auto_retry_end",
+		agentId: "orc",
+		paneId: "left",
+		success: true,
+		attempt: 1,
+	});
+	assert.equal(recovering.signal.key, "water:recovering");
+	assert.equal(recovering.signal.failureActive, false);
+});
+
+test("RpcEventCurator enqueueRpcEvent ingests stream events without blocking caller", async () => {
+	const snapshots: string[] = [];
+	const curator = new RpcEventCurator({
+		now: () => 1_710_000_000_000,
+		watchdogMs: 1_000,
+		onSnapshot: (snapshot) => snapshots.push(snapshot.signal.key),
+	});
+	curator.enqueueRpcEvent({ type: "agent_start", agentId: "orc", paneId: "left" });
+	curator.enqueueRpcEvent({ type: "auto_retry_start", agentId: "orc", paneId: "left", attempt: 1 });
+	assert.equal(snapshots.length, 0);
+
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(snapshots.length, 2);
+	assert.deepEqual(snapshots, ["water:active", "fire:retrying"]);
 });

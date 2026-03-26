@@ -35,3 +35,23 @@ export type { OrnateFrameOptions } from "./components/ornate-frame.js";
 export type { OrnateFrameVariant, FrameTileSet } from "./ornate-frame-tiles/index.js";
 export { loadAllTileSets, getTileSet, getRegisteredVariants } from "./ornate-frame-tiles/index.js";
 export type { OrnateFrameColors } from "./themes/index.js";
+export {
+	RpcEventCurator,
+	parseCuratorRpcEvent,
+	type CuratorRpcEvent,
+	type CuratorRpcEventType,
+	type CuratorSnapshot,
+	type CuratorTelemetrySignal,
+	type CuratorTelemetrySignalElement,
+	type CuratorTelemetrySignalStage,
+} from "./orchestration/bridge/curator.js";
+export { renderCuratorDashboardFrame, CuratorDashboardOutput } from "./orchestration/bridge/renderer.js";
+export type {
+	CuratorCompactionAlert,
+	CuratorDashboardCommandRunner,
+	CuratorDashboardFrame,
+	CuratorDashboardOutputOptions,
+	CuratorDashboardRenderOptions,
+	CuratorDashboardTransport,
+	CuratorRenderState,
+} from "./orchestration/bridge/renderer.js";
