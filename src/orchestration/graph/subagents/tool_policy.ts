@@ -52,8 +52,8 @@ export const ORC_SUBAGENT_TOOL_POLICY_MAP: Readonly<Record<GuildSubagentRole, Su
 		allowedDomains: ["dependency", "environment"],
 	},
 	alchemist: {
-		allowedCapabilities: ["write", "refactor", "execute"],
-		allowedDomains: ["edit", "refactor", "test"],
+		allowedCapabilities: ["read", "refactor"],
+		allowedDomains: ["read", "recon", "lsp", "refactor"],
 	},
 	scribe: {
 		allowedCapabilities: ["read", "write"],

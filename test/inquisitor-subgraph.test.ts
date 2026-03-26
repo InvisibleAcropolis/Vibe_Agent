@@ -13,6 +13,7 @@ function createBaseState(overrides: Partial<InquisitorSubgraphState> = {}): Inqu
 		next: "generate_tests",
 		attemptCount: 0,
 		generatedArtifacts: [],
+		baselineValidationPassed: false,
 		...overrides,
 	};
 }
@@ -77,22 +78,29 @@ describe("createInquisitorSubgraph", () => {
 		assert.deepEqual(state.failureDossier?.payload, { rawPayload: null });
 	});
 
-	it("blocks Orc completion until tests pass and emits validation success on pass", async () => {
+	it("runs optional post-inquisitor optimization only after baseline pass, then revalidates", async () => {
 		let validationEvents = 0;
+		let optimizationRuns = 0;
 		const graph = createInquisitorSubgraph({
 			now: () => new Date("2026-03-26T11:00:00.000Z"),
 			executors: {
 				async generateTests(state) {
 					return { generatedArtifacts: ["test/inquisitor/pass.test.ts"], testCommand: `pnpm test -- attempt=${state.attemptCount}` };
 				},
-				async executeTests(state) {
-					if (state.attemptCount < 2) {
-						return { success: false, failureCategory: "test_failure", stackTrace: "AssertionError", payload: { attempt: state.attemptCount } };
+				async executeTests(_state, phase) {
+					if (phase === "baseline") {
+						return { success: true };
 					}
 					return { success: true };
 				},
-				async routeFailureToMechanic() {
-					return;
+				async runPostRefactorOptimization() {
+					optimizationRuns += 1;
+					return {
+						complexityDelta: -3,
+						styleDelta: -5,
+						summary: "Extracted helper methods and normalized naming.",
+						artifacts: ["src/orchestration/graph/subagents/inquisitor-subgraph.ts"],
+					};
 				},
 				async emitValidationSuccessToOrc() {
 					validationEvents += 1;
@@ -107,9 +115,13 @@ describe("createInquisitorSubgraph", () => {
 		}
 
 		assert.equal(state.next, "complete");
-		assert.equal(state.attemptCount, 2);
+		assert.equal(state.attemptCount, 1);
+		assert.equal(state.baselineValidationPassed, true);
+		assert.equal(optimizationRuns, 1);
 		assert.equal(validationEvents, 1);
-		assert.match(state.completionSummary ?? "", /validation success emitted to orc/i);
+		assert.equal(state.refactorDeltaRecord?.complexityDelta, -3);
+		assert.equal(state.refactorDeltaRecord?.styleDelta, -5);
+		assert.match(state.completionSummary ?? "", /post-refactor revalidation succeeded/i);
 	});
 
 	it("rejects production-file mutations during test generation", async () => {
