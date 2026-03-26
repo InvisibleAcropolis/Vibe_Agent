@@ -30,6 +30,7 @@ import {
 } from "./orc-runtime/state-bootstrap.js";
 import { createRuntimeSessionHooks } from "./orc-runtime/session-hooks.js";
 import { OrcRuntimeTransportSupervisor, bindTransport, publishRuntimeEvent, startTransport } from "./orc-runtime/transport-supervisor.js";
+import { getTerminalSessionManager } from "./terminal/session_manager.js";
 import { createThreadContext } from "./orc-runtime/thread-context-factory.js";
 import type {
 	OrcRuntime,
@@ -65,6 +66,7 @@ export class OrcRuntimeSkeleton implements OrcRuntime {
 	private readonly transportHealth = new Map<string, OrcPythonTransportHealth>();
 	private readonly persistenceCoordinator = new OrcRuntimePersistenceCoordinator();
 	private readonly transportSupervisor = new OrcRuntimeTransportSupervisor();
+	private readonly terminalSessionManager = getTerminalSessionManager();
 
 	constructor(
 		readonly adapters: OrcRuntimeAdapters = {},
@@ -203,6 +205,7 @@ export class OrcRuntimeSkeleton implements OrcRuntime {
 		checkpoint: Awaited<ReturnType<OrcCheckpointStore["loadCheckpoint"]>>,
 		mode: "launch" | "resume",
 	): Promise<void> {
+		await this.ensureTerminalSession(mode);
 		await startTransport(context, buildLaunchInput(context, checkpoint), mode, this.transportHealth);
 	}
 
@@ -253,6 +256,23 @@ export class OrcRuntimeSkeleton implements OrcRuntime {
 			activeThreads: this.activeThreads,
 			transportHealth: this.transportHealth,
 		});
+		try {
+			await this.terminalSessionManager.shutdownCoreSession();
+		} catch {
+			// Keep runtime cleanup resilient; transport disposal and tracker persistence stay authoritative.
+		}
+	}
+
+	private async ensureTerminalSession(mode: "launch" | "resume"): Promise<void> {
+		try {
+			if (mode === "resume") {
+				await this.terminalSessionManager.recoverCoreSession();
+				return;
+			}
+			await this.terminalSessionManager.ensureCoreSessionDetached();
+		} catch {
+			// psmux is optional outside the target host profile; transport launch still proceeds.
+		}
 	}
 
 
