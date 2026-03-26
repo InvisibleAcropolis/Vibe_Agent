@@ -1,3 +1,10 @@
+import { resolve } from "node:path";
+import {
+	ORC_MEMORY_SCHEMA_VERSION,
+	OrcMemoryStore,
+	type OrcGlobalPlanState,
+} from "../memory/index.js";
+
 export type CuratorRpcEventType = "agent_start" | "turn_start" | "message_update" | "tool_execution_update" | "agent_end";
 
 export interface CuratorEventBase {
@@ -122,6 +129,7 @@ export interface CuratorSnapshot {
 		error?: string;
 		updatedAt: string;
 	}>;
+	globalPlanState?: OrcGlobalPlanState;
 }
 
 export interface CuratorOptions {
@@ -129,6 +137,7 @@ export interface CuratorOptions {
 	snapshotLimit?: number;
 	now?: () => number;
 	onSnapshot?: (snapshot: CuratorSnapshot) => void;
+	memoryRootDir?: string;
 }
 
 const DEFAULT_WATCHDOG_MS = 45_000;
@@ -141,12 +150,15 @@ export class RpcEventCurator {
 	private readonly snapshotLimit: number;
 	private readonly now: () => number;
 	private readonly onSnapshot?: (snapshot: CuratorSnapshot) => void;
+	private readonly memoryStore: OrcMemoryStore;
+	private readonly globalPlanByAgent = new Map<string, OrcGlobalPlanState>();
 
 	constructor(options: CuratorOptions = {}) {
 		this.watchdogMs = options.watchdogMs ?? DEFAULT_WATCHDOG_MS;
 		this.snapshotLimit = options.snapshotLimit ?? DEFAULT_SNAPSHOT_LIMIT;
 		this.now = options.now ?? (() => Date.now());
 		this.onSnapshot = options.onSnapshot;
+		this.memoryStore = new OrcMemoryStore(options.memoryRootDir ?? resolve(process.cwd(), ".vibe", "orchestration-memory"));
 	}
 
 	handleRpcEvent(event: CuratorRpcEvent): CuratorSnapshot {
@@ -322,6 +334,86 @@ export class RpcEventCurator {
 			pane.turnStartedAt = undefined;
 		}
 		pane.finishReason = event.finishReason ?? event.reason ?? event.error ?? "unknown";
+		this.captureMemoryArtifacts(pane, timestampMs);
+	}
+
+	private captureMemoryArtifacts(pane: CuratorPaneState, timestampMs: number): void {
+		const updatedAt = new Date(timestampMs).toISOString();
+		const threadId = pane.taskId ?? `thread-${pane.agentId}`;
+		this.memoryStore.writeSubagentFindings({
+			schemaVersion: ORC_MEMORY_SCHEMA_VERSION,
+			kind: "subagent_findings",
+			threadId,
+			agentId: pane.agentId,
+			paneId: pane.paneId,
+			updatedAt,
+			findings: [
+				{
+					id: pane.messageId ?? `${pane.agentId}-${pane.paneId}-finding`,
+					summary: pane.thinking || pane.text || "No finding summary provided.",
+					evidence: pane.toolExecutions.size > 0
+						? [...pane.toolExecutions.values()].map((tool) => `${tool.toolName ?? tool.toolCallId}:${tool.status}`)
+						: ["no_tool_execution"],
+					confidence: pane.status === "ended" ? "high" : "medium",
+				},
+			],
+		});
+		this.memoryStore.writeIntermediateArtifacts({
+			schemaVersion: ORC_MEMORY_SCHEMA_VERSION,
+			kind: "intermediate_artifacts",
+			threadId,
+			agentId: pane.agentId,
+			paneId: pane.paneId,
+			updatedAt,
+			artifacts: [...pane.toolExecutions.values()].map((execution) => ({
+				id: execution.toolCallId,
+				kind: "tool_output",
+				label: execution.toolName ?? execution.toolCallId,
+				content: execution.output,
+				createdAt: execution.updatedAt,
+			})),
+		});
+		const status = pane.status === "timed_out"
+			? "timed_out"
+			: pane.finishReason === "completed"
+				? "completed"
+				: pane.finishReason === "cancelled"
+					? "cancelled"
+					: pane.finishReason === "failed"
+						? "failed"
+						: "unknown";
+		this.memoryStore.writeCompletionStatus({
+			schemaVersion: ORC_MEMORY_SCHEMA_VERSION,
+			kind: "completion_status",
+			threadId,
+			agentId: pane.agentId,
+			paneId: pane.paneId,
+			updatedAt,
+			status,
+			reason: pane.finishReason ?? "unknown",
+			completedAt: updatedAt,
+		});
+		this.memoryStore.writeHandoffSummary({
+			schemaVersion: ORC_MEMORY_SCHEMA_VERSION,
+			kind: "handoff_summary",
+			threadId,
+			agentId: pane.agentId,
+			paneId: pane.paneId,
+			updatedAt,
+			summary: pane.text || pane.thinking || "No handoff summary available.",
+			nextActions: pane.finishReason === "completed" ? [] : ["review_agent_output"],
+			planDelta: {
+				completed: pane.finishReason === "completed" ? [pane.paneId] : [],
+				pending: pane.finishReason === "completed" ? [] : [pane.paneId],
+			},
+		});
+
+		const consumed = this.memoryStore.consumeAfterAgentEnd({ threadId, agentId: pane.agentId, paneId: pane.paneId });
+		const existingPlanState = this.globalPlanByAgent.get(pane.agentId);
+		const nextPlanState = this.memoryStore.updateGlobalPlanState(existingPlanState, consumed);
+		if (nextPlanState) {
+			this.globalPlanByAgent.set(pane.agentId, nextPlanState);
+		}
 	}
 
 	private armWatchdog(pane: CuratorPaneState): void {
@@ -384,6 +476,7 @@ export class RpcEventCurator {
 				toolCalls: [...pane.toolCalls.values()].map((toolCall) => ({ ...toolCall })),
 			},
 			toolExecutions: [...pane.toolExecutions.values()].map((execution) => ({ ...execution })),
+			globalPlanState: this.globalPlanByAgent.get(pane.agentId),
 		};
 	}
 }
