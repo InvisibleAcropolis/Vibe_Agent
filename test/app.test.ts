@@ -1629,6 +1629,7 @@ test("orc graph routes malformed StructuralBlueprint payloads to contract_error 
 		threadId: "thread-contract-1",
 		runCorrelationId: "run-contract-1",
 		next: "route",
+		memoryRoute: { mode: "filesystem" },
 		routing: { taskType: "general", requestedBy: "orc", chainOfCustody: [] },
 		retries: { attempt: 0, maxAttempts: 1 },
 	};
@@ -1695,6 +1696,7 @@ test("orc graph prevents verify transition when ReconReport contract is invalid"
 		threadId: "thread-contract-2",
 		runCorrelationId: "run-contract-2",
 		next: "route",
+		memoryRoute: { mode: "filesystem" },
 		routing: { taskType: "general", requestedBy: "orc", chainOfCustody: [] },
 		retries: { attempt: 0, maxAttempts: 1 },
 	});

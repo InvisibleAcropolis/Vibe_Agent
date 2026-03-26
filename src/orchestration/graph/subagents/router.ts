@@ -42,7 +42,7 @@ interface BoundTelemetryFrame {
 
 const TASK_TYPE_TO_ROLE: Readonly<Record<OrcTaskType, GuildSubagentRole>> = {
 	repo_index: "scout",
-	semantic_search: "scout",
+	semantic_search: "archivist",
 	read_analysis: "scout",
 	code_write: "alchemist",
 	code_refactor: "alchemist",

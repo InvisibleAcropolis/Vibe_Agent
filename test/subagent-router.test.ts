@@ -30,6 +30,7 @@ class FakeRpcLauncher implements Pick<RpcProcessLauncher, "startAgent" | "getAge
 		this.states.set("alchemist", this.createState("alchemist", "alchemist-main", "alc-instance"));
 		this.states.set("architect", this.createState("architect", "architect-main", "arc-instance"));
 		this.states.set("mechanic", this.createState("mechanic", "mechanic-main", "mec-instance"));
+		this.states.set("archivist", this.createState("archivist", "archivist-main", "arcv-instance"));
 	}
 
 	startAgent(role: RpcAgentRole): RpcAgentRuntimeState {
@@ -132,13 +133,13 @@ describe("OrcSubagentRouter", () => {
 			subagentName: "inquisitor",
 		});
 
-		assert.equal(readSession.subagentRole, "scout");
+		assert.equal(readSession.subagentRole, "archivist");
 		assert.equal(executeResult.session.subagentRole, "inquisitor");
 		assert.equal(executeResult.structuredOutput.kind, "subagent_dispatch_v1");
-		assert.deepEqual(rpcLauncher.startCalls, ["scout", "inquisitor"]);
+		assert.deepEqual(rpcLauncher.startCalls, ["archivist", "inquisitor"]);
 		assert.deepEqual(router.getMiddlewareOrder(), ["request_validation", "registry_guard", "structured_output"]);
 		assert.deepEqual(paneOrchestrator.calls, [
-			{ role: "secondary", agentId: "scout-main" },
+			{ role: "secondary", agentId: "archivist-main" },
 			{ role: "secondary", agentId: "inquisitor-main" },
 		]);
 	});

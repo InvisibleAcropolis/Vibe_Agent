@@ -73,3 +73,12 @@ export {
 	type ScribeSubgraphNodeId,
 	type ScribeSubgraphState,
 } from "./scribe-subgraph.js";
+export {
+	createArchivistSubgraph,
+	type ArchivistSubgraph,
+	type ArchivistSubgraphExecutors,
+	type ArchivistSubgraphNodeId,
+	type ArchivistSubgraphState,
+	type OrcArchivistContextInjection,
+	type OrcArchivistContextSnippet,
+} from "./archivist-subgraph.js";
