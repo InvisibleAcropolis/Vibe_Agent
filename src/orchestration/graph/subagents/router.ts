@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { RpcProcessLauncher, RpcTelemetryEnvelope } from "../../bridge/rpc_launcher.js";
 import type { TerminalPaneOrchestrator } from "../../terminal/pane_orchestrator.js";
 import { createCorrelationContext } from "../../errors/unified-error.js";
+import { OrcSubagentToolPolicyViolationError } from "./errors.js";
 import { ORC_GUILD_SUBAGENT_REGISTRY } from "./registry.js";
 import {
 	composeSubAgentMiddleware,
@@ -19,6 +20,12 @@ import {
 	type SpawnSubagentTaskResult,
 	type TaskRoutingDecision,
 } from "./types.js";
+import {
+	createPolicyViolationDetail,
+	evaluateToolPolicyViolation,
+	extractTelemetryToolName,
+	validateSubagentToolPolicyRegistry,
+} from "./tool_policy.js";
 
 interface RouteTaskOptions {
 	routerNow?: () => Date;
@@ -66,6 +73,7 @@ export class OrcSubagentRouter {
 		];
 		this.middlewareOrder = Object.freeze(middleware.map((layer) => layer.name));
 		this.dispatch = composeSubAgentMiddleware(middleware, (context) => this.dispatchSpawnTask(context.request));
+		validateSubagentToolPolicyRegistry(ORC_GUILD_SUBAGENT_REGISTRY);
 	}
 
 	getRegisteredSubagents() {
@@ -158,6 +166,7 @@ export class OrcSubagentRouter {
 	bindTelemetry(envelope: RpcTelemetryEnvelope): BoundTelemetryFrame | undefined {
 		const byInstance = this.sessionsByInstance.get(envelope.source.instanceId);
 		if (byInstance) {
+			this.enforceToolPolicy(byInstance, envelope);
 			this.onDiagnostic?.({
 				event: "subagent.telemetry.bound",
 				at: this.now().toISOString(),
@@ -180,6 +189,36 @@ export class OrcSubagentRouter {
 		if (byRole.subagentAgentId !== envelope.source.agentId) {
 			return undefined;
 		}
+		this.enforceToolPolicy(byRole, envelope);
 		return { session: byRole, envelope };
+	}
+
+	private enforceToolPolicy(session: RoutedSubagentSession, envelope: RpcTelemetryEnvelope): void {
+		const toolName = extractTelemetryToolName(envelope);
+		if (!toolName) {
+			return;
+		}
+		const violation = evaluateToolPolicyViolation({
+			role: session.subagentRole,
+			toolName,
+		});
+		if (!violation) {
+			return;
+		}
+		const detail = {
+			...createPolicyViolationDetail(violation),
+			sessionId: session.sessionId,
+			taskId: session.taskId,
+			telemetryEventId: envelope.eventId,
+		};
+		this.onDiagnostic?.({
+			event: "subagent.policy_violation",
+			at: this.now().toISOString(),
+			...detail,
+		});
+		throw new OrcSubagentToolPolicyViolationError(
+			`Policy violation by ${session.subagentRole}: ${violation.reason} Route control to Orc for remediation.`,
+			detail,
+		);
 	}
 }
