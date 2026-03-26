@@ -7,7 +7,21 @@ export interface FailureDossier {
 	failedAt: string;
 }
 
-export type InquisitorSubgraphNodeId = "generate_tests" | "execute_tests" | "route_failure" | "complete";
+export type InquisitorSubgraphNodeId =
+	| "generate_tests"
+	| "execute_tests"
+	| "optimize_refactor"
+	| "revalidate_tests"
+	| "route_failure"
+	| "complete";
+
+export interface RefactorDeltaRecord {
+	complexityDelta: number;
+	styleDelta: number;
+	recordedAt: string;
+	summary?: string;
+	artifacts: string[];
+}
 
 export interface InquisitorSubgraphState {
 	threadId: string;
@@ -18,15 +32,26 @@ export interface InquisitorSubgraphState {
 	latestTestCommand?: string;
 	failureDossier?: FailureDossier;
 	completionSummary?: string;
+	baselineValidationPassed: boolean;
+	refactorDeltaRecord?: RefactorDeltaRecord;
 }
 
 export interface InquisitorSubgraphExecutors {
 	generateTests(state: Readonly<InquisitorSubgraphState>): Promise<{ generatedArtifacts: string[]; testCommand?: string }>;
-	executeTests(state: Readonly<InquisitorSubgraphState>): Promise<{
+	executeTests(
+		state: Readonly<InquisitorSubgraphState>,
+		phase: "baseline" | "post_refactor",
+	): Promise<{
 		success: boolean;
 		stackTrace?: string;
 		payload?: unknown;
 		failureCategory?: InquisitorFailureCategory;
+	}>;
+	runPostRefactorOptimization?(state: Readonly<InquisitorSubgraphState>): Promise<{
+		artifacts?: string[];
+		complexityDelta: number;
+		styleDelta: number;
+		summary?: string;
 	}>;
 	routeFailureToMechanic?(state: Readonly<InquisitorSubgraphState>, dossier: FailureDossier): Promise<void>;
 	emitValidationSuccessToOrc?(state: Readonly<InquisitorSubgraphState>): Promise<void>;
@@ -88,12 +113,26 @@ export function createInquisitorSubgraph(config: {
 	}
 
 	async function runExecuteTestsNode(state: InquisitorSubgraphState): Promise<InquisitorSubgraphState> {
-		const execution = await config.executors.executeTests(state);
-		if (execution.success) {
+		const execution = await config.executors.executeTests(state, "baseline");
+		if (!execution.success) {
+			return {
+				...state,
+				next: "route_failure",
+				failureDossier: normalizeFailureDossier({
+					failureCategory: execution.failureCategory,
+					stackTrace: execution.stackTrace,
+					payload: execution.payload,
+					now,
+				}),
+			};
+		}
+
+		if (!config.executors.runPostRefactorOptimization) {
 			await config.executors.emitValidationSuccessToOrc?.(state);
 			return {
 				...state,
 				next: "complete",
+				baselineValidationPassed: true,
 				failureDossier: undefined,
 				completionSummary: `Validation success emitted to Orc on attempt ${state.attemptCount}.`,
 			};
@@ -101,13 +140,61 @@ export function createInquisitorSubgraph(config: {
 
 		return {
 			...state,
-			next: "route_failure",
-			failureDossier: normalizeFailureDossier({
-				failureCategory: execution.failureCategory,
-				stackTrace: execution.stackTrace,
-				payload: execution.payload,
-				now,
-			}),
+			next: "optimize_refactor",
+			baselineValidationPassed: true,
+			failureDossier: undefined,
+		};
+	}
+
+	async function runOptimizeRefactorNode(state: InquisitorSubgraphState): Promise<InquisitorSubgraphState> {
+		if (!state.baselineValidationPassed) {
+			throw new Error("Post-Inquisitor optimization is blocked until baseline validation passes.");
+		}
+		const optimization = await config.executors.runPostRefactorOptimization?.(state);
+		if (!optimization) {
+			return {
+				...state,
+				next: "revalidate_tests",
+			};
+		}
+		return {
+			...state,
+			next: "revalidate_tests",
+			refactorDeltaRecord: {
+				complexityDelta: optimization.complexityDelta,
+				styleDelta: optimization.styleDelta,
+				recordedAt: now().toISOString(),
+				summary: optimization.summary,
+				artifacts: normalizeArtifacts(optimization.artifacts ?? []),
+			},
+		};
+	}
+
+	async function runRevalidateTestsNode(state: InquisitorSubgraphState): Promise<InquisitorSubgraphState> {
+		const execution = await config.executors.executeTests(state, "post_refactor");
+		if (!execution.success) {
+			return {
+				...state,
+				next: "route_failure",
+				failureDossier: normalizeFailureDossier({
+					failureCategory: execution.failureCategory ?? "test_failure",
+					stackTrace: execution.stackTrace,
+					payload: execution.payload,
+					now,
+				}),
+			};
+		}
+
+		await config.executors.emitValidationSuccessToOrc?.(state);
+		const deltaSummary =
+			state.refactorDeltaRecord
+				? ` Complexity delta=${state.refactorDeltaRecord.complexityDelta}; style delta=${state.refactorDeltaRecord.styleDelta}.`
+				: "";
+		return {
+			...state,
+			next: "complete",
+			failureDossier: undefined,
+			completionSummary: `Baseline validation and post-refactor revalidation succeeded on attempt ${state.attemptCount}.${deltaSummary}`,
 		};
 	}
 
@@ -134,6 +221,10 @@ export function createInquisitorSubgraph(config: {
 					return runGenerateTestsNode(state);
 				case "execute_tests":
 					return runExecuteTestsNode(state);
+				case "optimize_refactor":
+					return runOptimizeRefactorNode(state);
+				case "revalidate_tests":
+					return runRevalidateTestsNode(state);
 				case "route_failure":
 					return runRouteFailureNode(state);
 				case "complete":
