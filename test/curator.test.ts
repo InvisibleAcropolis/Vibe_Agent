@@ -85,20 +85,26 @@ test("RpcEventCurator keeps agent/pane state isolated", () => {
 
 test("RpcEventCurator watchdog marks timed out panes and emits snapshot", async () => {
 	const emitted: string[] = [];
+	const diagnostics: Record<string, unknown>[] = [];
 	const curator = new RpcEventCurator({
 		watchdogMs: 20,
 		now: () => Date.now(),
 		onSnapshot: (snapshot) => emitted.push(snapshot.status),
+		onDiagnostic: (entry) => diagnostics.push(entry),
 	});
 
-	curator.handleRpcEvent({ type: "agent_start", agentId: "orc", paneId: "left" });
+	curator.handleRpcEvent({ type: "agent_start", agentId: "orc", paneId: "left", graphNodeId: "graph-node-1", processPid: 4411, correlationId: "corr-1" });
 	await new Promise((resolve) => setTimeout(resolve, 30));
 
 	const snapshot = curator.getPaneSnapshot("orc", "left");
 	assert.equal(snapshot?.status, "timed_out");
 	assert.equal(snapshot?.finishReason, "timeout");
 	assert.equal(snapshot?.timing.timedOut, true);
+	assert.equal(snapshot?.graphNodeId, "graph-node-1");
+	assert.equal(snapshot?.processPid, 4411);
+	assert.equal(snapshot?.correlationId, "corr-1");
 	assert.ok(emitted.includes("timed_out"));
+	assert.equal(diagnostics.some((entry) => entry.kind === "stalled_tool_watchdog"), true);
 	curator.dispose();
 });
 

@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { UnifiedOrchestrationError, createCorrelationContext } from "../errors/unified-error.js";
 import {
 	ORC_MEMORY_SCHEMA_VERSION,
 	OrcMemoryStore,
@@ -11,6 +12,9 @@ export interface CuratorEventBase {
 	type: CuratorRpcEventType;
 	agentId: string;
 	paneId: string;
+	graphNodeId?: string;
+	processPid?: number;
+	correlationId?: string;
 	timestamp?: string;
 }
 
@@ -96,6 +100,9 @@ interface CuratorPaneState {
 	lastEventAt?: number;
 	watchdogTimeout?: NodeJS.Timeout;
 	lastEventType?: CuratorRpcEventType;
+	graphNodeId?: string;
+	processPid?: number;
+	correlationId?: string;
 }
 
 export interface CuratorSnapshot {
@@ -107,6 +114,9 @@ export interface CuratorSnapshot {
 	messageId?: string;
 	finishReason?: string;
 	lastEventType?: CuratorRpcEventType;
+	graphNodeId?: string;
+	processPid?: number;
+	correlationId?: string;
 	lastEventAt?: string;
 	timing: {
 		taskStartedAt?: string;
@@ -138,6 +148,7 @@ export interface CuratorOptions {
 	now?: () => number;
 	onSnapshot?: (snapshot: CuratorSnapshot) => void;
 	memoryRootDir?: string;
+	onDiagnostic?: (entry: Record<string, unknown>) => void;
 }
 
 const DEFAULT_WATCHDOG_MS = 45_000;
@@ -150,6 +161,7 @@ export class RpcEventCurator {
 	private readonly snapshotLimit: number;
 	private readonly now: () => number;
 	private readonly onSnapshot?: (snapshot: CuratorSnapshot) => void;
+	private readonly onDiagnostic?: (entry: Record<string, unknown>) => void;
 	private readonly memoryStore: OrcMemoryStore;
 	private readonly globalPlanByAgent = new Map<string, OrcGlobalPlanState>();
 
@@ -158,12 +170,16 @@ export class RpcEventCurator {
 		this.snapshotLimit = options.snapshotLimit ?? DEFAULT_SNAPSHOT_LIMIT;
 		this.now = options.now ?? (() => Date.now());
 		this.onSnapshot = options.onSnapshot;
+		this.onDiagnostic = options.onDiagnostic;
 		this.memoryStore = new OrcMemoryStore(options.memoryRootDir ?? resolve(process.cwd(), ".vibe", "orchestration-memory"));
 	}
 
 	handleRpcEvent(event: CuratorRpcEvent): CuratorSnapshot {
 		const timestampMs = parseEventTime(event.timestamp) ?? this.now();
 		const pane = this.ensurePaneState(event.agentId, event.paneId);
+		pane.graphNodeId = event.graphNodeId ?? pane.graphNodeId;
+		pane.processPid = event.processPid ?? pane.processPid;
+		pane.correlationId = event.correlationId ?? pane.correlationId;
 		pane.lastEventAt = timestampMs;
 		pane.lastEventType = event.type;
 
@@ -434,6 +450,24 @@ export class RpcEventCurator {
 				pane.lastTurnDurationMs = Math.max(0, now - pane.turnStartedAt);
 				pane.turnStartedAt = undefined;
 			}
+			const watchdogError = new UnifiedOrchestrationError({
+				kind: "stalled_tool_watchdog",
+				message: `Tool execution watchdog expired for agent ${pane.agentId} pane ${pane.paneId}.`,
+				recoveryAction: "abort",
+				context: createCorrelationContext({
+					correlationId: pane.correlationId,
+					graphNodeId: pane.graphNodeId,
+					agentId: pane.agentId,
+					paneId: pane.paneId,
+					pid: pane.processPid,
+				}),
+				detail: {
+					lastEventType: pane.lastEventType,
+					lastEventAt: pane.lastEventAt ? new Date(pane.lastEventAt).toISOString() : undefined,
+					watchdogMs: this.watchdogMs,
+				},
+			});
+			this.onDiagnostic?.(watchdogError.toStructuredLog("curator.watchdog.expired"));
 			this.persistSnapshot(pane);
 		}, this.watchdogMs);
 	}
@@ -461,6 +495,9 @@ export class RpcEventCurator {
 			messageId: pane.messageId,
 			finishReason: pane.finishReason,
 			lastEventType: pane.lastEventType,
+			graphNodeId: pane.graphNodeId,
+			processPid: pane.processPid,
+			correlationId: pane.correlationId,
 			lastEventAt: pane.lastEventAt ? new Date(pane.lastEventAt).toISOString() : undefined,
 			timing: {
 				taskStartedAt: pane.startedAt ? new Date(pane.startedAt).toISOString() : undefined,
@@ -496,6 +533,15 @@ export function parseCuratorRpcEvent(value: unknown): CuratorRpcEvent | undefine
 		return undefined;
 	}
 	if (!isCuratorEventType(candidate.type)) {
+		return undefined;
+	}
+	if (candidate.graphNodeId !== undefined && typeof candidate.graphNodeId !== "string") {
+		return undefined;
+	}
+	if (candidate.correlationId !== undefined && typeof candidate.correlationId !== "string") {
+		return undefined;
+	}
+	if (candidate.processPid !== undefined && typeof candidate.processPid !== "number") {
 		return undefined;
 	}
 	return candidate as CuratorRpcEvent;

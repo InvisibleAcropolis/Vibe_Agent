@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { RpcProcessLauncher, RpcTelemetryEnvelope } from "../../bridge/rpc_launcher.js";
 import type { TerminalPaneOrchestrator } from "../../terminal/pane_orchestrator.js";
+import { createCorrelationContext } from "../../errors/unified-error.js";
 import { ALCHEMIST_SUBAGENT_CONFIG } from "./alchemist.js";
 import { INQUISITOR_SUBAGENT_CONFIG } from "./inquisitor.js";
 import type { OrcTaskType, RoutedSubagentSession, TaskRoutingDecision } from "./types.js";
@@ -8,12 +9,14 @@ import type { OrcTaskType, RoutedSubagentSession, TaskRoutingDecision } from "./
 interface RouteTaskInput {
 	taskId: string;
 	taskType: OrcTaskType;
+	graphNodeId?: string;
 }
 
 interface RouteTaskOptions {
 	routerNow?: () => Date;
 	paneOrchestrator: Pick<TerminalPaneOrchestrator, "splitVertical">;
 	rpcLauncher: Pick<RpcProcessLauncher, "startAgent" | "getAgentState">;
+	onDiagnostic?: (entry: Record<string, unknown>) => void;
 }
 
 interface BoundTelemetryFrame {
@@ -40,6 +43,7 @@ export class OrcSubagentRouter {
 	private readonly now: () => Date;
 	private readonly paneOrchestrator: RouteTaskOptions["paneOrchestrator"];
 	private readonly rpcLauncher: RouteTaskOptions["rpcLauncher"];
+	private readonly onDiagnostic?: (entry: Record<string, unknown>) => void;
 	private readonly sessionsByRole = new Map<string, RoutedSubagentSession>();
 	private readonly sessionsByInstance = new Map<string, RoutedSubagentSession>();
 
@@ -47,6 +51,7 @@ export class OrcSubagentRouter {
 		this.now = options.routerNow ?? (() => new Date());
 		this.paneOrchestrator = options.paneOrchestrator;
 		this.rpcLauncher = options.rpcLauncher;
+		this.onDiagnostic = options.onDiagnostic;
 	}
 
 	getRoutingDecision(taskType: OrcTaskType): TaskRoutingDecision {
@@ -68,16 +73,34 @@ export class OrcSubagentRouter {
 		};
 		const pane = await this.paneOrchestrator.splitVertical("secondary", binding);
 		const verifiedState = this.rpcLauncher.getAgentState(decision.targetRole);
+		const correlation = createCorrelationContext({
+			graphNodeId: input.graphNodeId,
+			agentId: verifiedState.identity.agentId,
+			paneId: pane.paneId,
+			pid: verifiedState.identity.pid,
+		});
 		const session: RoutedSubagentSession = {
 			sessionId: randomUUID(),
+			correlationId: correlation.correlationId,
 			taskId: input.taskId,
+			graphNodeId: input.graphNodeId,
 			taskType: input.taskType,
 			subagentRole: decision.targetRole,
 			subagentAgentId: verifiedState.identity.agentId,
 			subagentInstanceId: verifiedState.identity.instanceId,
+			processPid: verifiedState.identity.pid,
 			paneId: pane.paneId,
 			boundAt: this.now().toISOString(),
 		};
+		this.onDiagnostic?.({
+			event: "subagent.session.bound",
+			at: this.now().toISOString(),
+			correlation,
+			taskId: input.taskId,
+			taskType: input.taskType,
+			subagentRole: decision.targetRole,
+			subagentInstanceId: verifiedState.identity.instanceId,
+		});
 		this.sessionsByRole.set(session.subagentRole, session);
 		this.sessionsByInstance.set(session.subagentInstanceId, session);
 		return session;
@@ -86,6 +109,19 @@ export class OrcSubagentRouter {
 	bindTelemetry(envelope: RpcTelemetryEnvelope): BoundTelemetryFrame | undefined {
 		const byInstance = this.sessionsByInstance.get(envelope.source.instanceId);
 		if (byInstance) {
+			this.onDiagnostic?.({
+				event: "subagent.telemetry.bound",
+				at: this.now().toISOString(),
+				correlation: createCorrelationContext({
+					correlationId: byInstance.correlationId,
+					graphNodeId: byInstance.graphNodeId,
+					agentId: byInstance.subagentAgentId,
+					paneId: byInstance.paneId,
+					pid: byInstance.processPid,
+				}),
+				telemetryKind: envelope.telemetry.kind,
+				eventId: envelope.eventId,
+			});
 			return { session: byInstance, envelope };
 		}
 		const byRole = this.sessionsByRole.get(envelope.source.agentRole);

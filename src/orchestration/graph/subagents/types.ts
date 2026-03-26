@@ -32,11 +32,14 @@ export interface TaskRoutingDecision {
 
 export interface RoutedSubagentSession {
 	sessionId: string;
+	correlationId: string;
 	taskId: string;
+	graphNodeId?: string;
 	taskType: OrcTaskType;
 	subagentRole: Exclude<RpcAgentRole, "orc">;
 	subagentAgentId: string;
 	subagentInstanceId: string;
+	processPid?: number;
 	paneId: string;
 	boundAt: string;
 }

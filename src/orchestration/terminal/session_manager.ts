@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { UnifiedOrchestrationError, createCorrelationContext } from "../errors/unified-error.js";
 
 export const ORC_CORE_SESSION_NAME = "vibe_core";
 
@@ -57,15 +58,18 @@ export interface TerminalSessionLifecycle {
 export interface TerminalSessionManagerOptions {
 	runner?: SessionManagerCommandRunner;
 	sessionName?: string;
+	onDiagnostic?: (entry: Record<string, unknown>) => void;
 }
 
 export class TerminalSessionManager implements TerminalSessionLifecycle {
 	private readonly runner: SessionManagerCommandRunner;
 	private readonly sessionName: string;
+	private readonly onDiagnostic?: (entry: Record<string, unknown>) => void;
 
 	constructor(options: TerminalSessionManagerOptions = {}) {
 		this.runner = options.runner ?? new PsmuxCommandRunner();
 		this.sessionName = options.sessionName ?? ORC_CORE_SESSION_NAME;
+		this.onDiagnostic = options.onDiagnostic;
 	}
 
 	async ensureCoreSessionDetached(): Promise<{ created: boolean }> {
@@ -88,6 +92,18 @@ export class TerminalSessionManager implements TerminalSessionLifecycle {
 		if (attachResult.ok) {
 			return { attached: true, created: ensureResult.created };
 		}
+		const sessionMissing = !(await this.coreSessionExists());
+		if (sessionMissing) {
+			this.emitDeadSessionDiagnostic("recover.attach_missing_session", attachResult.stderr, "retry");
+			const recreated = await this.ensureCoreSessionDetached();
+			const retryAttachResult = await this.runner.run("psmux", ["attach", "-t", this.sessionName]);
+			if (retryAttachResult.ok) {
+				return { attached: true, created: ensureResult.created || recreated.created };
+			}
+			this.emitDeadSessionDiagnostic("recover.attach_retry_failed", retryAttachResult.stderr, "abort");
+		} else {
+			this.emitDeadSessionDiagnostic("recover.attach_failed", attachResult.stderr, "abort");
+		}
 		throw new Error(`Unable to attach to psmux session '${this.sessionName}': ${attachResult.stderr || "command failed"}`);
 	}
 
@@ -108,6 +124,23 @@ export class TerminalSessionManager implements TerminalSessionLifecycle {
 	async coreSessionExists(): Promise<boolean> {
 		const result = await this.runner.run("psmux", ["has-session", "-t", this.sessionName]);
 		return result.ok;
+	}
+
+	private emitDeadSessionDiagnostic(event: string, stderr: string, recoveryAction: "retry" | "abort"): void {
+		if (!this.onDiagnostic) {
+			return;
+		}
+		const error = new UnifiedOrchestrationError({
+			kind: "dead_psmux_session",
+			message: `psmux session '${this.sessionName}' became unavailable during attach flow`,
+			recoveryAction,
+			context: createCorrelationContext({ paneId: this.sessionName }),
+			detail: {
+				sessionName: this.sessionName,
+				stderr,
+			},
+		});
+		this.onDiagnostic(error.toStructuredLog(event));
 	}
 }
 

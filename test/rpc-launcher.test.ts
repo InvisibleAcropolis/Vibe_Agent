@@ -97,11 +97,13 @@ test("RpcProcessLauncher writes typed stdin envelopes and parses typed telemetry
 test("RpcProcessLauncher quarantines malformed telemetry frames and only parses after LF", () => {
 	const telemetry: RpcTelemetryEnvelope[] = [];
 	const stderr: string[] = [];
+	const diagnostics: Record<string, unknown>[] = [];
 	let orcChild: FakeChildProcess | undefined;
 	const launcher = new RpcProcessLauncher({
 		agents: [{ role: "orc", agentId: "orc-main" }],
 		onTelemetry: (event) => telemetry.push(event),
 		onStderr: (_role, chunk) => stderr.push(chunk),
+		onDiagnostic: (entry) => diagnostics.push(entry),
 		spawnFn: (() => {
 			orcChild = new FakeChildProcess(202);
 			return orcChild as unknown as ChildProcessWithoutNullStreams;
@@ -119,14 +121,17 @@ test("RpcProcessLauncher quarantines malformed telemetry frames and only parses 
 	orcChild!.stdout.write("{not-json}\n");
 	assert.equal(stderr.length, 1);
 	assert.match(stderr[0] ?? "", /Telemetry frame quarantined \(json_parse_error\)/);
+	assert.equal(diagnostics[0]?.kind, "malformed_jsonl_line");
 });
 
 test("RpcProcessLauncher enforces independent restart policy per agent role", async () => {
 	const childrenByRole = new Map<RpcAgentRole, FakeChildProcess[]>();
 	const launchSequence: RpcAgentRole[] = [];
+	const diagnostics: Record<string, unknown>[] = [];
 
 	const launcher = new RpcProcessLauncher({
 		restartPolicy: { enabled: true, maxRestarts: 2, restartDelayMs: 0 },
+		onDiagnostic: (entry) => diagnostics.push(entry),
 		spawnFn: ((_, args) => {
 			const role = args[4] as RpcAgentRole;
 			launchSequence.push(role);
@@ -145,4 +150,5 @@ test("RpcProcessLauncher enforces independent restart policy per agent role", as
 	assert.equal((childrenByRole.get("inquisitor") ?? []).length, 1);
 	assert.equal(launcher.getAgentState("orc").restartCount, 1);
 	assert.equal(launcher.getAgentState("inquisitor").restartCount, 0);
+	assert.equal(diagnostics.some((entry) => entry.kind === "crashed_subagent_process"), true);
 });

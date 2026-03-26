@@ -37,6 +37,7 @@ class FakeRpcLauncher implements Pick<RpcProcessLauncher, "startAgent" | "getAge
 				agentId,
 				instanceId,
 				launchAttempt: 0,
+				pid: role === "inquisitor" ? 2101 : 2102,
 			},
 			status: "running",
 			restartCount: 0,
@@ -87,6 +88,8 @@ describe("OrcSubagentRouter", () => {
 			{ role: "secondary", agentId: "inquisitor-main" },
 			{ role: "secondary", agentId: "alchemist-main" },
 		]);
+		assert.equal(typeof readSession.correlationId, "string");
+		assert.equal(readSession.processPid, 2101);
 	});
 
 	it("binds telemetry streams using subagent identity", async () => {
