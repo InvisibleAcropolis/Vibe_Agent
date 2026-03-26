@@ -38,9 +38,14 @@ describe("build_orc_graph", () => {
 		const checkpointer = new RecordingCheckpointer();
 		const hookEvents: string[] = [];
 		const payload: OrcContractPayloadHandoff = {
-			contractId: "contract-42",
+			contractId: "StructuralBlueprint",
 			taskId: "task-42",
-			payload: { files: ["src/orchestration/orc-graph.ts"] },
+			payload: {
+			objective: "Ship orchestration route",
+			scope: ["src/orchestration/orc-graph.ts"],
+			constraints: ["strict contracts"],
+			deliverables: ["validated handoff"],
+		},
 			handoffToken: "token-42",
 		};
 		const graph = build_orc_graph({
@@ -89,7 +94,7 @@ describe("build_orc_graph", () => {
 		assert.equal(state.routing.targetGuildMember, "alchemist");
 		assert.equal(state.routing.chainOfCustody.length, 1);
 		assert.equal(state.routing.chainOfCustody[0]?.reason, "write-heavy task");
-		assert.equal(state.contractPayload?.contractId, "contract-42");
+		assert.equal(state.contractPayload?.contractId, "StructuralBlueprint");
 		assert.equal(state.activeGuildMember?.memberId, "guild-alchemist-1");
 		assert.deepEqual(hookEvents, ["route", "dispatch", "verify", "complete"]);
 		assert.equal(checkpointer.snapshots.length, 4);
@@ -112,9 +117,14 @@ describe("build_orc_graph", () => {
 						activatedAt: "2026-03-26T03:00:00.000Z",
 					},
 					contractPayload: {
-						contractId: "contract-retry",
+						contractId: "StructuralBlueprint",
 						taskId: "task-retry",
-						payload: {},
+						payload: {
+							objective: "Retry contract",
+							scope: ["route"],
+							constraints: ["max-2"],
+							deliverables: ["handoff"],
+						},
 						handoffToken: "token-retry",
 					},
 					decision: "dispatch",
@@ -153,7 +163,12 @@ it("blocks dispatch when subagent handoff is incomplete", async () => {
 				targetGuildMember: "inquisitor",
 				reason: "missing member",
 				activeGuildMember: { memberId: "m1", role: "inquisitor", sessionId: "s1", activatedAt: "2026-03-26T00:00:00.000Z" },
-				contractPayload: { contractId: "c1", taskId: "t1", payload: {}, handoffToken: "h1" },
+				contractPayload: { contractId: "StructuralBlueprint", taskId: "t1", payload: {
+							objective: "Retry contract",
+							scope: ["route"],
+							constraints: ["max-2"],
+							deliverables: ["handoff"],
+						}, handoffToken: "h1" },
 				decision: "dispatch",
 			}),
 			dispatch: async () => ({ notes: "should not run" }),

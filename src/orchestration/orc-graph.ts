@@ -1,4 +1,6 @@
-export type OrcGraphNodeId = "route" | "dispatch" | "verify" | "complete" | "failed";
+import { type OrcContractModelName, type OrcContractValidationIssue, validateOrcContractPayload } from "./contracts.js";
+
+export type OrcGraphNodeId = "route" | "dispatch" | "verify" | "complete" | "failed" | "contract_error";
 
 export type OrcRouteDecision = "dispatch" | "failed";
 
@@ -32,7 +34,7 @@ export interface OrcActiveGuildMember {
 }
 
 export interface OrcContractPayloadHandoff {
-	contractId: string;
+	contractId: OrcContractModelName;
 	taskId: string;
 	payload: Record<string, unknown>;
 	handoffToken: string;
@@ -42,6 +44,13 @@ export interface OrcContractPayloadHandoff {
 /**
  * Explicit master state for graph-level chain-of-custody and contract handoff.
  */
+export interface OrcContractValidationFailure {
+	node: OrcGraphNodeId;
+	contractId: OrcContractModelName;
+	issues: OrcContractValidationIssue[];
+	failedAt: string;
+}
+
 export interface OrcMasterState {
 	threadId: string;
 	runCorrelationId: string;
@@ -53,6 +62,9 @@ export interface OrcMasterState {
 	verificationNotes?: string;
 	completionSummary?: string;
 	failureSummary?: string;
+	reconReport?: Record<string, unknown>;
+	failureDossier?: Record<string, unknown>;
+	contractValidationFailure?: OrcContractValidationFailure;
 }
 
 export interface OrcGraphCheckpointer {
@@ -64,6 +76,7 @@ export interface OrcGraphStoreHooks {
 	onDispatch?(state: Readonly<OrcMasterState>): Promise<void>;
 	onVerify?(state: Readonly<OrcMasterState>): Promise<void>;
 	onComplete?(state: Readonly<OrcMasterState>): Promise<void>;
+	onContractError?(state: Readonly<OrcMasterState>): Promise<void>;
 	onFailed?(state: Readonly<OrcMasterState>): Promise<void>;
 }
 
@@ -75,11 +88,12 @@ export interface OrcGraphExecutors {
 		contractPayload: OrcContractPayloadHandoff;
 		decision: OrcRouteDecision;
 	}>;
-	dispatch(state: Readonly<OrcMasterState>): Promise<{ notes?: string }>;
+	dispatch(state: Readonly<OrcMasterState>): Promise<{ notes?: string; reconReport?: Record<string, unknown> }>;
 	verify(state: Readonly<OrcMasterState>): Promise<{
 		decision: "route" | "complete" | "failed";
 		notes: string;
 		failureCode?: string;
+		failureDossier?: Record<string, unknown>;
 	}>;
 	complete(state: Readonly<OrcMasterState>): Promise<{ summary: string }>;
 }
@@ -90,6 +104,7 @@ export interface OrcGraphMiddleware {
 	onDispatch?(state: Readonly<OrcMasterState>): Promise<void>;
 	onVerify?(state: Readonly<OrcMasterState>): Promise<void>;
 	onComplete?(state: Readonly<OrcMasterState>): Promise<void>;
+	onContractError?(state: Readonly<OrcMasterState>): Promise<void>;
 }
 
 export interface OrcGraphFactoryConfig {
@@ -113,6 +128,7 @@ const ORC_GRAPH_NODES: Readonly<Record<OrcGraphNodeId, OrcGraphNodeId>> = {
 	verify: "verify",
 	complete: "complete",
 	failed: "failed",
+	contract_error: "contract_error",
 };
 
 const ORC_GRAPH_EDGES: Readonly<Record<"route" | "dispatch" | "verify", OrcGraphNodeId>> = {
@@ -131,6 +147,27 @@ function createSubAgentMiddleware(): OrcGraphMiddleware {
 			if (!state.contractPayload) {
 				throw new Error("Dispatch blocked: missing contract payload handoff.");
 			}
+		},
+	};
+}
+
+function describeContractIssues(issues: OrcContractValidationIssue[]): string {
+	if (issues.length === 0) {
+		return "no validation issues reported";
+	}
+	return issues.map((issue) => `${issue.path}: ${issue.message}`).join("; ");
+}
+
+function routeContractError(state: OrcMasterState, node: OrcGraphNodeId, contractId: OrcContractModelName, issues: OrcContractValidationIssue[], now: () => Date): OrcMasterState {
+	return {
+		...state,
+		next: "contract_error",
+		failureSummary: `Contract validation failed in ${node} for ${contractId}: ${describeContractIssues(issues)}`,
+		contractValidationFailure: {
+			node,
+			contractId,
+			issues,
+			failedAt: now().toISOString(),
 		},
 	};
 }
@@ -164,6 +201,11 @@ export function build_orc_graph(config: OrcGraphFactoryConfig): OrcCompiledGraph
 			await layer.onRoute?.(state);
 		}
 		const route = await config.executors.route(state);
+		const blueprintValidation = validateOrcContractPayload(route.contractPayload.contractId, route.contractPayload.payload);
+		if (!blueprintValidation.ok) {
+			const errored = routeContractError(state, "route", route.contractPayload.contractId, blueprintValidation.issues, now);
+			return checkpointAndHook(errored, config.checkpointer, config.storeHooks?.onContractError);
+		}
 		const next = route.decision === "dispatch" ? ORC_GRAPH_EDGES.route : "failed";
 		const routedState: OrcMasterState = {
 			...state,
@@ -195,11 +237,26 @@ export function build_orc_graph(config: OrcGraphFactoryConfig): OrcCompiledGraph
 		for (const layer of middleware) {
 			await layer.onDispatch?.(state);
 		}
+		if (state.contractPayload) {
+			const handoffValidation = validateOrcContractPayload(state.contractPayload.contractId, state.contractPayload.payload);
+			if (!handoffValidation.ok) {
+				const errored = routeContractError(state, "dispatch", state.contractPayload.contractId, handoffValidation.issues, now);
+				return checkpointAndHook(errored, config.checkpointer, config.storeHooks?.onContractError);
+			}
+		}
 		const dispatched = await config.executors.dispatch(state);
+		if (dispatched.reconReport) {
+			const reconValidation = validateOrcContractPayload("ReconReport", dispatched.reconReport);
+			if (!reconValidation.ok) {
+				const errored = routeContractError(state, "dispatch", "ReconReport", reconValidation.issues, now);
+				return checkpointAndHook(errored, config.checkpointer, config.storeHooks?.onContractError);
+			}
+		}
 		const dispatchedState: OrcMasterState = {
 			...state,
 			next: ORC_GRAPH_EDGES.dispatch,
 			verificationNotes: dispatched.notes ?? state.verificationNotes,
+			reconReport: dispatched.reconReport ?? state.reconReport,
 		};
 		return checkpointAndHook(dispatchedState, config.checkpointer, config.storeHooks?.onDispatch);
 	}
@@ -208,7 +265,21 @@ export function build_orc_graph(config: OrcGraphFactoryConfig): OrcCompiledGraph
 		for (const layer of middleware) {
 			await layer.onVerify?.(state);
 		}
+		if (state.reconReport) {
+			const reconValidation = validateOrcContractPayload("ReconReport", state.reconReport);
+			if (!reconValidation.ok) {
+				const errored = routeContractError(state, "verify", "ReconReport", reconValidation.issues, now);
+				return checkpointAndHook(errored, config.checkpointer, config.storeHooks?.onContractError);
+			}
+		}
 		const verification = await config.executors.verify(state);
+		if (verification.failureDossier) {
+			const failureValidation = validateOrcContractPayload("FailureDossier", verification.failureDossier);
+			if (!failureValidation.ok) {
+				const errored = routeContractError(state, "verify", "FailureDossier", failureValidation.issues, now);
+				return checkpointAndHook(errored, config.checkpointer, config.storeHooks?.onContractError);
+			}
+		}
 		const canRetry = state.retries.attempt < state.retries.maxAttempts;
 		const next = verification.decision === "route" && canRetry ? "route" : verification.decision;
 		const retries =
@@ -225,8 +296,21 @@ export function build_orc_graph(config: OrcGraphFactoryConfig): OrcCompiledGraph
 			next,
 			retries,
 			verificationNotes: verification.notes,
+			failureDossier: verification.failureDossier ?? state.failureDossier,
 		};
 		return checkpointAndHook(verifiedState, config.checkpointer, config.storeHooks?.onVerify);
+	}
+
+
+	async function runContractErrorNode(state: OrcMasterState): Promise<OrcMasterState> {
+		const erroredState: OrcMasterState = {
+			...state,
+			next: "contract_error",
+			failureSummary:
+				state.failureSummary ??
+				`Contract validation failed for ${state.contractValidationFailure?.contractId ?? "unknown"} in ${state.contractValidationFailure?.node ?? "unknown"}.`,
+		};
+		return checkpointAndHook(erroredState, config.checkpointer, config.storeHooks?.onContractError);
 	}
 
 	async function runCompleteNode(state: OrcMasterState): Promise<OrcMasterState> {
@@ -264,6 +348,8 @@ export function build_orc_graph(config: OrcGraphFactoryConfig): OrcCompiledGraph
 				case "complete":
 				case "failed":
 					return runCompleteNode(state);
+				case "contract_error":
+					return runContractErrorNode(state);
 				default: {
 					const exhaustiveGuard: never = state.next;
 					throw new Error(`Unknown node: ${String(exhaustiveGuard)}`);

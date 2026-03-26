@@ -45,6 +45,7 @@ import {
 	ORC_SECURITY_STATUS_TEXT,
 } from "../src/orchestration/orc-security.js";
 import { OrcRuntimeSkeleton } from "../src/orchestration/orc-runtime.js";
+import { build_orc_graph, type OrcMasterState } from "../src/orchestration/orc-graph.js";
 import { OrcSessionHandle } from "../src/orchestration/orc-session.js";
 import { presentOrcEventSummary, presentOrcTrackerSummary } from "../src/orchestration/orc-presentation.js";
 import { FileSystemOrcTracker, createOrcTrackerDashboardViewModel } from "../src/orchestration/orc-tracker.js";
@@ -1571,4 +1572,136 @@ test("security telemetry distinguishes informational notices from approval and b
 		interaction: { target: "computer", lane: "agent_interacting_with_computer", isUserFacing: false, isComputerFacing: true },
 		debug: { normalizedFrom: "test" },
 	} as OrcBusEvent).label, /Security notice/);
+});
+
+
+test("orc graph routes malformed StructuralBlueprint payloads to contract_error and records validation issues", async () => {
+	const saved: OrcMasterState[] = [];
+	const graph = build_orc_graph({
+		checkpointer: {
+			async save(state) {
+				saved.push({ ...state });
+			},
+		},
+		storeHooks: {
+			async onContractError(state) {
+				saved.push({ ...state });
+			},
+		},
+		executors: {
+			async route() {
+				return {
+					targetGuildMember: "architect",
+					reason: "needs planning",
+					decision: "dispatch" as const,
+					activeGuildMember: {
+						memberId: "guild-1",
+						role: "architect",
+						sessionId: "session-1",
+						activatedAt: "2026-03-25T00:00:00.000Z",
+					},
+					contractPayload: {
+						contractId: "StructuralBlueprint" as const,
+						taskId: "task-1",
+						handoffToken: "token-1",
+						payload: {
+							objective: "",
+							scope: ["repo"],
+							constraints: ["read-only"],
+							deliverables: ["plan"],
+						},
+					},
+				};
+			},
+			async dispatch() {
+				throw new Error("dispatch should not execute when route contract fails");
+			},
+			async verify() {
+				throw new Error("verify should not execute");
+			},
+			async complete() {
+				return { summary: "done" };
+			},
+		},
+	});
+
+	const initial: OrcMasterState = {
+		threadId: "thread-contract-1",
+		runCorrelationId: "run-contract-1",
+		next: "route",
+		routing: { taskType: "general", requestedBy: "orc", chainOfCustody: [] },
+		retries: { attempt: 0, maxAttempts: 1 },
+	};
+
+	const next = await graph.step(initial);
+	assert.equal(next.next, "contract_error");
+	assert.equal(next.contractValidationFailure?.contractId, "StructuralBlueprint");
+	assert.equal(next.contractValidationFailure?.node, "route");
+	assert.ok((next.contractValidationFailure?.issues.length ?? 0) > 0);
+	assert.match(next.failureSummary ?? "", /Contract validation failed/);
+	assert.ok(saved.length >= 1);
+});
+
+test("orc graph prevents verify transition when ReconReport contract is invalid", async () => {
+	let verifyCalls = 0;
+	const graph = build_orc_graph({
+		checkpointer: { async save() {} },
+		executors: {
+			async route() {
+				return {
+					targetGuildMember: "architect",
+					reason: "normal flow",
+					decision: "dispatch" as const,
+					activeGuildMember: {
+						memberId: "guild-2",
+						role: "architect",
+						sessionId: "session-2",
+						activatedAt: "2026-03-25T01:00:00.000Z",
+					},
+					contractPayload: {
+						contractId: "StructuralBlueprint" as const,
+						taskId: "task-2",
+						handoffToken: "token-2",
+						payload: {
+							objective: "produce report",
+							scope: ["module"],
+							constraints: ["strict"],
+							deliverables: ["recon"],
+						},
+					},
+				};
+			},
+			async dispatch() {
+				return {
+					notes: "dispatched",
+					reconReport: {
+						summary: "",
+						findings: ["f1"],
+						recommendations: ["r1"],
+					},
+				};
+			},
+			async verify() {
+				verifyCalls += 1;
+				return { decision: "complete" as const, notes: "ok" };
+			},
+			async complete() {
+				return { summary: "done" };
+			},
+		},
+	});
+
+	const routed = await graph.step({
+		threadId: "thread-contract-2",
+		runCorrelationId: "run-contract-2",
+		next: "route",
+		routing: { taskType: "general", requestedBy: "orc", chainOfCustody: [] },
+		retries: { attempt: 0, maxAttempts: 1 },
+	});
+	assert.equal(routed.next, "dispatch");
+
+	const dispatched = await graph.step(routed);
+	assert.equal(dispatched.next, "contract_error");
+	assert.equal(dispatched.contractValidationFailure?.contractId, "ReconReport");
+	assert.equal(verifyCalls, 0);
 });
