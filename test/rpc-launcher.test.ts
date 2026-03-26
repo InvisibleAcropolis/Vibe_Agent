@@ -94,6 +94,33 @@ test("RpcProcessLauncher writes typed stdin envelopes and parses typed telemetry
 	assert.equal(telemetry[0]?.telemetry.kind, "ready");
 });
 
+test("RpcProcessLauncher quarantines malformed telemetry frames and only parses after LF", () => {
+	const telemetry: RpcTelemetryEnvelope[] = [];
+	const stderr: string[] = [];
+	let orcChild: FakeChildProcess | undefined;
+	const launcher = new RpcProcessLauncher({
+		agents: [{ role: "orc", agentId: "orc-main" }],
+		onTelemetry: (event) => telemetry.push(event),
+		onStderr: (_role, chunk) => stderr.push(chunk),
+		spawnFn: (() => {
+			orcChild = new FakeChildProcess(202);
+			return orcChild as unknown as ChildProcessWithoutNullStreams;
+		}),
+	});
+
+	launcher.startAgent("orc");
+	orcChild!.stdout.write("{\"schema\":\"pi.rpc.telemetry.v1\",\"eventId\":\"evt-partial\"");
+	assert.equal(telemetry.length, 0);
+
+	orcChild!.stdout.write(",\"emittedAt\":\"2026-03-26T00:00:01.000Z\",\"source\":{\"agentRole\":\"orc\",\"agentId\":\"orc-main\",\"instanceId\":\"i\",\"launchAttempt\":0},\"telemetry\":{\"kind\":\"ready\",\"severity\":\"info\",\"payload\":{\"text\":\"a\\u2028b\\u2029c\"}}}\n");
+	assert.equal(telemetry.length, 1);
+	assert.equal((telemetry[0]?.telemetry.payload as { text: string }).text, "a\u2028b\u2029c");
+
+	orcChild!.stdout.write("{not-json}\n");
+	assert.equal(stderr.length, 1);
+	assert.match(stderr[0] ?? "", /Telemetry frame quarantined \(json_parse_error\)/);
+});
+
 test("RpcProcessLauncher enforces independent restart policy per agent role", async () => {
 	const childrenByRole = new Map<RpcAgentRole, FakeChildProcess[]>();
 	const launchSequence: RpcAgentRole[] = [];
