@@ -4,7 +4,9 @@ export type UnifiedOrchestrationFailureKind =
 	| "dead_psmux_session"
 	| "crashed_subagent_process"
 	| "malformed_jsonl_line"
-	| "stalled_tool_watchdog";
+	| "stalled_tool_watchdog"
+	| "unknown_subagent_name"
+	| "malformed_subagent_task_request";
 
 export type UnifiedRecoveryAction = "retry" | "restart" | "quarantine" | "abort";
 

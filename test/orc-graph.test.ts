@@ -93,6 +93,7 @@ describe("build_orc_graph", () => {
 		assert.equal(state.activeGuildMember?.memberId, "guild-alchemist-1");
 		assert.deepEqual(hookEvents, ["route", "dispatch", "verify", "complete"]);
 		assert.equal(checkpointer.snapshots.length, 4);
+		assert.deepEqual(graph.middlewareOrder, ["subagent_dispatch_guard"]);
 	});
 
 	it("retries by routing again and records retry metadata", async () => {
@@ -140,4 +141,35 @@ describe("build_orc_graph", () => {
 		assert.equal(state.retries.lastFailureCode, "E_RETRY");
 		assert.equal(state.routing.chainOfCustody.length, 2);
 	});
+});
+
+
+it("blocks dispatch when subagent handoff is incomplete", async () => {
+	const checkpointer = new RecordingCheckpointer();
+	const graph = build_orc_graph({
+		checkpointer,
+		executors: {
+			route: async () => ({
+				targetGuildMember: "inquisitor",
+				reason: "missing member",
+				activeGuildMember: { memberId: "m1", role: "inquisitor", sessionId: "s1", activatedAt: "2026-03-26T00:00:00.000Z" },
+				contractPayload: { contractId: "c1", taskId: "t1", payload: {}, handoffToken: "h1" },
+				decision: "dispatch",
+			}),
+			dispatch: async () => ({ notes: "should not run" }),
+			verify: async () => ({ decision: "complete", notes: "n/a" }),
+			complete: async () => ({ summary: "done" }),
+		},
+	});
+
+	await assert.rejects(
+		() =>
+			graph.step(createBaseState({
+				next: "dispatch",
+				contractPayload: undefined,
+				activeGuildMember: undefined,
+			})),
+		/Dispatch blocked: missing active guild member\./,
+	);
+	assert.equal(checkpointer.snapshots.length, 0);
 });
