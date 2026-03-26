@@ -1,0 +1,122 @@
+import { spawn } from "node:child_process";
+import type { SessionCommandResult, SessionManagerCommandRunner } from "./session_manager.js";
+
+export const ORC_CORE_TARGET = "vibe_core";
+
+export type TerminalPaneRole = "primary" | "secondary" | "observer" | "custom";
+
+export interface TerminalPaneAgentBinding {
+	agentId: string;
+	boundAt: Date;
+}
+
+export interface TerminalPaneMetadata {
+	paneId: string;
+	role: TerminalPaneRole;
+	createdAt: Date;
+	agentBinding: TerminalPaneAgentBinding | null;
+}
+
+export interface PaneOrchestratorOptions {
+	runner?: SessionManagerCommandRunner;
+	target?: string;
+}
+
+class PsmuxPaneRunner implements SessionManagerCommandRunner {
+	async run(command: string, args: string[]): Promise<SessionCommandResult> {
+		return await new Promise<SessionCommandResult>((resolve) => {
+			const child = spawn(command, args, {
+				stdio: ["ignore", "pipe", "pipe"],
+			});
+			let stdout = "";
+			let stderr = "";
+			child.stdout.on("data", (chunk: Buffer) => {
+				stdout += chunk.toString("utf8");
+			});
+			child.stderr.on("data", (chunk: Buffer) => {
+				stderr += chunk.toString("utf8");
+			});
+			child.once("error", (error) => {
+				resolve({
+					ok: false,
+					exitCode: null,
+					stdout,
+					stderr: `${stderr}${error.message}`,
+				});
+			});
+			child.once("exit", (exitCode) => {
+				resolve({
+					ok: exitCode === 0,
+					exitCode,
+					stdout,
+					stderr,
+				});
+			});
+		});
+	}
+}
+
+export class TerminalPaneOrchestrator {
+	private readonly runner: SessionManagerCommandRunner;
+	private readonly target: string;
+
+	constructor(options: PaneOrchestratorOptions = {}) {
+		this.runner = options.runner ?? new PsmuxPaneRunner();
+		this.target = options.target ?? ORC_CORE_TARGET;
+	}
+
+	async splitHorizontal(role: TerminalPaneRole, agentBinding: TerminalPaneAgentBinding | null = null): Promise<TerminalPaneMetadata> {
+		return await this.splitPane("-h", role, agentBinding);
+	}
+
+	async splitVertical(role: TerminalPaneRole, agentBinding: TerminalPaneAgentBinding | null = null): Promise<TerminalPaneMetadata> {
+		return await this.splitPane("-v", role, agentBinding);
+	}
+
+	async capturePaneId(): Promise<string> {
+		const result = await this.runner.run("psmux", ["display-message", "-p", "#{pane_id}"]);
+		if (!result.ok) {
+			throw new Error(`Unable to capture pane id via psmux display-message: ${result.stderr || "command failed"}`);
+		}
+		const paneId = result.stdout.trim();
+		if (paneId.length === 0) {
+			throw new Error("Unable to capture pane id via psmux display-message: pane id was empty");
+		}
+		return paneId;
+	}
+
+	async injectCommand(paneId: string, command: string): Promise<void> {
+		if (paneId.trim().length === 0) {
+			throw new Error("Pane id is required for send-keys");
+		}
+		const result = await this.runner.run("psmux", ["send-keys", "-t", paneId, command, "Enter"]);
+		if (!result.ok) {
+			throw new Error(`Unable to inject command via psmux send-keys for pane '${paneId}': ${result.stderr || "command failed"}`);
+		}
+	}
+
+	private async splitPane(
+		directionFlag: "-h" | "-v",
+		role: TerminalPaneRole,
+		agentBinding: TerminalPaneAgentBinding | null,
+	): Promise<TerminalPaneMetadata> {
+		const splitResult = await this.runner.run("psmux", ["split-window", directionFlag, "-t", this.target]);
+		if (!splitResult.ok) {
+			throw new Error(`Unable to split pane with '${directionFlag}' on target '${this.target}': ${splitResult.stderr || "command failed"}`);
+		}
+		const paneId = await this.capturePaneId();
+		return {
+			paneId,
+			role,
+			createdAt: new Date(),
+			agentBinding,
+		};
+	}
+}
+
+let singletonPaneOrchestrator: TerminalPaneOrchestrator | undefined;
+
+export function getTerminalPaneOrchestrator(): TerminalPaneOrchestrator {
+	singletonPaneOrchestrator ??= new TerminalPaneOrchestrator();
+	return singletonPaneOrchestrator;
+}
