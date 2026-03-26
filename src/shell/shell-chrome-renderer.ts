@@ -50,16 +50,21 @@ function renderHeaderInfo(input: ShellChromeRenderInput, borderStyler: (text: st
 	const sessionName = input.hostState?.sessionName ?? cwdLabel();
 	const threadName = input.footerData.getGitBranch() ?? "main";
 	const runtimeName = input.state.activeRuntimeName;
+	const psmuxLabel = input.footerData.getPsmuxRuntimeLabel();
 	const contextWindow = input.hostState?.model?.contextWindow ?? 200000;
 	const contextPercent = estimateContextUsagePercent(input.messages, contextWindow);
 	const contextColor = contextPercent >= 70 ? agentTheme.warning : agentTheme.success;
-	const infoBar = [
+	const infoSegments = [
 		`${agentTheme.info("Session:")} ${agentTheme.success(sessionName)}`,
 		`${agentTheme.info("Mode:")} ${input.state.activeRuntimeId === "orc" ? agentTheme.warning(runtimeName) : agentTheme.success(runtimeName)}`,
 		`${agentTheme.info("Chat:")} ${input.state.activeRuntimeId === "orc" ? agentTheme.warning(input.state.activeConversationLabel) : agentTheme.accent(input.state.activeConversationLabel)}`,
 		`${agentTheme.info("Thread:")} ${agentTheme.accent(threadName)}`,
 		`${agentTheme.info("CTX:")} ${contextColor(`${contextPercent}%`)} ${contextColor(ctxBar(contextPercent))}`,
-	].join(agentTheme.segmentSep());
+	];
+	if (psmuxLabel) {
+		infoSegments.splice(1, 0, `${agentTheme.info("Host:")} ${agentTheme.warning(`psmux:${psmuxLabel}`)}`);
+	}
+	const infoBar = infoSegments.join(agentTheme.segmentSep());
 	lines.push(
 		paintBoxLineTwoParts(
 			`${borderStyler("║")}  ${infoBar}`,
@@ -176,7 +181,12 @@ function renderSummaryLine(
 		segments.push(agentTheme.thinkingSegment(`thinking:${thinkingLevel}`));
 	}
 	const extensionStatuses = Array.from(input.footerData.getExtensionStatuses().values());
-	const allSegments = [...segments, ...extensionStatuses];
+	const psmuxLabel = input.footerData.getPsmuxRuntimeLabel();
+	const allSegments = [...segments];
+	if (psmuxLabel) {
+		allSegments.push(agentTheme.chromeMeta(`host:psmux:${psmuxLabel}`));
+	}
+	allSegments.push(...extensionStatuses);
 	const statusDot = isCompacting
 		? agentTheme.statusCompacting("● compacting")
 		: isStreaming

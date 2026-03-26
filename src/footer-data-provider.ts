@@ -1,5 +1,6 @@
 import { existsSync, type FSWatcher, readFileSync, statSync, watch } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { formatPsmuxRuntimeLabel, readPsmuxRuntimeContext } from "./psmux-runtime-context.js";
 
 function findGitHeadPath(cwd: string): string | null {
 	let dir = cwd;
@@ -36,6 +37,7 @@ export class FooterDataProvider {
 	private branchChangeCallbacks = new Set<() => void>();
 	private availableProviderCount = 0;
 	private sessionMode = "Coding chat";
+	private readonly psmuxRuntimeLabel = formatPsmuxRuntimeLabel(readPsmuxRuntimeContext());
 
 	constructor(private readonly cwd: string) {
 		this.setupGitWatcher();
@@ -81,6 +83,10 @@ export class FooterDataProvider {
 
 	getSessionMode(): string {
 		return this.sessionMode;
+	}
+
+	getPsmuxRuntimeLabel(): string | undefined {
+		return this.psmuxRuntimeLabel;
 	}
 
 	setAvailableProviderCount(count: number): void {

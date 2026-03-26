@@ -61,7 +61,7 @@ describe("TerminalPaneOrchestrator", () => {
 			true,
 		);
 		assert.equal(
-			runner.calls.some((call) => call.args.join(" ") === "send-keys -t %1 npm run test Enter"),
+			runner.calls.some((call) => call.args.join(" ") === "send-keys -t vibe_core:%1 npm run test Enter"),
 			true,
 		);
 	});

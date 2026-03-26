@@ -121,6 +121,7 @@ export class HelpOverlay implements MouseAwareOverlay, Focusable {
 		lines.push(note("Type a prompt and press Enter to send it to the agent."));
 		lines.push(note("The agent can read, write, and edit files, run bash commands,"));
 		lines.push(note("search code with grep/find, and use extensions and skills."));
+		lines.push(note("Normal startup now runs inside the mandatory psmux vibe_core session."));
 		lines.push(note("During streaming, use Esc to abort or type to steer/follow up."));
 		lines.push(note("When setup or recovery is required, use the cockpit banner or /setup to return to onboarding."));
 		lines.push(blank());

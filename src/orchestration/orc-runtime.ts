@@ -256,22 +256,13 @@ export class OrcRuntimeSkeleton implements OrcRuntime {
 			activeThreads: this.activeThreads,
 			transportHealth: this.transportHealth,
 		});
-		try {
-			await this.terminalSessionManager.shutdownCoreSession();
-		} catch {
-			// Keep runtime cleanup resilient; transport disposal and tracker persistence stay authoritative.
-		}
 	}
 
 	private async ensureTerminalSession(mode: "launch" | "resume"): Promise<void> {
 		try {
-			if (mode === "resume") {
-				await this.terminalSessionManager.recoverCoreSession();
-				return;
-			}
-			await this.terminalSessionManager.ensureCoreSessionDetached();
+			await this.terminalSessionManager.ensureDetachedSession();
 		} catch {
-			// psmux is optional outside the target host profile; transport launch still proceeds.
+			// Child runtimes should already be inside the owning psmux session; detached ensure remains a non-fatal guard.
 		}
 	}
 

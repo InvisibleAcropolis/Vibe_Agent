@@ -50,7 +50,7 @@ class WorkspacePanelComponent implements Component {
 				{
 					value: "sub-agents",
 					label: "Sub-agent Slots",
-					description: "Reserved for future multi-panel agent sessions and psmux-backed workspaces.",
+					description: "Reserved for additional agent panes inside the live psmux-backed workspace shell.",
 				},
 				{
 					value: "file-browser",
@@ -60,7 +60,7 @@ class WorkspacePanelComponent implements Component {
 				{
 					value: "runtime",
 					label: "Runtime Adapter",
-					description: "Reserved seam for later external runtime hosts, including psmux panels.",
+					description: "Reserved seam for external runtime hosts layered onto the active psmux pane layout.",
 				},
 			],
 			5,

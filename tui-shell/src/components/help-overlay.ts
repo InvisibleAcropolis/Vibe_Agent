@@ -23,7 +23,7 @@ const helpMarkdown = `
 - Additional panel slots
 - Sub-agent runtimes
 - File browsing surfaces
-- psmux-backed panel adapters
+- richer psmux-backed panel adapters
 `;
 
 export class HelpOverlay implements MouseAwareOverlay {
@@ -45,7 +45,7 @@ export class HelpOverlay implements MouseAwareOverlay {
 		return [
 			paintLine(masterTuiTheme.accentStrong("Help"), width, masterTuiTheme.panelBgActive),
 			paintLine(
-				masterTuiTheme.muted("This overlay documents the reusable shell and its current v1 limits."),
+				masterTuiTheme.muted("This overlay documents the reusable shell and its current psmux-backed surface."),
 				width,
 				masterTuiTheme.panelBgActive,
 			),

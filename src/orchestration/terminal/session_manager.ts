@@ -49,16 +49,24 @@ class PsmuxCommandRunner implements SessionManagerCommandRunner {
 }
 
 export interface TerminalSessionLifecycle {
-	ensureCoreSessionDetached(): Promise<{ created: boolean }>;
-	recoverCoreSession(): Promise<{ attached: boolean; created: boolean }>;
-	shutdownCoreSession(): Promise<{ terminated: boolean }>;
-	coreSessionExists(): Promise<boolean>;
+	ensureDetachedSession(options?: DetachedSessionOptions): Promise<{ created: boolean }>;
+	recreateDetachedSession(options?: DetachedSessionOptions): Promise<{ created: boolean }>;
+	attachInteractiveSession(): Promise<{ attached: boolean }>;
+	shutdownSession(): Promise<{ terminated: boolean }>;
+	sessionExists(): Promise<boolean>;
 }
 
 export interface TerminalSessionManagerOptions {
 	runner?: SessionManagerCommandRunner;
 	sessionName?: string;
 	onDiagnostic?: (entry: Record<string, unknown>) => void;
+}
+
+export interface DetachedSessionOptions {
+	width?: number;
+	height?: number;
+	cwd?: string;
+	shellCommand?: string[];
 }
 
 export class TerminalSessionManager implements TerminalSessionLifecycle {
@@ -72,30 +80,85 @@ export class TerminalSessionManager implements TerminalSessionLifecycle {
 		this.onDiagnostic = options.onDiagnostic;
 	}
 
-	async ensureCoreSessionDetached(): Promise<{ created: boolean }> {
-		if (await this.coreSessionExists()) {
+	async ensureDetachedSession(options: DetachedSessionOptions = {}): Promise<{ created: boolean }> {
+		if (await this.sessionExists()) {
 			return { created: false };
 		}
-		const result = await this.runner.run("psmux", ["new-session", "-d", "-s", this.sessionName]);
+		const args = ["new-session", "-d", "-s", this.sessionName];
+		if (typeof options.width === "number") {
+			args.push("-x", String(options.width));
+		}
+		if (typeof options.height === "number") {
+			args.push("-y", String(options.height));
+		}
+		if (options.cwd) {
+			args.push("-c", options.cwd);
+		}
+		if (options.shellCommand && options.shellCommand.length > 0) {
+			args.push("--", ...options.shellCommand);
+		}
+		const result = await this.runner.run("psmux", args);
 		if (result.ok) {
 			return { created: true };
 		}
-		if (await this.coreSessionExists()) {
+		if (await this.sessionExists()) {
 			return { created: false };
 		}
 		throw new Error(`Unable to create detached psmux session '${this.sessionName}': ${result.stderr || "command failed"}`);
 	}
 
+	async recreateDetachedSession(options: DetachedSessionOptions = {}): Promise<{ created: boolean }> {
+		if (await this.sessionExists()) {
+			await this.shutdownSession();
+		}
+		return await this.ensureDetachedSession(options);
+	}
+
+	async attachInteractiveSession(): Promise<{ attached: boolean }> {
+		if (!(await this.sessionExists())) {
+			throw new Error(`Unable to attach to psmux session '${this.sessionName}': session does not exist.`);
+		}
+		const attachResult = await this.runner.run("psmux", ["attach", "-t", this.sessionName]);
+		if (attachResult.ok) {
+			return { attached: true };
+		}
+		this.emitDeadSessionDiagnostic("attach.failed", attachResult.stderr, "abort");
+		throw new Error(`Unable to attach to psmux session '${this.sessionName}': ${attachResult.stderr || "command failed"}`);
+	}
+
+	async shutdownSession(): Promise<{ terminated: boolean }> {
+		if (!(await this.sessionExists())) {
+			return { terminated: false };
+		}
+		const result = await this.runner.run("psmux", ["kill-session", "-t", this.sessionName]);
+		if (result.ok) {
+			return { terminated: true };
+		}
+		if (!(await this.sessionExists())) {
+			return { terminated: true };
+		}
+		throw new Error(`Unable to terminate psmux session '${this.sessionName}': ${result.stderr || "command failed"}`);
+	}
+
+	async sessionExists(): Promise<boolean> {
+		const result = await this.runner.run("psmux", ["has-session", "-t", this.sessionName]);
+		return result.ok;
+	}
+
+	async ensureCoreSessionDetached(): Promise<{ created: boolean }> {
+		return await this.ensureDetachedSession();
+	}
+
 	async recoverCoreSession(): Promise<{ attached: boolean; created: boolean }> {
-		const ensureResult = await this.ensureCoreSessionDetached();
+		const ensureResult = await this.ensureDetachedSession();
 		const attachResult = await this.runner.run("psmux", ["attach", "-t", this.sessionName]);
 		if (attachResult.ok) {
 			return { attached: true, created: ensureResult.created };
 		}
-		const sessionMissing = !(await this.coreSessionExists());
+		const sessionMissing = !(await this.sessionExists());
 		if (sessionMissing) {
 			this.emitDeadSessionDiagnostic("recover.attach_missing_session", attachResult.stderr, "retry");
-			const recreated = await this.ensureCoreSessionDetached();
+			const recreated = await this.recreateDetachedSession();
 			const retryAttachResult = await this.runner.run("psmux", ["attach", "-t", this.sessionName]);
 			if (retryAttachResult.ok) {
 				return { attached: true, created: ensureResult.created || recreated.created };
@@ -108,22 +171,11 @@ export class TerminalSessionManager implements TerminalSessionLifecycle {
 	}
 
 	async shutdownCoreSession(): Promise<{ terminated: boolean }> {
-		if (!(await this.coreSessionExists())) {
-			return { terminated: false };
-		}
-		const result = await this.runner.run("psmux", ["kill-session", "-t", this.sessionName]);
-		if (result.ok) {
-			return { terminated: true };
-		}
-		if (!(await this.coreSessionExists())) {
-			return { terminated: true };
-		}
-		throw new Error(`Unable to terminate psmux session '${this.sessionName}': ${result.stderr || "command failed"}`);
+		return await this.shutdownSession();
 	}
 
 	async coreSessionExists(): Promise<boolean> {
-		const result = await this.runner.run("psmux", ["has-session", "-t", this.sessionName]);
-		return result.ok;
+		return await this.sessionExists();
 	}
 
 	private emitDeadSessionDiagnostic(event: string, stderr: string, recoveryAction: "retry" | "abort"): void {

@@ -364,13 +364,9 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 
 	private async ensureTerminalSession(mode: "launch" | "resume"): Promise<void> {
 		try {
-			if (mode === "resume") {
-				await this.terminalSessionManager.recoverCoreSession();
-				return;
-			}
-			await this.terminalSessionManager.ensureCoreSessionDetached();
+			await this.terminalSessionManager.ensureDetachedSession();
 		} catch {
-			// psmux can be absent in dev/test environments; transport remains functional without it.
+			// Child runtimes should already be inside the owning psmux session; detached ensure remains a non-fatal guard.
 		}
 	}
 

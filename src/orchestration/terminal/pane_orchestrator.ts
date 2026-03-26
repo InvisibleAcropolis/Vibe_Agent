@@ -73,8 +73,8 @@ export class TerminalPaneOrchestrator {
 		return await this.splitPane("-v", role, agentBinding);
 	}
 
-	async capturePaneId(): Promise<string> {
-		const result = await this.runner.run("psmux", ["display-message", "-p", "#{pane_id}"]);
+	async capturePaneId(target: string = this.target): Promise<string> {
+		const result = await this.runner.run("psmux", ["display-message", "-p", "#{pane_id}", "-t", target]);
 		if (!result.ok) {
 			throw new Error(`Unable to capture pane id via psmux display-message: ${result.stderr || "command failed"}`);
 		}
@@ -89,7 +89,7 @@ export class TerminalPaneOrchestrator {
 		if (paneId.trim().length === 0) {
 			throw new Error("Pane id is required for send-keys");
 		}
-		const result = await this.runner.run("psmux", ["send-keys", "-t", paneId, command, "Enter"]);
+		const result = await this.runner.run("psmux", ["send-keys", "-t", this.resolvePaneTarget(paneId), command, "Enter"]);
 		if (!result.ok) {
 			throw new Error(`Unable to inject command via psmux send-keys for pane '${paneId}': ${result.stderr || "command failed"}`);
 		}
@@ -104,13 +104,17 @@ export class TerminalPaneOrchestrator {
 		if (!splitResult.ok) {
 			throw new Error(`Unable to split pane with '${directionFlag}' on target '${this.target}': ${splitResult.stderr || "command failed"}`);
 		}
-		const paneId = await this.capturePaneId();
+		const paneId = await this.capturePaneId(this.target);
 		return {
 			paneId,
 			role,
 			createdAt: new Date(),
 			agentBinding,
 		};
+	}
+
+	private resolvePaneTarget(paneId: string): string {
+		return paneId.startsWith("%") ? `${this.target}:${paneId}` : paneId;
 	}
 }
 

@@ -33,7 +33,7 @@ export class ShellFrame implements Component {
 		const footerLines = [
 			paintLine(this.getStatus(), width, masterTuiTheme.footerLine),
 			paintLine(
-				masterTuiTheme.dim("Standalone Phase 2 surface. Desktop embedding and psmux runtime adapters come later."),
+				masterTuiTheme.dim("Standalone Phase 2 surface. Desktop embedding now assumes psmux-backed runtime ownership."),
 				width,
 				masterTuiTheme.footerLine,
 			),

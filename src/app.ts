@@ -132,6 +132,8 @@ export class VibeAgentApp {
 			() => this.host,
 			this.animEngine,
 		);
+		const psmuxRuntimeLabel = this.shellView.footerData.getPsmuxRuntimeLabel();
+		this.shellView.setTitle(psmuxRuntimeLabel ? `Vibe Agent - ${psmuxRuntimeLabel}` : "Vibe Agent");
 		this.logoBlockSystem = new LogoBlockSystem(this.terminal.columns, (lines) => {
 			this.shellView.setSplashFrame(lines);
 		});
