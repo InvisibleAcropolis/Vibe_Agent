@@ -84,16 +84,26 @@ export interface OrcGraphExecutors {
 	complete(state: Readonly<OrcMasterState>): Promise<{ summary: string }>;
 }
 
+export interface OrcGraphMiddleware {
+	name: string;
+	onRoute?(state: Readonly<OrcMasterState>): Promise<void>;
+	onDispatch?(state: Readonly<OrcMasterState>): Promise<void>;
+	onVerify?(state: Readonly<OrcMasterState>): Promise<void>;
+	onComplete?(state: Readonly<OrcMasterState>): Promise<void>;
+}
+
 export interface OrcGraphFactoryConfig {
 	executors: OrcGraphExecutors;
 	checkpointer: OrcGraphCheckpointer;
 	storeHooks?: OrcGraphStoreHooks;
 	now?: () => Date;
+	middleware?: ReadonlyArray<OrcGraphMiddleware>;
 }
 
 export interface OrcCompiledGraph {
 	nodes: Readonly<Record<OrcGraphNodeId, OrcGraphNodeId>>;
 	edges: Readonly<Record<"route" | "dispatch" | "verify", OrcGraphNodeId>>;
+	middlewareOrder: ReadonlyArray<string>;
 	step(state: OrcMasterState): Promise<OrcMasterState>;
 }
 
@@ -111,6 +121,20 @@ const ORC_GRAPH_EDGES: Readonly<Record<"route" | "dispatch" | "verify", OrcGraph
 	verify: "complete",
 };
 
+function createSubAgentMiddleware(): OrcGraphMiddleware {
+	return {
+		name: "subagent_dispatch_guard",
+		async onDispatch(state) {
+			if (!state.activeGuildMember) {
+				throw new Error("Dispatch blocked: missing active guild member.");
+			}
+			if (!state.contractPayload) {
+				throw new Error("Dispatch blocked: missing contract payload handoff.");
+			}
+		},
+	};
+}
+
 async function checkpointAndHook(
 	state: OrcMasterState,
 	checkpointer: OrcGraphCheckpointer,
@@ -124,13 +148,21 @@ async function checkpointAndHook(
 }
 
 /**
- * Single orchestration graph factory. Mirrors DeepAgents-style construction by
- * accepting runtime dependencies at build-time, then returning a compiled graph.
+ * Single orchestration graph factory with deterministic middleware layering:
+ * 1) `subagent_dispatch_guard` (built-in)
+ * 2) caller-provided middleware in declaration order
+ *
+ * This mirrors DeepAgents stack semantics where framework middleware is applied
+ * first, then consumer middleware extends behavior without reordering base guards.
  */
 export function build_orc_graph(config: OrcGraphFactoryConfig): OrcCompiledGraph {
 	const now = config.now ?? (() => new Date());
+	const middleware = [createSubAgentMiddleware(), ...(config.middleware ?? [])];
 
 	async function runRouteNode(state: OrcMasterState): Promise<OrcMasterState> {
+		for (const layer of middleware) {
+			await layer.onRoute?.(state);
+		}
 		const route = await config.executors.route(state);
 		const next = route.decision === "dispatch" ? ORC_GRAPH_EDGES.route : "failed";
 		const routedState: OrcMasterState = {
@@ -160,8 +192,8 @@ export function build_orc_graph(config: OrcGraphFactoryConfig): OrcCompiledGraph
 	}
 
 	async function runDispatchNode(state: OrcMasterState): Promise<OrcMasterState> {
-		if (!state.contractPayload) {
-			throw new Error("Dispatch blocked: missing contract payload handoff.");
+		for (const layer of middleware) {
+			await layer.onDispatch?.(state);
 		}
 		const dispatched = await config.executors.dispatch(state);
 		const dispatchedState: OrcMasterState = {
@@ -173,6 +205,9 @@ export function build_orc_graph(config: OrcGraphFactoryConfig): OrcCompiledGraph
 	}
 
 	async function runVerifyNode(state: OrcMasterState): Promise<OrcMasterState> {
+		for (const layer of middleware) {
+			await layer.onVerify?.(state);
+		}
 		const verification = await config.executors.verify(state);
 		const canRetry = state.retries.attempt < state.retries.maxAttempts;
 		const next = verification.decision === "route" && canRetry ? "route" : verification.decision;
@@ -195,6 +230,9 @@ export function build_orc_graph(config: OrcGraphFactoryConfig): OrcCompiledGraph
 	}
 
 	async function runCompleteNode(state: OrcMasterState): Promise<OrcMasterState> {
+		for (const layer of middleware) {
+			await layer.onComplete?.(state);
+		}
 		if (state.next === "failed") {
 			const failedState: OrcMasterState = {
 				...state,
@@ -214,6 +252,7 @@ export function build_orc_graph(config: OrcGraphFactoryConfig): OrcCompiledGraph
 	return {
 		nodes: ORC_GRAPH_NODES,
 		edges: ORC_GRAPH_EDGES,
+		middlewareOrder: middleware.map((layer) => layer.name),
 		async step(state: OrcMasterState): Promise<OrcMasterState> {
 			switch (state.next) {
 				case "route":

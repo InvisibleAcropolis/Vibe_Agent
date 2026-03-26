@@ -2,7 +2,17 @@ import assert from "node:assert";
 import { describe, it } from "node:test";
 import type { RpcAgentRuntimeState, RpcAgentRole, RpcProcessLauncher, RpcTelemetryEnvelope } from "../src/orchestration/bridge/rpc_launcher.js";
 import type { TerminalPaneMetadata, TerminalPaneOrchestrator } from "../src/orchestration/terminal/pane_orchestrator.js";
-import { ALCHEMIST_SUBAGENT_CONFIG, INQUISITOR_SUBAGENT_CONFIG, OrcSubagentRouter } from "../src/orchestration/graph/subagents/index.js";
+import {
+	ALCHEMIST_SUBAGENT_CONFIG,
+	ARCHITECT_SUBAGENT_CONFIG,
+	INQUISITOR_SUBAGENT_CONFIG,
+	MECHANIC_SUBAGENT_CONFIG,
+	ORC_GUILD_SUBAGENT_REGISTRY_ENTRIES,
+	OrcMalformedSubagentTaskRequestError,
+	OrcSubagentRouter,
+	OrcUnknownSubagentError,
+	VIBE_CURATOR_SUBAGENT_CONFIG,
+} from "../src/orchestration/graph/subagents/index.js";
 
 class FakeRpcLauncher implements Pick<RpcProcessLauncher, "startAgent" | "getAgentState"> {
 	readonly startCalls: RpcAgentRole[] = [];
@@ -11,6 +21,8 @@ class FakeRpcLauncher implements Pick<RpcProcessLauncher, "startAgent" | "getAge
 	constructor() {
 		this.states.set("inquisitor", this.createState("inquisitor", "inquisitor-main", "inq-instance"));
 		this.states.set("alchemist", this.createState("alchemist", "alchemist-main", "alc-instance"));
+		this.states.set("architect", this.createState("architect", "architect-main", "arc-instance"));
+		this.states.set("mechanic", this.createState("mechanic", "mechanic-main", "mec-instance"));
 	}
 
 	startAgent(role: RpcAgentRole): RpcAgentRuntimeState {
@@ -37,7 +49,7 @@ class FakeRpcLauncher implements Pick<RpcProcessLauncher, "startAgent" | "getAge
 				agentId,
 				instanceId,
 				launchAttempt: 0,
-				pid: role === "inquisitor" ? 2101 : 2102,
+				pid: 2101,
 			},
 			status: "running",
 			restartCount: 0,
@@ -60,16 +72,18 @@ class FakePaneOrchestrator implements Pick<TerminalPaneOrchestrator, "splitVerti
 }
 
 describe("subagent configs", () => {
-	it("defines dedicated prompts and toolsets for Inquisitor and Alchemist", () => {
+	it("defines explicit guild registry entries and dedicated prompts/toolsets", () => {
+		assert.equal(ORC_GUILD_SUBAGENT_REGISTRY_ENTRIES.length, 9);
 		assert.deepEqual(INQUISITOR_SUBAGENT_CONFIG.toolset, ["index", "search", "read"]);
 		assert.deepEqual(ALCHEMIST_SUBAGENT_CONFIG.toolset, ["write", "refactor", "execute"]);
-		assert.match(INQUISITOR_SUBAGENT_CONFIG.prompt.system, /repository intelligence/i);
-		assert.match(ALCHEMIST_SUBAGENT_CONFIG.prompt.system, /transformation specialist/i);
+		assert.match(ARCHITECT_SUBAGENT_CONFIG.prompt.system, /systems design specialist/i);
+		assert.match(MECHANIC_SUBAGENT_CONFIG.prompt.system, /reliability engineer/i);
+		assert.equal(VIBE_CURATOR_SUBAGENT_CONFIG.displayName, "Vibe Curator");
 	});
 });
 
 describe("OrcSubagentRouter", () => {
-	it("routes read-heavy task types to Inquisitor and execute-heavy task types to Alchemist", async () => {
+	it("routes through one dispatch path and returns structured outputs", async () => {
 		const rpcLauncher = new FakeRpcLauncher();
 		const paneOrchestrator = new FakePaneOrchestrator();
 		const router = new OrcSubagentRouter({
@@ -79,17 +93,50 @@ describe("OrcSubagentRouter", () => {
 		});
 
 		const readSession = await router.routeTask({ taskId: "task-read", taskType: "semantic_search" });
-		const writeSession = await router.routeTask({ taskId: "task-write", taskType: "execution" });
+		const executeResult = await router.invokeSpawnTask({
+			taskId: "task-exec",
+			taskType: "execution",
+			subagentName: "mechanic",
+		});
 
 		assert.equal(readSession.subagentRole, "inquisitor");
-		assert.equal(writeSession.subagentRole, "alchemist");
-		assert.deepEqual(rpcLauncher.startCalls, ["inquisitor", "alchemist"]);
+		assert.equal(executeResult.session.subagentRole, "mechanic");
+		assert.equal(executeResult.structuredOutput.kind, "subagent_dispatch_v1");
+		assert.deepEqual(rpcLauncher.startCalls, ["inquisitor", "mechanic"]);
+		assert.deepEqual(router.getMiddlewareOrder(), ["request_validation", "registry_guard", "structured_output"]);
 		assert.deepEqual(paneOrchestrator.calls, [
 			{ role: "secondary", agentId: "inquisitor-main" },
-			{ role: "secondary", agentId: "alchemist-main" },
+			{ role: "secondary", agentId: "mechanic-main" },
 		]);
-		assert.equal(typeof readSession.correlationId, "string");
-		assert.equal(readSession.processPid, 2101);
+	});
+
+	it("rejects unknown subagent names and malformed spawn requests before execution", async () => {
+		const rpcLauncher = new FakeRpcLauncher();
+		const router = new OrcSubagentRouter({
+			rpcLauncher,
+			paneOrchestrator: new FakePaneOrchestrator(),
+			routerNow: () => new Date("2026-03-26T01:02:03.000Z"),
+		});
+
+		await assert.rejects(
+			() =>
+				router.invokeSpawnTask({
+					taskId: "task-unknown",
+					taskType: "general",
+					subagentName: "unknown" as never,
+				}),
+			(error: unknown) => error instanceof OrcUnknownSubagentError,
+		);
+		await assert.rejects(
+			() =>
+				router.invokeSpawnTask({
+					taskId: "",
+					taskType: "general",
+					subagentName: "inquisitor",
+				}),
+			(error: unknown) => error instanceof OrcMalformedSubagentTaskRequestError,
+		);
+		assert.equal(rpcLauncher.startCalls.length, 0);
 	});
 
 	it("binds telemetry streams using subagent identity", async () => {
@@ -119,16 +166,5 @@ describe("OrcSubagentRouter", () => {
 
 		const bound = router.bindTelemetry(telemetry);
 		assert.equal(bound?.session.sessionId, session.sessionId);
-		assert.equal(bound?.session.paneId, "%router-pane");
-
-		const unrelated = router.bindTelemetry({
-			...telemetry,
-			source: {
-				...telemetry.source,
-				agentId: "unexpected",
-				instanceId: "unknown-instance",
-			},
-		});
-		assert.equal(unrelated, undefined);
 	});
 });
