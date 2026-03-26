@@ -22,10 +22,18 @@ export interface StructuralBlueprint {
 	envelope?: OrcContractEnvelope;
 }
 
+export interface ReconCoordinate {
+	absoluteFilePath: string;
+	lineStart: number;
+	lineEnd: number;
+	semanticChangeTarget: string;
+}
+
 export interface ReconReport {
 	summary: string;
 	findings: string[];
 	recommendations: string[];
+	coordinates: ReconCoordinate[];
 	evidenceLinks?: string[];
 	envelope?: OrcContractEnvelope;
 }
@@ -99,6 +107,97 @@ function validateStringArray(value: unknown, path: string, issues: OrcContractVa
 	return true;
 }
 
+function validatePositiveInteger(value: unknown, path: string, issues: OrcContractValidationIssue[]): value is number {
+	if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+		pushIssue(issues, path, "positive integer", value, `${path} must be a positive integer.`);
+		return false;
+	}
+	return true;
+}
+
+function isAbsolutePath(value: string): boolean {
+	return value.startsWith("/");
+}
+
+function compareReconCoordinate(a: ReconCoordinate, b: ReconCoordinate): number {
+	if (a.absoluteFilePath !== b.absoluteFilePath) {
+		return a.absoluteFilePath.localeCompare(b.absoluteFilePath);
+	}
+	if (a.lineStart !== b.lineStart) {
+		return a.lineStart - b.lineStart;
+	}
+	if (a.lineEnd !== b.lineEnd) {
+		return a.lineEnd - b.lineEnd;
+	}
+	return a.semanticChangeTarget.localeCompare(b.semanticChangeTarget);
+}
+
+function validateReconCoordinates(value: unknown, path: string, issues: OrcContractValidationIssue[]): value is ReconCoordinate[] {
+	if (!Array.isArray(value) || value.length === 0) {
+		pushIssue(issues, path, "non-empty ReconCoordinate[]", value, `${path} must include at least one coordinate.`);
+		return false;
+	}
+	let previous: ReconCoordinate | undefined;
+	for (let index = 0; index < value.length; index += 1) {
+		const entry = value[index];
+		const entryPath = `${path}[${index}]`;
+		if (!isRecord(entry)) {
+			pushIssue(issues, entryPath, "ReconCoordinate", entry, `${entryPath} must be an object.`);
+			continue;
+		}
+		if (!validateString(entry.absoluteFilePath, `${entryPath}.absoluteFilePath`, issues)) {
+			continue;
+		}
+		if (!isAbsolutePath(entry.absoluteFilePath)) {
+			pushIssue(
+				issues,
+				`${entryPath}.absoluteFilePath`,
+				"absolute file path",
+				entry.absoluteFilePath,
+				`${entryPath}.absoluteFilePath must be an absolute path.`,
+			);
+		}
+		const hasStart = validatePositiveInteger(entry.lineStart, `${entryPath}.lineStart`, issues);
+		const hasEnd = validatePositiveInteger(entry.lineEnd, `${entryPath}.lineEnd`, issues);
+		validateString(entry.semanticChangeTarget, `${entryPath}.semanticChangeTarget`, issues);
+		const lineStart = entry.lineStart;
+		const lineEnd = entry.lineEnd;
+		if (hasStart && hasEnd && typeof lineStart === "number" && typeof lineEnd === "number" && lineEnd < lineStart) {
+			pushIssue(
+				issues,
+				`${entryPath}.lineEnd`,
+				">= lineStart",
+				lineEnd,
+				`${entryPath}.lineEnd must be greater than or equal to lineStart.`,
+			);
+		}
+		if (
+			typeof entry.absoluteFilePath === "string"
+			&& typeof entry.lineStart === "number"
+			&& typeof entry.lineEnd === "number"
+			&& typeof entry.semanticChangeTarget === "string"
+		) {
+			const normalized: ReconCoordinate = {
+				absoluteFilePath: entry.absoluteFilePath,
+				lineStart: entry.lineStart,
+				lineEnd: entry.lineEnd,
+				semanticChangeTarget: entry.semanticChangeTarget,
+			};
+			if (previous && compareReconCoordinate(previous, normalized) >= 0) {
+				pushIssue(
+					issues,
+					entryPath,
+					"strictly ascending deterministic coordinate order",
+					entry,
+					`${path} must be strictly ordered by absoluteFilePath, lineStart, lineEnd, semanticChangeTarget.`,
+				);
+			}
+			previous = normalized;
+		}
+	}
+	return true;
+}
+
 function validateEnvelope(value: unknown, path: string, issues: OrcContractValidationIssue[]): void {
 	if (value === undefined) {
 		return;
@@ -159,6 +258,7 @@ function validateReconReport(payload: unknown): OrcContractValidationResult {
 	validateString(payload.summary, "payload.summary", issues);
 	validateStringArray(payload.findings, "payload.findings", issues);
 	validateStringArray(payload.recommendations, "payload.recommendations", issues);
+	validateReconCoordinates(payload.coordinates, "payload.coordinates", issues);
 	if (payload.evidenceLinks !== undefined) {
 		validateStringArray(payload.evidenceLinks, "payload.evidenceLinks", issues, true);
 	}

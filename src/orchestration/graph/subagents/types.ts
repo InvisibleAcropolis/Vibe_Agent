@@ -13,6 +13,7 @@ export type SubagentToolsetCapabilities =
 	| "index"
 	| "search"
 	| "read"
+	| "lsp"
 	| "write"
 	| "refactor"
 	| "execute"

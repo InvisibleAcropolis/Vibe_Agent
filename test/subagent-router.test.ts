@@ -26,6 +26,7 @@ class FakeRpcLauncher implements Pick<RpcProcessLauncher, "startAgent" | "getAge
 
 	constructor() {
 		this.states.set("inquisitor", this.createState("inquisitor", "inquisitor-main", "inq-instance"));
+		this.states.set("scout", this.createState("scout", "scout-main", "sct-instance"));
 		this.states.set("alchemist", this.createState("alchemist", "alchemist-main", "alc-instance"));
 		this.states.set("architect", this.createState("architect", "architect-main", "arc-instance"));
 		this.states.set("mechanic", this.createState("mechanic", "mechanic-main", "mec-instance"));
@@ -92,7 +93,7 @@ describe("subagent configs", () => {
 		validateSubagentToolPolicyRegistry(ORC_GUILD_SUBAGENT_REGISTRY);
 		assert.deepEqual(ORC_SUBAGENT_TOOL_POLICY_MAP.scout.allowedDomains, ["read", "recon", "lsp"]);
 		assert.deepEqual(ORC_SUBAGENT_TOOL_POLICY_MAP.architect.allowedDomains, ["read", "recon", "lsp", "scaffold", "typegen"]);
-		assert.equal(classifyToolDomain("lsp_definition"), "lsp");
+		assert.equal(classifyToolDomain("lsp_hover"), "lsp");
 		assert.equal(classifyToolDomain("scaffold_directory_tree"), "scaffold");
 		assert.equal(classifyToolDomain("create_type_definitions"), "typegen");
 		assert.equal(classifyToolDomain("vitest"), "test");
@@ -106,6 +107,8 @@ describe("subagent configs", () => {
 			"edit",
 		);
 		assert.equal(evaluateToolPolicyViolation({ role: "scout", toolName: "grep" }), undefined);
+		assert.equal(evaluateToolPolicyViolation({ role: "scout", toolName: "edit_file_lines" })?.detectedDomain, "edit");
+		assert.equal(evaluateToolPolicyViolation({ role: "scout", toolName: "lsp_hover" }), undefined);
 		assert.equal(evaluateToolPolicyViolation({ role: "architect", toolName: "scaffold_directory_tree" }), undefined);
 	});
 });
@@ -127,13 +130,13 @@ describe("OrcSubagentRouter", () => {
 			subagentName: "mechanic",
 		});
 
-		assert.equal(readSession.subagentRole, "inquisitor");
+		assert.equal(readSession.subagentRole, "scout");
 		assert.equal(executeResult.session.subagentRole, "mechanic");
 		assert.equal(executeResult.structuredOutput.kind, "subagent_dispatch_v1");
-		assert.deepEqual(rpcLauncher.startCalls, ["inquisitor", "mechanic"]);
+		assert.deepEqual(rpcLauncher.startCalls, ["scout", "mechanic"]);
 		assert.deepEqual(router.getMiddlewareOrder(), ["request_validation", "registry_guard", "structured_output"]);
 		assert.deepEqual(paneOrchestrator.calls, [
-			{ role: "secondary", agentId: "inquisitor-main" },
+			{ role: "secondary", agentId: "scout-main" },
 			{ role: "secondary", agentId: "mechanic-main" },
 		]);
 	});
@@ -180,9 +183,9 @@ describe("OrcSubagentRouter", () => {
 			eventId: "evt-1",
 			emittedAt: "2026-03-26T01:02:04.000Z",
 			source: {
-				agentRole: "inquisitor",
-				agentId: "inquisitor-main",
-				instanceId: "inq-instance",
+				agentRole: "scout",
+				agentId: "scout-main",
+				instanceId: "sct-instance",
 				launchAttempt: 0,
 			},
 			telemetry: {
@@ -213,9 +216,9 @@ describe("OrcSubagentRouter", () => {
 			eventId: "evt-tool-1",
 			emittedAt: "2026-03-26T01:02:05.000Z",
 			source: {
-				agentRole: "inquisitor",
-				agentId: "inquisitor-main",
-				instanceId: "inq-instance",
+				agentRole: "scout",
+				agentId: "scout-main",
+				instanceId: "sct-instance",
 				launchAttempt: 0,
 			},
 			telemetry: {

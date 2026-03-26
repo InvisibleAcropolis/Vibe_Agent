@@ -36,7 +36,7 @@ export const ORC_SUBAGENT_TOOL_POLICY_MAP: Readonly<Record<GuildSubagentRole, Su
 		allowedDomains: ["read", "recon", "lsp", "scaffold", "typegen"],
 	},
 	scout: {
-		allowedCapabilities: ["index", "search", "read"],
+		allowedCapabilities: ["read", "search", "lsp"],
 		allowedDomains: ["read", "recon", "lsp"],
 	},
 	mechanic: {
