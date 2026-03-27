@@ -2,6 +2,8 @@ import { spawn } from "node:child_process";
 import { UnifiedOrchestrationError, createCorrelationContext } from "../errors/unified-error.js";
 
 export const ORC_CORE_SESSION_NAME = "vibe_core";
+const WINDOWS_INTERRUPT_EXIT_CODE = 3221225786;
+const WINDOWS_INTERRUPT_EXIT_CODE_SIGNED = -1073741510;
 
 export interface SessionCommandResult {
 	ok: boolean;
@@ -111,7 +113,7 @@ class PsmuxCommandRunner implements SessionManagerCommandRunner {
 export interface TerminalSessionLifecycle {
 	ensureDetachedSession(options?: DetachedSessionOptions): Promise<{ created: boolean }>;
 	recreateDetachedSession(options?: DetachedSessionOptions): Promise<{ created: boolean }>;
-	attachInteractiveSession(): Promise<{ attached: boolean }>;
+	attachInteractiveSession(): Promise<{ attached: boolean; closedByUser?: boolean }>;
 	shutdownSession(): Promise<{ terminated: boolean }>;
 	sessionExists(): Promise<boolean>;
 }
@@ -174,13 +176,16 @@ export class TerminalSessionManager implements TerminalSessionLifecycle {
 		return await this.ensureDetachedSession(options);
 	}
 
-	async attachInteractiveSession(): Promise<{ attached: boolean }> {
+	async attachInteractiveSession(): Promise<{ attached: boolean; closedByUser?: boolean }> {
 		if (!(await this.sessionExists())) {
 			throw new Error(`Unable to attach to psmux session '${this.sessionName}': session does not exist.`);
 		}
 		const attachResult = await this.runAttachCommand(["attach", "-t", this.sessionName]);
 		if (attachResult.ok) {
 			return { attached: true };
+		}
+		if (isNormalInteractiveClose(attachResult.exitCode)) {
+			return { attached: false, closedByUser: true };
 		}
 		this.emitDeadSessionDiagnostic("attach.failed", attachResult.stderr, "abort");
 		throw new Error(`Unable to attach to psmux session '${this.sessionName}': ${attachResult.stderr || "command failed"}`);
@@ -209,11 +214,14 @@ export class TerminalSessionManager implements TerminalSessionLifecycle {
 		return await this.ensureDetachedSession();
 	}
 
-	async recoverCoreSession(): Promise<{ attached: boolean; created: boolean }> {
+	async recoverCoreSession(): Promise<{ attached: boolean; created: boolean; closedByUser?: boolean }> {
 		const ensureResult = await this.ensureDetachedSession();
 		const attachResult = await this.runAttachCommand(["attach", "-t", this.sessionName]);
 		if (attachResult.ok) {
 			return { attached: true, created: ensureResult.created };
+		}
+		if (isNormalInteractiveClose(attachResult.exitCode)) {
+			return { attached: false, created: ensureResult.created, closedByUser: true };
 		}
 		const sessionMissing = !(await this.sessionExists());
 		if (sessionMissing) {
@@ -222,6 +230,9 @@ export class TerminalSessionManager implements TerminalSessionLifecycle {
 			const retryAttachResult = await this.runAttachCommand(["attach", "-t", this.sessionName]);
 			if (retryAttachResult.ok) {
 				return { attached: true, created: ensureResult.created || recreated.created };
+			}
+			if (isNormalInteractiveClose(retryAttachResult.exitCode)) {
+				return { attached: false, created: ensureResult.created || recreated.created, closedByUser: true };
 			}
 			this.emitDeadSessionDiagnostic("recover.attach_retry_failed", retryAttachResult.stderr, "abort");
 		} else {
@@ -273,4 +284,8 @@ export function getTerminalSessionManager(): TerminalSessionManager {
 
 function quoteForPowerShell(value: string): string {
 	return `'${value.replaceAll("'", "''")}'`;
+}
+
+function isNormalInteractiveClose(exitCode: number | null): boolean {
+	return exitCode === WINDOWS_INTERRUPT_EXIT_CODE || exitCode === WINDOWS_INTERRUPT_EXIT_CODE_SIGNED;
 }

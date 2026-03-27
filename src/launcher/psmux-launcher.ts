@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { getVibeDurableRoot } from "../durable/durable-paths.js";
 import {
 	ORC_CORE_SESSION_NAME,
 	TerminalSessionManager,
@@ -19,6 +20,7 @@ import {
 	type PsmuxRuntimeRole,
 } from "../psmux-runtime-context.js";
 import { startVibeAgentApp } from "../run-app.js";
+import { writeSplashReplaySignal } from "../splash-replay-signal.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..", "..");
@@ -126,6 +128,7 @@ export interface PsmuxLauncherDependencies {
 	env?: NodeJS.ProcessEnv;
 	argv?: readonly string[];
 	execPath?: string;
+	durableRootPath?: string;
 	writeError?: (message: string) => void;
 }
 
@@ -147,12 +150,14 @@ export async function launchVibeAgentWithPsmux(dependencies: PsmuxLauncherDepend
 	const writeError = dependencies.writeError ?? ((message: string) => console.error(message));
 	const cwd = dependencies.cwd ?? process.cwd();
 	const execPath = dependencies.execPath ?? process.execPath;
+	const durableRootPath = dependencies.durableRootPath ?? getVibeDurableRoot();
 	const childArgs = stripPsmuxChildFlag(argv);
 
 	await assertPsmuxAvailable(runner, writeError);
 
 	if (await sessionManager.sessionExists()) {
 		if (attach) {
+			writeSplashReplaySignal(sessionName, { durableRoot: durableRootPath });
 			await sessionManager.attachInteractiveSession();
 		}
 		return;
@@ -186,6 +191,7 @@ export async function launchVibeAgentWithPsmux(dependencies: PsmuxLauncherDepend
 	await paneOrchestrator.injectCommand(secondaryPane.paneId, secondaryCommand);
 
 	if (attach) {
+		writeSplashReplaySignal(sessionName, { durableRoot: durableRootPath });
 		await sessionManager.attachInteractiveSession();
 	}
 }

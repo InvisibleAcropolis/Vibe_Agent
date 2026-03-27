@@ -2,6 +2,7 @@ import { TUI } from "@mariozechner/pi-tui";
 import type { AnimationEngine } from "./animation-engine.js";
 import { createLogoBlockRows, LogoBlockView } from "./components/logo-block-view.js";
 import { OffscreenTerminal } from "./offscreen-terminal.js";
+import { readSplashReplaySignal } from "./splash-replay-signal.js";
 
 type LogoPhase = "hidden" | "intro" | "hold" | "outro";
 
@@ -19,6 +20,7 @@ const LOGO_GLYPH_STEPS = 4;
 const LOGO_TOTAL_STEPS = LOGO_PATTERN_STEPS + LOGO_GLYPH_STEPS;
 const LOGO_HOLD_TICKS = 38;
 const LOGO_OUTRO_STEPS = 24;
+const REPLAY_SIGNAL_POLL_INTERVAL_TICKS = 4;
 
 export class LogoBlockSystem {
 	private readonly terminal: OffscreenTerminal;
@@ -33,11 +35,17 @@ export class LogoBlockSystem {
 	private animationUnsubscribe?: () => void;
 	private currentFrame: string[] = [];
 	private currentColumns: number;
+	private lastSeenReplayToken?: string;
+	private ticksSinceReplayPoll = 0;
 
 	constructor(
 		columns: number,
 		private readonly animationEngine: AnimationEngine,
 		private readonly onFrame: (lines: string[]) => void,
+		private readonly options: {
+			sessionName?: string;
+			durableRootPath?: string;
+		} = {},
 	) {
 		this.currentColumns = columns;
 		this.terminal = new OffscreenTerminal(columns, SPLASH_ROWS);
@@ -53,7 +61,8 @@ export class LogoBlockSystem {
 	start(): void {
 		this.animationUnsubscribe?.();
 		this.tui.start();
-		this.resetForBootstrap();
+		this.lastSeenReplayToken = this.readReplayToken();
+		this.restartLifecycle();
 		void this.renderFrame();
 		this.animationUnsubscribe = this.animationEngine.subscribe(() => {
 			void this.advance();
@@ -94,6 +103,7 @@ export class LogoBlockSystem {
 	}
 
 	private resetForBootstrap(): void {
+		this.ticksSinceReplayPoll = 0;
 		this.state.phase = "intro";
 		this.state.progress = 1;
 		this.state.totalSteps = LOGO_TOTAL_STEPS;
@@ -102,6 +112,15 @@ export class LogoBlockSystem {
 	}
 
 	private async advance(): Promise<void> {
+		this.ticksSinceReplayPoll += 1;
+		if (this.ticksSinceReplayPoll >= REPLAY_SIGNAL_POLL_INTERVAL_TICKS) {
+			this.ticksSinceReplayPoll = 0;
+			if (this.tryReplayFromSignal()) {
+				await this.renderFrame();
+				return;
+			}
+		}
+
 		if (this.state.phase === "intro") {
 			if (this.state.progress < this.state.totalSteps) {
 				this.state.progress += 1;
@@ -182,5 +201,28 @@ export class LogoBlockSystem {
 			order[swapIndex] = next;
 		}
 		return order;
+	}
+
+	private restartLifecycle(): void {
+		this.resetForBootstrap();
+	}
+
+	private tryReplayFromSignal(): boolean {
+		const nextToken = this.readReplayToken();
+		if (!nextToken || nextToken === this.lastSeenReplayToken) {
+			return false;
+		}
+		this.lastSeenReplayToken = nextToken;
+		this.restartLifecycle();
+		return true;
+	}
+
+	private readReplayToken(): string | undefined {
+		if (!this.options.sessionName) {
+			return undefined;
+		}
+		return readSplashReplaySignal(this.options.sessionName, {
+			durableRoot: this.options.durableRootPath,
+		})?.token;
 	}
 }

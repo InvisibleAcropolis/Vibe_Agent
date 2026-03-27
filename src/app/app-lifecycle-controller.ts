@@ -2,9 +2,9 @@ import type { Component } from "@mariozechner/pi-tui";
 import type { PiMonoAppDebugger } from "../app-debugger.js";
 import type { AppStateStore } from "../app-state-store.js";
 import type { AnimationEngine } from "../animation-engine.js";
-import type { LogoBlockSystem } from "../logo-block-system.js";
 import type { OverlayController } from "../overlay-controller.js";
 import type { ShellView } from "../shell-view.js";
+import type { SplashWindowController } from "../splash-window-controller.js";
 import type { StartupController } from "../startup-controller.js";
 import type { AgentHost } from "../agent-host.js";
 
@@ -17,7 +17,7 @@ export class AppLifecycleController {
 		private readonly stateStore: AppStateStore,
 		private readonly debuggerSink: PiMonoAppDebugger,
 		private readonly animationEngine: AnimationEngine,
-		private readonly logoBlockSystem: LogoBlockSystem,
+		private readonly splashWindowController: SplashWindowController,
 		private readonly startupController: StartupController,
 		private readonly overlayController: OverlayController,
 		private readonly host: AgentHost,
@@ -32,7 +32,7 @@ export class AppLifecycleController {
 		this.shellView.setTitle("Vibe Agent");
 		this.animationEngine.start();
 		this.shellView.start();
-		this.logoBlockSystem.start();
+		this.splashWindowController.start();
 		void onStartup().catch((error) => {
 			this.debuggerSink.logError("startup.sequence.error", error);
 		});
@@ -44,7 +44,7 @@ export class AppLifecycleController {
 		}
 		this.running = false;
 		this.debuggerSink.log("app.stop.start");
-		this.logoBlockSystem.dispose();
+		this.splashWindowController.dispose();
 		this.animationEngine.stop();
 		this.startupController.dispose();
 		this.overlayController.closeAllOverlays();

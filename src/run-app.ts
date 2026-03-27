@@ -1,16 +1,27 @@
 import { createAppDebugger } from "./app-debugger.js";
 import { createDefaultAgentHost } from "./debug-agent-host.js";
+import { readPsmuxRuntimeContext } from "./psmux-runtime-context.js";
+import { startSplashPaneApp, type SplashPaneAppHandle } from "./splash-pane-app.js";
 import { VibeAgentApp } from "./app.js";
 
-export function startVibeAgentApp(): VibeAgentApp {
+type RuntimeHandle = Pick<VibeAgentApp, "stop" | "writeDebugSnapshot"> | SplashPaneAppHandle;
+
+export function startVibeAgentApp(): RuntimeHandle {
 	const debuggerSink = createAppDebugger({
 		appName: "vibe-agent",
 		appRoot: process.cwd(),
 	});
-	const app = new VibeAgentApp({
-		debugger: debuggerSink,
-		host: createDefaultAgentHost(debuggerSink),
-	});
+	const runtimeContext = readPsmuxRuntimeContext();
+	const app =
+		runtimeContext.role === "secondary"
+			? startSplashPaneApp({
+				debugger: debuggerSink,
+				sessionName: runtimeContext.sessionName,
+			})
+			: new VibeAgentApp({
+				debugger: debuggerSink,
+				host: createDefaultAgentHost(debuggerSink),
+			});
 
 	const stopApp = () => {
 		app.stop();
@@ -34,6 +45,8 @@ export function startVibeAgentApp(): VibeAgentApp {
 		});
 	});
 
-	app.start();
+	if (app instanceof VibeAgentApp) {
+		app.start();
+	}
 	return app;
 }

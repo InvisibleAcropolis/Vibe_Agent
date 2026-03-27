@@ -15,7 +15,6 @@ export type HeaderFactory = (tui: TUI, theme: Theme) => Component & { dispose?()
 export interface ShellLayoutInput {
 	cols: number;
 	rows: number;
-	splashHeight: number;
 	customHeaderHeight: number;
 	headerHeight: number;
 	menuHeight: number;
@@ -62,7 +61,6 @@ export interface ShellChromeRenderResult {
 export interface ShellMenuAnchorInput {
 	key: string;
 	cols: number;
-	splashHeight: number;
 	customHeaderHeight: number;
 	headerHeight: number;
 }

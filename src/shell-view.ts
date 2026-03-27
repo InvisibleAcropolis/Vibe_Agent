@@ -21,7 +21,6 @@ export interface ShellView {
 	readonly footerData: FooterDataProvider;
 	start(): void;
 	stop(): void;
-	setSplashFrame(lines: string[]): void;
 	setEditor(component: Component): void;
 	setFocus(component: Component | null): void;
 	setMessages(components: Component[]): void;
@@ -44,7 +43,6 @@ export class DefaultShellView implements ShellView {
 	readonly footerData = new FooterDataProvider(process.cwd());
 	private readonly transcriptViewport = new TranscriptViewport();
 	private readonly thinkingTray = new ThinkingTray();
-	private readonly chromeSplashBand = new Text("", 0, 0);
 	private readonly customHeaderContainer = new Container();
 	private readonly widgetContainerAbove = new Container();
 	private readonly widgetContainerBelow = new Container();
@@ -99,7 +97,6 @@ export class DefaultShellView implements ShellView {
 			animationEngine: this.animationEngine,
 		});
 
-		this.tui.addChild(this.chromeSplashBand);
 		this.tui.addChild(this.customHeaderContainer);
 		this.tui.addChild(this.chromeHeaderInfo);
 		this.tui.addChild(this.chromeMenuBar);
@@ -141,12 +138,6 @@ export class DefaultShellView implements ShellView {
 		this.extensionChrome.dispose();
 		this.footerData.dispose();
 		this.tui.stop();
-	}
-
-	setSplashFrame(lines: string[]): void {
-		this.chromeSplashBand.setText(lines.join("\n"));
-		this.refresh();
-		this.tui.requestRender();
 	}
 
 	setEditor(component: Component): void {
@@ -208,7 +199,6 @@ export class DefaultShellView implements ShellView {
 		const layout = measureShellLayout({
 			cols: this.tui.terminal.columns,
 			rows: this.tui.terminal.rows,
-			splashHeight: this.chromeSplashBand.render(this.tui.terminal.columns).length,
 			customHeaderHeight: this.customHeaderContainer.render(this.tui.terminal.columns).length,
 			headerHeight: this.chromeHeaderInfo.render(this.tui.terminal.columns).length,
 			menuHeight: this.chromeMenuBar.render(this.tui.terminal.columns).length,
@@ -267,7 +257,6 @@ export class DefaultShellView implements ShellView {
 		return measureShellMenuAnchor({
 			key,
 			cols,
-			splashHeight: this.chromeSplashBand.render(cols).length,
 			customHeaderHeight: this.customHeaderContainer.render(cols).length,
 			headerHeight: this.chromeHeaderInfo.render(cols).length,
 		});

@@ -4,7 +4,6 @@ import type { ShellLayoutInput, ShellLayoutResult, ShellMenuAnchorInput } from "
 
 export function measureShellLayout(input: ShellLayoutInput): ShellLayoutResult {
 	const fixedHeight =
-		input.splashHeight +
 		input.customHeaderHeight +
 		input.headerHeight +
 		input.menuHeight +
@@ -19,7 +18,7 @@ export function measureShellLayout(input: ShellLayoutInput): ShellLayoutResult {
 		input.thinkingTrayHeight;
 	const contentHeight = Math.max(3, input.rows - fixedHeight);
 	const leftWidth = input.sessionsPanelVisible ? Math.max(0, input.cols - input.rightWidth - 1) : input.cols;
-	const contentRow = 1 + input.splashHeight + input.customHeaderHeight + input.headerHeight + input.menuHeight + input.separatorTopHeight;
+	const contentRow = 1 + input.customHeaderHeight + input.headerHeight + input.menuHeight + input.separatorTopHeight;
 
 	return {
 		contentHeight,
@@ -35,7 +34,7 @@ export function measureShellLayout(input: ShellLayoutInput): ShellLayoutResult {
 export function measureShellMenuAnchor(input: ShellMenuAnchorInput): { row: number; col: number } {
 	const layout = measureMenuBarItems(SHELL_MENU_ITEMS).find((item) => item.key === input.key);
 	return {
-		row: input.splashHeight + input.customHeaderHeight + input.headerHeight + 1,
+		row: input.customHeaderHeight + input.headerHeight + 1,
 		col: layout?.startCol ?? 2,
 	};
 }

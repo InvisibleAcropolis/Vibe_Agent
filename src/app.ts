@@ -29,8 +29,8 @@ import {
 } from "./local-coding-agent.js";
 import { MouseEnabledTerminal } from "./mouse-enabled-terminal.js";
 import { DefaultOverlayController } from "./overlay-controller.js";
-import { LogoBlockSystem } from "./logo-block-system.js";
 import { DefaultShellView, type ShellView } from "./shell-view.js";
+import { SplashWindowController } from "./splash-window-controller.js";
 import { DefaultStartupController } from "./startup-controller.js";
 import { getThemeNames, onThemeConfigChange, setActiveTheme, type ThemeName } from "./themes/index.js";
 import type { VibeAgentAppOptions } from "./types.js";
@@ -51,7 +51,7 @@ export class VibeAgentApp {
 	private readonly extensionUiHost: DefaultExtensionUiHost;
 	private readonly startupController: DefaultStartupController;
 	private readonly inputController: DefaultInputController;
-	private readonly logoBlockSystem: LogoBlockSystem;
+	private readonly splashWindowController: SplashWindowController;
 	private readonly terminal: MouseEnabledTerminal;
 	private readonly animEngine: AnimationEngine;
 	private readonly lifecycle: AppLifecycleController;
@@ -134,11 +134,8 @@ export class VibeAgentApp {
 		);
 		const psmuxRuntimeLabel = this.shellView.footerData.getPsmuxRuntimeLabel();
 		this.shellView.setTitle(psmuxRuntimeLabel ? `Vibe Agent - ${psmuxRuntimeLabel}` : "Vibe Agent");
-		this.logoBlockSystem = new LogoBlockSystem(this.terminal.columns, this.animEngine, (lines) => {
-			this.shellView.setSplashFrame(lines);
-		});
-		this.terminal.setResizeHandler(() => {
-			this.logoBlockSystem.resize(this.terminal.columns, this.terminal.rows);
+		this.splashWindowController = new SplashWindowController(this.shellView.tui, this.animEngine, {
+			enabled: false,
 		});
 		this.stateStore.setOnStatusChange((message) => this.animEngine.setTypewriterTarget(message));
 
@@ -347,7 +344,7 @@ export class VibeAgentApp {
 			this.stateStore,
 			this.debugger,
 			this.animEngine,
-			this.logoBlockSystem,
+			this.splashWindowController,
 			this.startupController,
 			this.overlayController,
 			this.host,
