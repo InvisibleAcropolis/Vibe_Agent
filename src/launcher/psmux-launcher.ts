@@ -5,6 +5,7 @@ import { getVibeDurableRoot } from "../durable/durable-paths.js";
 import {
 	ORC_CORE_SESSION_NAME,
 	TerminalSessionManager,
+	createWindowsInteractiveAttachInvocation,
 	type InteractiveSessionCommandRunner,
 	type SessionManagerCommandRunner,
 	type SessionCommandResult,
@@ -30,10 +31,6 @@ const DEFAULT_SECONDARY_PANE_PERCENT = 50;
 const DEFAULT_SESSION_SHELL = ["pwsh.exe", "-NoLogo"];
 
 class ProcessCommandRunner implements InteractiveSessionCommandRunner {
-	constructor(
-		private readonly interactiveGeometry = DEFAULT_SESSION_GEOMETRY,
-	) {}
-
 	async run(command: string, args: string[]): Promise<SessionCommandResult> {
 		return await new Promise<SessionCommandResult>((resolve) => {
 			const child = spawn(command, args, {
@@ -95,17 +92,33 @@ class ProcessCommandRunner implements InteractiveSessionCommandRunner {
 	}
 
 	private async runInteractiveViaPowerShell(command: string, args: string[]): Promise<SessionCommandResult> {
-		const attachCommand = [
-			`mode con: cols=${this.interactiveGeometry.width} lines=${this.interactiveGeometry.height}`,
-			[quoteForCmd(command), ...args.map((arg) => quoteForCmd(arg))].join(" "),
-		].join(" && ");
-		const script = [
-			`$proc = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/c', ${quoteForPowerShell(attachCommand)}) -Wait -PassThru`,
-			"exit $proc.ExitCode",
-		].join("; ");
+		const invocation = createWindowsInteractiveAttachInvocation(command, args);
+		if (!invocation) {
+			return await new Promise<SessionCommandResult>((resolve) => {
+				const child = spawn(command, args, {
+					stdio: "inherit",
+				});
+				child.once("error", (error) => {
+					resolve({
+						ok: false,
+						exitCode: null,
+						stdout: "",
+						stderr: error.message,
+					});
+				});
+				child.once("exit", (exitCode) => {
+					resolve({
+						ok: exitCode === 0,
+						exitCode,
+						stdout: "",
+						stderr: exitCode === 0 ? "" : `interactive command exited with code ${exitCode ?? "unknown"}`,
+					});
+				});
+			});
+		}
 
 		return await new Promise<SessionCommandResult>((resolve) => {
-			const child = spawn("pwsh.exe", ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script], {
+			const child = spawn(invocation.command, invocation.args, {
 				stdio: "inherit",
 			});
 			child.once("error", (error) => {
@@ -262,13 +275,6 @@ function normalizeSessionName(value: string | undefined): string | undefined {
 
 function quoteForPowerShell(value: string): string {
 	return `'${escapePowerShellLiteral(value)}'`;
-}
-
-function quoteForCmd(value: string): string {
-	if (/^[A-Za-z0-9_./:%-]+$/.test(value)) {
-		return value;
-	}
-	return `"${value.replaceAll("\"", "\"\"")}"`;
 }
 
 function escapePowerShellLiteral(value: string): string {

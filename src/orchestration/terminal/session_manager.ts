@@ -1,10 +1,14 @@
+import path from "node:path";
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { UnifiedOrchestrationError, createCorrelationContext } from "../errors/unified-error.js";
 
 export const ORC_CORE_SESSION_NAME = "vibe_core";
-const DEFAULT_INTERACTIVE_GEOMETRY = { width: 240, height: 60 };
 const WINDOWS_INTERRUPT_EXIT_CODE = 3221225786;
 const WINDOWS_INTERRUPT_EXIT_CODE_SIGNED = -1073741510;
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(__dirname, "..", "..", "..");
+const WINDOWS_ATTACH_WRAPPER_PATH = path.join(repoRoot, "tools", "attach-psmux-session.ps1");
 
 export interface SessionCommandResult {
 	ok: boolean;
@@ -82,17 +86,33 @@ class PsmuxCommandRunner implements SessionManagerCommandRunner {
 	}
 
 	private async runInteractiveViaPowerShell(command: string, args: string[]): Promise<SessionCommandResult> {
-		const attachCommand = [
-			`mode con: cols=${DEFAULT_INTERACTIVE_GEOMETRY.width} lines=${DEFAULT_INTERACTIVE_GEOMETRY.height}`,
-			[quoteForCmd(command), ...args.map((arg) => quoteForCmd(arg))].join(" "),
-		].join(" && ");
-		const script = [
-			`$proc = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/c', ${quoteForPowerShell(attachCommand)}) -Wait -PassThru`,
-			"exit $proc.ExitCode",
-		].join("; ");
+		const invocation = createWindowsInteractiveAttachInvocation(command, args);
+		if (!invocation) {
+			return await new Promise<SessionCommandResult>((resolve) => {
+				const child = spawn(command, args, {
+					stdio: "inherit",
+				});
+				child.once("error", (error) => {
+					resolve({
+						ok: false,
+						exitCode: null,
+						stdout: "",
+						stderr: error.message,
+					});
+				});
+				child.once("exit", (exitCode) => {
+					resolve({
+						ok: exitCode === 0,
+						exitCode,
+						stdout: "",
+						stderr: exitCode === 0 ? "" : `interactive command exited with code ${exitCode ?? "unknown"}`,
+					});
+				});
+			});
+		}
 
 		return await new Promise<SessionCommandResult>((resolve) => {
-			const child = spawn("pwsh.exe", ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script], {
+			const child = spawn(invocation.command, invocation.args, {
 				stdio: "inherit",
 			});
 			child.once("error", (error) => {
@@ -291,11 +311,29 @@ function quoteForPowerShell(value: string): string {
 	return `'${value.replaceAll("'", "''")}'`;
 }
 
-function quoteForCmd(value: string): string {
-	if (/^[A-Za-z0-9_./:%-]+$/.test(value)) {
-		return value;
+export function createWindowsInteractiveAttachInvocation(
+	command: string,
+	args: readonly string[],
+): { command: string; args: string[] } | undefined {
+	if (command !== "psmux") {
+		return undefined;
 	}
-	return `"${value.replaceAll("\"", "\"\"")}"`;
+	if (args[0] !== "attach") {
+		return undefined;
+	}
+	const targetFlagIndex = args.findIndex((arg) => arg === "-t");
+	const sessionName = targetFlagIndex >= 0 ? args[targetFlagIndex + 1] : undefined;
+	if (!sessionName) {
+		return undefined;
+	}
+	const script = [
+		`$proc = Start-Process -FilePath 'pwsh.exe' -ArgumentList @('-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ${quoteForPowerShell(WINDOWS_ATTACH_WRAPPER_PATH)}, '-SessionName', ${quoteForPowerShell(sessionName)}) -Wait -PassThru`,
+		"exit $proc.ExitCode",
+	].join("; ");
+	return {
+		command: "pwsh.exe",
+		args: ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+	};
 }
 
 function isNormalInteractiveClose(exitCode: number | null): boolean {
