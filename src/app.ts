@@ -134,7 +134,7 @@ export class VibeAgentApp {
 		);
 		const psmuxRuntimeLabel = this.shellView.footerData.getPsmuxRuntimeLabel();
 		this.shellView.setTitle(psmuxRuntimeLabel ? `Vibe Agent - ${psmuxRuntimeLabel}` : "Vibe Agent");
-		this.logoBlockSystem = new LogoBlockSystem(this.terminal.columns, (lines) => {
+		this.logoBlockSystem = new LogoBlockSystem(this.terminal.columns, this.animEngine, (lines) => {
 			this.shellView.setSplashFrame(lines);
 		});
 		this.terminal.setResizeHandler(() => {
@@ -303,7 +303,6 @@ export class VibeAgentApp {
 			debuggerSink: this.debugger,
 			host: this.host,
 			editorController: this.editorController,
-			logoBlockSystem: this.logoBlockSystem,
 			handleSlashCommand: async (text) => await this.commandController.handleSlashCommand(text),
 			getHostState: () => this.safeGetHostState(),
 		});

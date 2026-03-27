@@ -14,6 +14,10 @@ export interface SessionManagerCommandRunner {
 	run(command: string, args: string[]): Promise<SessionCommandResult>;
 }
 
+export interface InteractiveSessionCommandRunner extends SessionManagerCommandRunner {
+	runInteractive(command: string, args: string[]): Promise<SessionCommandResult>;
+}
+
 class PsmuxCommandRunner implements SessionManagerCommandRunner {
 	async run(command: string, args: string[]): Promise<SessionCommandResult> {
 		return await new Promise<SessionCommandResult>((resolve) => {
@@ -42,6 +46,62 @@ class PsmuxCommandRunner implements SessionManagerCommandRunner {
 					exitCode,
 					stdout,
 					stderr,
+				});
+			});
+		});
+	}
+
+	async runInteractive(command: string, args: string[]): Promise<SessionCommandResult> {
+		if (process.platform === "win32") {
+			return await this.runInteractiveViaPowerShell(command, args);
+		}
+		return await new Promise<SessionCommandResult>((resolve) => {
+			const child = spawn(command, args, {
+				stdio: "inherit",
+			});
+			child.once("error", (error) => {
+				resolve({
+					ok: false,
+					exitCode: null,
+					stdout: "",
+					stderr: error.message,
+				});
+			});
+			child.once("exit", (exitCode) => {
+				resolve({
+					ok: exitCode === 0,
+					exitCode,
+					stdout: "",
+					stderr: exitCode === 0 ? "" : `interactive command exited with code ${exitCode ?? "unknown"}`,
+				});
+			});
+		});
+	}
+
+	private async runInteractiveViaPowerShell(command: string, args: string[]): Promise<SessionCommandResult> {
+		const script = [
+			`$proc = Start-Process -FilePath ${quoteForPowerShell(command)} -ArgumentList @(${args.map((arg) => quoteForPowerShell(arg)).join(", ")}) -Wait -PassThru`,
+			"exit $proc.ExitCode",
+		].join("; ");
+
+		return await new Promise<SessionCommandResult>((resolve) => {
+			const child = spawn("pwsh.exe", ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script], {
+				stdio: "inherit",
+			});
+			child.once("error", (error) => {
+				resolve({
+					ok: false,
+					exitCode: null,
+					stdout: "",
+					stderr: error.message,
+				});
+			});
+			child.once("exit", (exitCode) => {
+				resolve({
+					ok: exitCode === 0,
+					exitCode,
+					stdout: "",
+					stderr: exitCode === 0 ? "" : `interactive command exited with code ${exitCode ?? "unknown"}`,
 				});
 			});
 		});
@@ -118,7 +178,7 @@ export class TerminalSessionManager implements TerminalSessionLifecycle {
 		if (!(await this.sessionExists())) {
 			throw new Error(`Unable to attach to psmux session '${this.sessionName}': session does not exist.`);
 		}
-		const attachResult = await this.runner.run("psmux", ["attach", "-t", this.sessionName]);
+		const attachResult = await this.runAttachCommand(["attach", "-t", this.sessionName]);
 		if (attachResult.ok) {
 			return { attached: true };
 		}
@@ -151,7 +211,7 @@ export class TerminalSessionManager implements TerminalSessionLifecycle {
 
 	async recoverCoreSession(): Promise<{ attached: boolean; created: boolean }> {
 		const ensureResult = await this.ensureDetachedSession();
-		const attachResult = await this.runner.run("psmux", ["attach", "-t", this.sessionName]);
+		const attachResult = await this.runAttachCommand(["attach", "-t", this.sessionName]);
 		if (attachResult.ok) {
 			return { attached: true, created: ensureResult.created };
 		}
@@ -159,7 +219,7 @@ export class TerminalSessionManager implements TerminalSessionLifecycle {
 		if (sessionMissing) {
 			this.emitDeadSessionDiagnostic("recover.attach_missing_session", attachResult.stderr, "retry");
 			const recreated = await this.recreateDetachedSession();
-			const retryAttachResult = await this.runner.run("psmux", ["attach", "-t", this.sessionName]);
+			const retryAttachResult = await this.runAttachCommand(["attach", "-t", this.sessionName]);
 			if (retryAttachResult.ok) {
 				return { attached: true, created: ensureResult.created || recreated.created };
 			}
@@ -176,6 +236,14 @@ export class TerminalSessionManager implements TerminalSessionLifecycle {
 
 	async coreSessionExists(): Promise<boolean> {
 		return await this.sessionExists();
+	}
+
+	private async runAttachCommand(args: string[]): Promise<SessionCommandResult> {
+		const interactiveRunner = this.runner as InteractiveSessionCommandRunner;
+		if (typeof interactiveRunner.runInteractive === "function") {
+			return await interactiveRunner.runInteractive("psmux", args);
+		}
+		return await this.runner.run("psmux", args);
 	}
 
 	private emitDeadSessionDiagnostic(event: string, stderr: string, recoveryAction: "retry" | "abort"): void {
@@ -201,4 +269,8 @@ let singletonSessionManager: TerminalSessionManager | undefined;
 export function getTerminalSessionManager(): TerminalSessionManager {
 	singletonSessionManager ??= new TerminalSessionManager();
 	return singletonSessionManager;
+}
+
+function quoteForPowerShell(value: string): string {
+	return `'${value.replaceAll("'", "''")}'`;
 }

@@ -30,10 +30,13 @@ export class AnimationEngine {
 	private timer: ReturnType<typeof setInterval> | null = null;
 	private isStreaming = false;
 	private glitchTicksRemaining = 0;
-	private onTickCallback?: (state: AnimationState) => void;
+	private readonly tickSubscribers = new Set<(state: AnimationState) => void>();
 
-	setOnTick(cb: (state: AnimationState) => void): void {
-		this.onTickCallback = cb;
+	subscribe(cb: (state: AnimationState) => void): () => void {
+		this.tickSubscribers.add(cb);
+		return () => {
+			this.tickSubscribers.delete(cb);
+		};
 	}
 
 	start(): void {
@@ -124,7 +127,9 @@ export class AnimationEngine {
 			}
 		}
 
-		this.onTickCallback?.(this.state);
+		for (const subscriber of this.tickSubscribers) {
+			subscriber(this.getState());
+		}
 	}
 }
 

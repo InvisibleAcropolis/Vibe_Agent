@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import {
 	ORC_CORE_SESSION_NAME,
 	TerminalSessionManager,
+	type InteractiveSessionCommandRunner,
 	type SessionManagerCommandRunner,
 	type SessionCommandResult,
 } from "../orchestration/terminal/session_manager.js";
@@ -25,7 +26,7 @@ const launcherEntry = path.join(repoRoot, "src", "launcher", "psmux-launcher.ts"
 const DEFAULT_SESSION_GEOMETRY = { width: 120, height: 30 };
 const DEFAULT_SESSION_SHELL = ["pwsh.exe", "-NoLogo"];
 
-class ProcessCommandRunner implements SessionManagerCommandRunner {
+class ProcessCommandRunner implements InteractiveSessionCommandRunner {
 	async run(command: string, args: string[]): Promise<SessionCommandResult> {
 		return await new Promise<SessionCommandResult>((resolve) => {
 			const child = spawn(command, args, {
@@ -53,6 +54,63 @@ class ProcessCommandRunner implements SessionManagerCommandRunner {
 					exitCode,
 					stdout,
 					stderr,
+				});
+			});
+		});
+	}
+
+	async runInteractive(command: string, args: string[]): Promise<SessionCommandResult> {
+		if (process.platform === "win32") {
+			return await this.runInteractiveViaPowerShell(command, args);
+		}
+
+		return await new Promise<SessionCommandResult>((resolve) => {
+			const child = spawn(command, args, {
+				stdio: "inherit",
+			});
+			child.once("error", (error) => {
+				resolve({
+					ok: false,
+					exitCode: null,
+					stdout: "",
+					stderr: error.message,
+				});
+			});
+			child.once("exit", (exitCode) => {
+				resolve({
+					ok: exitCode === 0,
+					exitCode,
+					stdout: "",
+					stderr: exitCode === 0 ? "" : `interactive command exited with code ${exitCode ?? "unknown"}`,
+				});
+			});
+		});
+	}
+
+	private async runInteractiveViaPowerShell(command: string, args: string[]): Promise<SessionCommandResult> {
+		const script = [
+			`$proc = Start-Process -FilePath ${quoteForPowerShell(command)} -ArgumentList @(${args.map((arg) => quoteForPowerShell(arg)).join(", ")}) -Wait -PassThru`,
+			"exit $proc.ExitCode",
+		].join("; ");
+
+		return await new Promise<SessionCommandResult>((resolve) => {
+			const child = spawn("pwsh.exe", ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script], {
+				stdio: "inherit",
+			});
+			child.once("error", (error) => {
+				resolve({
+					ok: false,
+					exitCode: null,
+					stdout: "",
+					stderr: error.message,
+				});
+			});
+			child.once("exit", (exitCode) => {
+				resolve({
+					ok: exitCode === 0,
+					exitCode,
+					stdout: "",
+					stderr: exitCode === 0 ? "" : `interactive command exited with code ${exitCode ?? "unknown"}`,
 				});
 			});
 		});

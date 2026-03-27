@@ -53,6 +53,7 @@ export class TUIStyleTestApp {
 	private running = false;
 	private focusedPane: FocusPane = "browser";
 	private selectedDemoId = "catalog#error";
+	private animationUnsubscribe?: () => void;
 
 	constructor(options: StyleTestAppOptions = {}) {
 		this.terminal = new MouseEnabledTerminal(options.terminal ?? new ProcessTerminal());
@@ -110,7 +111,7 @@ export class TUIStyleTestApp {
 		await this.loadCatalog();
 		this.running = true;
 		this.refreshChrome();
-		this.animationEngine.setOnTick(() => {
+		this.animationUnsubscribe = this.animationEngine.subscribe(() => {
 			this.applyWipeState();
 			this.refreshChrome();
 			this.tui.requestRender();
@@ -125,6 +126,8 @@ export class TUIStyleTestApp {
 	stop(): void {
 		if (!this.running) return;
 		this.running = false;
+		this.animationUnsubscribe?.();
+		this.animationUnsubscribe = undefined;
 		this.runtime?.dispose?.();
 		this.animationEngine.stop();
 		animPreloadService.disposeAll();

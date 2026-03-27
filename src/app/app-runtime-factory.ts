@@ -14,6 +14,7 @@ import { CompatAgentRuntime } from "../runtime/compat-agent-runtime.js";
 import { CoordinatedAgentHost } from "../runtime/coordinated-agent-host.js";
 import { RuntimeCoordinator } from "../runtime/runtime-coordinator.js";
 import { getRuntimeSessionDir } from "../runtime/runtime-session-namespace.js";
+import { createWebTools } from "../tools/web-tools.js";
 import type { VibeAgentAppOptions } from "../types.js";
 
 const OPENAI_REASONING_APIS = new Set(["openai-responses", "azure-openai-responses", "openai-codex-responses"]);
@@ -56,6 +57,7 @@ export function createAppRuntimeFactory(
 	const authStorage = options.authStorage ?? AuthStorage.create();
 	const modelRegistry = new ModelRegistry(authStorage);
 	const streamFn = createOpenAIReasoningSummaryStreamFn();
+	const customTools = createWebTools();
 
 	const innerHost =
 		options.host ??
@@ -64,6 +66,7 @@ export function createAppRuntimeFactory(
 				authStorage,
 				modelRegistry,
 				streamFn,
+				customTools,
 			},
 			onSessionReady: async (session) => {
 				await options.onSessionReady(session);
@@ -75,6 +78,7 @@ export function createAppRuntimeFactory(
 			authStorage,
 			modelRegistry,
 			streamFn,
+			customTools,
 			sessionManager: SessionManager.create(process.cwd(), getRuntimeSessionDir("orc", process.cwd(), options.durableRootPath)),
 		},
 		onSessionReady: async (session) => {

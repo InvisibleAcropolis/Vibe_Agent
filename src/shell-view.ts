@@ -62,6 +62,7 @@ export class DefaultShellView implements ShellView {
 	private readonly thinkingSync: ShellThinkingSync;
 	private readonly sessionsController: ShellSessionsController;
 	private transcriptRect: Rect = { row: 1, col: 1, width: 1, height: 1 };
+	private animationUnsubscribe?: () => void;
 
 	constructor(
 		terminal: Terminal,
@@ -121,7 +122,7 @@ export class DefaultShellView implements ShellView {
 		});
 
 		if (this.animationEngine) {
-			this.animationEngine.setOnTick(() => {
+			this.animationUnsubscribe = this.animationEngine.subscribe(() => {
 				this.animationEngine!.setStreaming(this.getHostState()?.isStreaming ?? false);
 				this.refreshChromeOnly();
 				this.tui.requestRender();
@@ -135,6 +136,8 @@ export class DefaultShellView implements ShellView {
 	}
 
 	stop(): void {
+		this.animationUnsubscribe?.();
+		this.animationUnsubscribe = undefined;
 		this.extensionChrome.dispose();
 		this.footerData.dispose();
 		this.tui.stop();

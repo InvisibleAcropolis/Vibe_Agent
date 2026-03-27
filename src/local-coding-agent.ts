@@ -18,6 +18,7 @@ export {
 	type CreateAgentSessionOptions,
 	createAgentSession,
 } from "../coding-agent/src/core/sdk.js";
+export type { ToolDefinition } from "../coding-agent/src/core/sdk.js";
 
 export { SessionManager } from "../coding-agent/src/core/session-manager.js";
 export type { SessionInfo } from "../coding-agent/src/core/session-manager.js";

@@ -1,24 +1,20 @@
 import type { PiMonoAppDebugger } from "../app-debugger.js";
 import type { AgentHost, AgentHostState } from "../agent-host.js";
 import type { EditorController } from "../editor-controller.js";
-import { LogoBlockSystem } from "../logo-block-system.js";
 
 export class AppSubmissionService {
-	private bootLogoDismissed = false;
-
 	constructor(
 		private readonly dependencies: {
 			debuggerSink: PiMonoAppDebugger;
 			host: AgentHost;
 			editorController: EditorController;
-			logoBlockSystem: LogoBlockSystem;
 			handleSlashCommand: (text: string) => Promise<boolean>;
 			getHostState: () => AgentHostState | undefined;
 		},
 	) {}
 
 	resetForStart(): void {
-		this.bootLogoDismissed = false;
+		// Submission no longer controls the bootstrap splash lifecycle.
 	}
 
 	async submitEditor(submittedText: string, streamingBehavior: "steer" | "followUp"): Promise<void> {
@@ -40,10 +36,6 @@ export class AppSubmissionService {
 
 		this.dependencies.editorController.addToHistory(text);
 		this.dependencies.editorController.setText("");
-		if (!this.bootLogoDismissed) {
-			this.bootLogoDismissed = true;
-			this.dependencies.logoBlockSystem.dismiss();
-		}
 
 		await this.dependencies.host.prompt(text, this.dependencies.getHostState()?.isStreaming ? { streamingBehavior } : undefined);
 	}
