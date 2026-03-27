@@ -11,6 +11,7 @@
 		"dev": "node ./bin/vibe-agent.js",
 		"dev:debug": "node ./bin/vibe-agent-debug.js",
 		"dev:styletest": "node --import tsx ./tools/TUIstyletest/main.ts",
+		"inspect:psmux-layout": "pwsh -NoProfile -ExecutionPolicy Bypass -File ./tools/verify-psmux-layout.ps1",
 		"smoke:langsearch": "node --import tsx ./tools/langsearch-smoke.ts",
 		"start": "node ./bin/vibe-agent.js",
 		"check": "tsc --noEmit -p tsconfig.json && npm run test",

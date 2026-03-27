@@ -17,7 +17,7 @@ class FakePaneRunner implements SessionManagerCommandRunner {
 			return { ok: false, exitCode: 1, stdout: "", stderr: "unexpected command" };
 		}
 		if (args[0] === "split-window") {
-			return { ok: true, exitCode: 0, stdout: "", stderr: "" };
+			return { ok: true, exitCode: 0, stdout: `${this.paneSequence.shift() ?? "%x"}\n`, stderr: "" };
 		}
 		if (args[0] === "display-message") {
 			return { ok: true, exitCode: 0, stdout: `${this.paneSequence.shift() ?? "%x"}\n`, stderr: "" };
@@ -44,7 +44,7 @@ describe("TerminalPaneOrchestrator", () => {
 		assert.equal(metadata.agentBinding?.agentId, "agent-alpha");
 		assert.equal(metadata.createdAt instanceof Date, true);
 		assert.equal(
-			runner.calls.some((call) => call.args.join(" ") === "split-window -h -t vibe_core"),
+			runner.calls.some((call) => call.args.join(" ") === "split-window -h -P -F #{pane_id} -t vibe_core"),
 			true,
 		);
 	});
@@ -57,7 +57,7 @@ describe("TerminalPaneOrchestrator", () => {
 		await orchestrator.injectCommand(pane.paneId, "npm run test");
 
 		assert.equal(
-			runner.calls.some((call) => call.args.join(" ") === "split-window -v -t vibe_core"),
+			runner.calls.some((call) => call.args.join(" ") === "split-window -v -P -F #{pane_id} -t vibe_core"),
 			true,
 		);
 		assert.equal(

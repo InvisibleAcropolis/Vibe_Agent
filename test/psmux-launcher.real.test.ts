@@ -98,6 +98,28 @@ test("launcher creates a two-pane detached session and reuses it without duplica
 	const firstPaneCount = await runner.run("psmux", ["display-message", "-p", "#{window_panes}", "-t", sessionName]);
 	assert.equal(firstPaneCount.stdout.trim(), "2");
 
+	const sessionGeometry = await runner.run("psmux", [
+		"display-message",
+		"-p",
+		"#{window_width}x#{window_height}",
+		"-t",
+		sessionName,
+	]);
+	assert.equal(sessionGeometry.stdout.trim(), "240x60");
+
+	const paneGeometry = await runner.run("psmux", [
+		"list-panes",
+		"-t",
+		sessionName,
+		"-F",
+		"#{pane_width}x#{pane_height}",
+	]);
+	const paneSizes = paneGeometry.stdout
+		.trim()
+		.split(/\r?\n/)
+		.filter((line) => line.length > 0);
+	assert.deepStrictEqual(paneSizes.sort(), ["119x60", "120x60"]);
+
 	await waitFor(async () => {
 		const capture = await runner.run("psmux", ["capture-pane", "-p", "-t", sessionName]);
 		return capture.stdout.includes("Agent ready.");

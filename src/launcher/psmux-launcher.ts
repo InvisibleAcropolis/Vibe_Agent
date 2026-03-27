@@ -25,10 +25,15 @@ import { writeSplashReplaySignal } from "../splash-replay-signal.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..", "..");
 const launcherEntry = path.join(repoRoot, "src", "launcher", "psmux-launcher.ts");
-const DEFAULT_SESSION_GEOMETRY = { width: 120, height: 30 };
+const DEFAULT_SESSION_GEOMETRY = { width: 240, height: 60 };
+const DEFAULT_SECONDARY_PANE_PERCENT = 50;
 const DEFAULT_SESSION_SHELL = ["pwsh.exe", "-NoLogo"];
 
 class ProcessCommandRunner implements InteractiveSessionCommandRunner {
+	constructor(
+		private readonly interactiveGeometry = DEFAULT_SESSION_GEOMETRY,
+	) {}
+
 	async run(command: string, args: string[]): Promise<SessionCommandResult> {
 		return await new Promise<SessionCommandResult>((resolve) => {
 			const child = spawn(command, args, {
@@ -90,8 +95,12 @@ class ProcessCommandRunner implements InteractiveSessionCommandRunner {
 	}
 
 	private async runInteractiveViaPowerShell(command: string, args: string[]): Promise<SessionCommandResult> {
+		const attachCommand = [
+			`mode con: cols=${this.interactiveGeometry.width} lines=${this.interactiveGeometry.height}`,
+			[quoteForCmd(command), ...args.map((arg) => quoteForCmd(arg))].join(" "),
+		].join(" && ");
 		const script = [
-			`$proc = Start-Process -FilePath ${quoteForPowerShell(command)} -ArgumentList @(${args.map((arg) => quoteForPowerShell(arg)).join(", ")}) -Wait -PassThru`,
+			`$proc = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/c', ${quoteForPowerShell(attachCommand)}) -Wait -PassThru`,
 			"exit $proc.ExitCode",
 		].join("; ");
 
@@ -163,32 +172,37 @@ export async function launchVibeAgentWithPsmux(dependencies: PsmuxLauncherDepend
 		return;
 	}
 
-	await sessionManager.ensureDetachedSession({
+	const ensureResult = await sessionManager.ensureDetachedSession({
 		width: DEFAULT_SESSION_GEOMETRY.width,
 		height: DEFAULT_SESSION_GEOMETRY.height,
 		cwd,
 		shellCommand: DEFAULT_SESSION_SHELL,
 	});
 
-	const primaryPaneId = await paneOrchestrator.capturePaneId(sessionName);
-	const secondaryPane = await paneOrchestrator.splitHorizontal("secondary");
-	const primaryCommand = buildPsmuxChildCommand({
-		cwd,
-		execPath,
-		args: childArgs,
-		role: "primary",
-		sessionName,
-	});
-	const secondaryCommand = buildPsmuxChildCommand({
-		cwd,
-		execPath,
-		args: childArgs,
-		role: "secondary",
-		sessionName,
-	});
+	if (ensureResult.created) {
+		const primaryPaneId = await paneOrchestrator.capturePaneId(sessionName);
+		const secondaryPane = await paneOrchestrator.splitHorizontal("secondary", null, {
+			detached: true,
+			percentage: DEFAULT_SECONDARY_PANE_PERCENT,
+		});
+		const primaryCommand = buildPsmuxChildCommand({
+			cwd,
+			execPath,
+			args: childArgs,
+			role: "primary",
+			sessionName,
+		});
+		const secondaryCommand = buildPsmuxChildCommand({
+			cwd,
+			execPath,
+			args: childArgs,
+			role: "secondary",
+			sessionName,
+		});
 
-	await paneOrchestrator.injectCommand(primaryPaneId, primaryCommand);
-	await paneOrchestrator.injectCommand(secondaryPane.paneId, secondaryCommand);
+		await paneOrchestrator.injectCommand(primaryPaneId, primaryCommand);
+		await paneOrchestrator.injectCommand(secondaryPane.paneId, secondaryCommand);
+	}
 
 	if (attach) {
 		writeSplashReplaySignal(sessionName, { durableRoot: durableRootPath });
@@ -248,6 +262,13 @@ function normalizeSessionName(value: string | undefined): string | undefined {
 
 function quoteForPowerShell(value: string): string {
 	return `'${escapePowerShellLiteral(value)}'`;
+}
+
+function quoteForCmd(value: string): string {
+	if (/^[A-Za-z0-9_./:%-]+$/.test(value)) {
+		return value;
+	}
+	return `"${value.replaceAll("\"", "\"\"")}"`;
 }
 
 function escapePowerShellLiteral(value: string): string {

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { UnifiedOrchestrationError, createCorrelationContext } from "../errors/unified-error.js";
 
 export const ORC_CORE_SESSION_NAME = "vibe_core";
+const DEFAULT_INTERACTIVE_GEOMETRY = { width: 240, height: 60 };
 const WINDOWS_INTERRUPT_EXIT_CODE = 3221225786;
 const WINDOWS_INTERRUPT_EXIT_CODE_SIGNED = -1073741510;
 
@@ -81,8 +82,12 @@ class PsmuxCommandRunner implements SessionManagerCommandRunner {
 	}
 
 	private async runInteractiveViaPowerShell(command: string, args: string[]): Promise<SessionCommandResult> {
+		const attachCommand = [
+			`mode con: cols=${DEFAULT_INTERACTIVE_GEOMETRY.width} lines=${DEFAULT_INTERACTIVE_GEOMETRY.height}`,
+			[quoteForCmd(command), ...args.map((arg) => quoteForCmd(arg))].join(" "),
+		].join(" && ");
 		const script = [
-			`$proc = Start-Process -FilePath ${quoteForPowerShell(command)} -ArgumentList @(${args.map((arg) => quoteForPowerShell(arg)).join(", ")}) -Wait -PassThru`,
+			`$proc = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/c', ${quoteForPowerShell(attachCommand)}) -Wait -PassThru`,
 			"exit $proc.ExitCode",
 		].join("; ");
 
@@ -284,6 +289,13 @@ export function getTerminalSessionManager(): TerminalSessionManager {
 
 function quoteForPowerShell(value: string): string {
 	return `'${value.replaceAll("'", "''")}'`;
+}
+
+function quoteForCmd(value: string): string {
+	if (/^[A-Za-z0-9_./:%-]+$/.test(value)) {
+		return value;
+	}
+	return `"${value.replaceAll("\"", "\"\"")}"`;
 }
 
 function isNormalInteractiveClose(exitCode: number | null): boolean {

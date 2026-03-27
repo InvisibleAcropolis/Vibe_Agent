@@ -22,6 +22,12 @@ export interface PaneOrchestratorOptions {
 	target?: string;
 }
 
+export interface SplitPaneOptions {
+	percentage?: number;
+	size?: number;
+	detached?: boolean;
+}
+
 class PsmuxPaneRunner implements SessionManagerCommandRunner {
 	async run(command: string, args: string[]): Promise<SessionCommandResult> {
 		return await new Promise<SessionCommandResult>((resolve) => {
@@ -65,12 +71,20 @@ export class TerminalPaneOrchestrator {
 		this.target = options.target ?? ORC_CORE_TARGET;
 	}
 
-	async splitHorizontal(role: TerminalPaneRole, agentBinding: TerminalPaneAgentBinding | null = null): Promise<TerminalPaneMetadata> {
-		return await this.splitPane("-h", role, agentBinding);
+	async splitHorizontal(
+		role: TerminalPaneRole,
+		agentBinding: TerminalPaneAgentBinding | null = null,
+		options: SplitPaneOptions = {},
+	): Promise<TerminalPaneMetadata> {
+		return await this.splitPane("-h", role, agentBinding, options);
 	}
 
-	async splitVertical(role: TerminalPaneRole, agentBinding: TerminalPaneAgentBinding | null = null): Promise<TerminalPaneMetadata> {
-		return await this.splitPane("-v", role, agentBinding);
+	async splitVertical(
+		role: TerminalPaneRole,
+		agentBinding: TerminalPaneAgentBinding | null = null,
+		options: SplitPaneOptions = {},
+	): Promise<TerminalPaneMetadata> {
+		return await this.splitPane("-v", role, agentBinding, options);
 	}
 
 	async capturePaneId(target: string = this.target): Promise<string> {
@@ -99,12 +113,27 @@ export class TerminalPaneOrchestrator {
 		directionFlag: "-h" | "-v",
 		role: TerminalPaneRole,
 		agentBinding: TerminalPaneAgentBinding | null,
+		options: SplitPaneOptions,
 	): Promise<TerminalPaneMetadata> {
-		const splitResult = await this.runner.run("psmux", ["split-window", directionFlag, "-t", this.target]);
+		const args = ["split-window", directionFlag, "-P", "-F", "#{pane_id}"];
+		if (options.detached) {
+			args.push("-d");
+		}
+		if (typeof options.percentage === "number") {
+			args.push("-p", String(options.percentage));
+		} else if (typeof options.size === "number") {
+			args.push("-l", String(options.size));
+		}
+		args.push("-t", this.target);
+
+		const splitResult = await this.runner.run("psmux", args);
 		if (!splitResult.ok) {
 			throw new Error(`Unable to split pane with '${directionFlag}' on target '${this.target}': ${splitResult.stderr || "command failed"}`);
 		}
-		const paneId = await this.capturePaneId(this.target);
+		const paneId = splitResult.stdout.trim();
+		if (paneId.length === 0) {
+			throw new Error(`Unable to split pane with '${directionFlag}' on target '${this.target}': pane id was empty`);
+		}
 		return {
 			paneId,
 			role,
