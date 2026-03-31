@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Waterfall Simulation</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <canvas id="simCanvas" width="1100" height="700"></canvas>
+      <aside class="panel">
+        <h1>Waterfall Sim</h1>
+
+        <label>Flow rate <span id="flowRateValue"></span></label>
+        <input id="flowRate" type="range" min="100" max="2200" step="10" value="900" />
+
+        <label>Gravity <span id="gravityValue"></span></label>
+        <input id="gravity" type="range" min="400" max="2200" step="10" value="1400" />
+
+        <label>Spread <span id="spreadValue"></span></label>
+        <input id="spread" type="range" min="0" max="220" step="1" value="40" />
+
+        <label>Restitution <span id="restitutionValue"></span></label>
+        <input id="restitution" type="range" min="0" max="0.9" step="0.01" value="0.2" />
+
+        <label>Friction <span id="frictionValue"></span></label>
+        <input id="friction" type="range" min="0" max="0.3" step="0.005" value="0.06" />
+
+        <label>Pool damping <span id="poolDampingValue"></span></label>
+        <input id="poolDamping" type="range" min="0" max="12" step="0.1" value="4" />
+
+        <div class="row">
+          <button id="pauseBtn">Pause</button>
+          <button id="resetBtn">Reset</button>
+        </div>
+
+        <div class="stats">
+          <div>Particles: <span id="particleCount">0</span></div>
+          <div>FPS: <span id="fps">0</span></div>
+        </div>
+      </aside>
+    </div>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

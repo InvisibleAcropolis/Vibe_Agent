@@ -1,0 +1,82 @@
+:root {
+  --bg: #08141d;
+  --panel: #0e1e2a;
+  --text: #d8e4ed;
+  --muted: #90a4b3;
+  --accent: #4fb3ff;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: Inter, Segoe UI, Roboto, sans-serif;
+  background: radial-gradient(circle at 20% 20%, #102536, var(--bg) 45%);
+  color: var(--text);
+}
+
+.app {
+  min-height: 100vh;
+  padding: 18px;
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 16px;
+}
+
+#simCanvas {
+  width: 100%;
+  height: calc(100vh - 36px);
+  border-radius: 12px;
+  border: 1px solid #1f3341;
+  background: linear-gradient(#223647, #0a1a24 45%, #07131b);
+}
+
+.panel {
+  background: color-mix(in oklab, var(--panel), black 8%);
+  border: 1px solid #1f3341;
+  border-radius: 12px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+h1 {
+  font-size: 1.1rem;
+  margin: 4px 0 8px;
+}
+
+label {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+  margin-bottom: 8px;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+button {
+  flex: 1;
+  border: 1px solid #315065;
+  border-radius: 8px;
+  background: #153145;
+  color: var(--text);
+  padding: 8px 10px;
+  cursor: pointer;
+}
+button:hover { background: #1a3a51; }
+
+.stats {
+  margin-top: 6px;
+  display: grid;
+  gap: 4px;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
