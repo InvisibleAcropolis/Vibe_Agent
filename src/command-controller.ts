@@ -14,6 +14,7 @@ import { SlashCommandRouter } from "./command/slash-command-router.js";
 import type { CommandConfigStore, SetupActions } from "./command/command-types.js";
 import type { VibeAppMode } from "./app-mode.js";
 import type { OrcExternalSessionLauncher } from "./orchestration/orc-session-launcher.js";
+import type { LaunchSurfaceTarget } from "./shell/shell-input-actions.js";
 
 export interface CommandController {
 	handleSlashCommand(text: string): Promise<boolean>;
@@ -62,6 +63,7 @@ export class DefaultCommandController implements CommandController {
 			appMode: VibeAppMode;
 			orcLauncher?: OrcExternalSessionLauncher;
 			onRuntimeActivated: () => void;
+			requestSurfaceLaunch?: (surfaceId: LaunchSurfaceTarget) => void;
 		},
 	) {
 		this.selectionService = new CommandSelectionService({
@@ -137,6 +139,10 @@ export class DefaultCommandController implements CommandController {
 	}
 
 	openSessionsBrowserSurface(): void {
+		if (this.dependencies.requestSurfaceLaunch) {
+			this.dependencies.requestSurfaceLaunch("sessions-browser");
+			return;
+		}
 		this.selectionService.openSessionsBrowserSurface();
 	}
 
@@ -261,6 +267,10 @@ export class DefaultCommandController implements CommandController {
 			return;
 		}
 		if (!this.dependencies.orcLauncher) {
+			if (this.dependencies.requestSurfaceLaunch) {
+				this.dependencies.requestSurfaceLaunch("orc-session");
+				return;
+			}
 			throw new Error("Orc launcher is unavailable in this app mode.");
 		}
 		const launched = await this.dependencies.orcLauncher.launchOrAttach();

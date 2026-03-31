@@ -16,7 +16,7 @@ export interface ShellSurfaceLaunchRequest {
 	readonly kind: ShellSurfaceDescriptor["kind"];
 	readonly scope: SurfaceLaunchScope;
 	readonly payload?: Record<string, unknown>;
-	readonly reason: "open" | "focus";
+	readonly reason: "open" | "focus" | "attach";
 }
 
 export interface SurfaceLaunchManagerHooks {
@@ -31,6 +31,7 @@ export interface SurfaceLaunchManager {
 	closeSurface(surfaceId: string): void;
 	subscribe(listener: (surfaceIds: readonly string[]) => void): () => void;
 	getOpenSurfaceIds(): readonly string[];
+	rediscoverOpenSurfaces(): readonly string[];
 }
 
 interface SurfaceRuntimeEntry {
@@ -64,7 +65,7 @@ export function createSurfaceLaunchManager(stateStore: AppStateStore, hooks: Sur
 		return unsubscribeHandlers;
 	};
 
-	const launch = (descriptor: ShellSurfaceDescriptor, reason: "open" | "focus", payload?: Record<string, unknown>): void => {
+	const launch = (descriptor: ShellSurfaceDescriptor, reason: "open" | "focus" | "attach", payload?: Record<string, unknown>): void => {
 		hooks.onLaunch({
 			surfaceId: descriptor.id,
 			route: descriptor.routing.route,
@@ -129,6 +130,24 @@ export function createSurfaceLaunchManager(stateStore: AppStateStore, hooks: Sur
 		},
 		getOpenSurfaceIds() {
 			return [...openSurfaces.keys()];
+		},
+		rediscoverOpenSurfaces() {
+			const restored: string[] = [];
+			for (const surfaceId of stateStore.getState().transcript.launchedSurfaceIds) {
+				const descriptor = descriptors.get(surfaceId);
+				if (!descriptor || openSurfaces.has(surfaceId)) {
+					continue;
+				}
+				const unsubscribeHandlers = activateSubscriptions(surfaceId, descriptor.subscriptions);
+				openSurfaces.set(surfaceId, { descriptor, unsubscribeHandlers });
+				launch(descriptor, "attach");
+				descriptor.lifecycle?.onFocus?.({ surfaceId, route: descriptor.routing.route });
+				restored.push(surfaceId);
+			}
+			if (restored.length > 0) {
+				notify();
+			}
+			return restored;
 		},
 	};
 }
