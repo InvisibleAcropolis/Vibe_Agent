@@ -158,8 +158,8 @@ export class VibeAgentApp {
 				}
 			},
 			onSurfaceLaunch: (target) => {
-				if (target === "sessions-panel") {
-					this.shellView.toggleSessionsPanel();
+				if (target === "sessions-browser") {
+					commandController?.openSessionsBrowserSurface();
 				}
 			},
 			onPromptFocus: () => this.setFocus(this.editorController.getComponent(), "editor"),

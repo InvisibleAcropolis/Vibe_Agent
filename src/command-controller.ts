@@ -21,6 +21,7 @@ export interface CommandController {
 	openModelSelector(): Promise<void>;
 	openThinkingSelector(): void;
 	openSessionSelector(scope: "current" | "all"): void;
+	openSessionsBrowserSurface(): void;
 	openForkSelector(): Promise<void>;
 	openTreeSelector(): Promise<void>;
 	openSettingsOverlay(): void;
@@ -99,6 +100,7 @@ export class DefaultCommandController implements CommandController {
 			actions: {
 				openSettingsOverlay: () => this.openSettingsOverlay(),
 				openSessionSelector: (scope) => this.openSessionSelector(scope),
+				openSessionsBrowserSurface: () => this.openSessionsBrowserSurface(),
 				openForkSelector: async () => await this.openForkSelector(),
 				openTreeSelector: async () => await this.openTreeSelector(),
 				openThinkingSelector: () => this.openThinkingSelector(),
@@ -132,6 +134,10 @@ export class DefaultCommandController implements CommandController {
 
 	openSessionSelector(scope: "current" | "all"): void {
 		this.selectionService.openSessionSelector(scope);
+	}
+
+	openSessionsBrowserSurface(): void {
+		this.selectionService.openSessionsBrowserSurface();
 	}
 
 	async openForkSelector(): Promise<void> {
@@ -181,6 +187,9 @@ export class DefaultCommandController implements CommandController {
 			this.menuBuilder.buildSessionsMenu({
 				onAction: (action) => {
 					switch (action) {
+						case "browser":
+							this.openSessionsBrowserSurface();
+							break;
 						case "resume":
 							this.openSessionSelector("all");
 							break;

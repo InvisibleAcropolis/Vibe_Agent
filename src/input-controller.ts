@@ -101,6 +101,10 @@ export class DefaultInputController implements InputController {
 			this.dispatchShellAction({ type: "overlay-open", target: "orchestration" });
 			return { consume: true };
 		}
+		if (matchesKey(nextData, "ctrl+b")) {
+			this.dispatchShellAction({ type: "surface-launch", target: "sessions-browser" });
+			return { consume: true };
+		}
 		if ((matchesKey(nextData, "escape") || matchesKey(nextData, "esc")) && this.overlayController.getOverlayDepth() > 0) {
 			this.overlayController.closeTopOverlay();
 			return { consume: true };
