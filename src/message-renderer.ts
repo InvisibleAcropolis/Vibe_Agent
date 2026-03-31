@@ -1,5 +1,6 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AssistantMessage } from "@mariozechner/pi-ai";
+import { normalizeTranscript } from "./transcript-normalizer.js";
 import { Markdown, TUI, type Component } from "@mariozechner/pi-tui";
 import { AssistantMessageComponent, getMarkdownTheme, ToolExecutionComponent, UserMessageComponent } from "./local-coding-agent.js";
 
@@ -12,30 +13,6 @@ type ThinkingSignatureSummary = {
 	summary_text?: string;
 	summaryText?: string;
 };
-
-function getTextContent(content: unknown): string {
-	if (typeof content === "string") {
-		return content;
-	}
-	if (!Array.isArray(content)) {
-		return "";
-	}
-	return content
-		.map((item) => {
-			if (typeof item !== "object" || item === null || !("type" in item)) {
-				return "";
-			}
-			if (item.type === "text" && "text" in item && typeof item.text === "string") {
-				return item.text;
-			}
-			if (item.type === "image") {
-				return "[image]";
-			}
-			return "";
-		})
-		.join("\n")
-		.trim();
-}
 
 export interface MessageRendererOptions {
 	hideThinking: boolean;
@@ -56,49 +33,81 @@ export interface MessageRenderResult {
  */
 export function renderAgentMessages(messages: AgentMessage[], options: MessageRendererOptions): MessageRenderResult {
 	const components: Component[] = [];
-	const toolExecutions = new Map<string, ToolExecutionComponent>();
+	const toolExecutionsByName = new Map<string, ToolExecutionComponent[]>();
+	const normalized = normalizeTranscript(messages);
 
-	for (const message of messages) {
-		if (message.role === "user") {
-			components.push(new UserMessageComponent(getTextContent(message.content), getMarkdownTheme()));
-			continue;
-		}
-
-		if (message.role === "assistant") {
-			const assistant = sanitizeAssistantMessage(message as AssistantMessage, options.hideThinking);
-			components.push(new AssistantMessageComponent(assistant, options.hideThinking, getMarkdownTheme()));
-
-			for (const content of assistant.content) {
-				if (content.type !== "toolCall") {
-					continue;
-				}
-				const toolComponent = new ToolExecutionComponent(content.name, content.arguments, {}, undefined, options.tui);
-				toolComponent.setExpanded(options.toolOutputExpanded);
-				if (assistant.stopReason) {
-					toolComponent.setArgsComplete();
-				}
-				toolExecutions.set(content.id, toolComponent);
-				components.push(toolComponent);
+	for (const item of normalized.items) {
+		switch (item.kind) {
+			case "user": {
+				const text = item.parts.find((part) => part.kind === "text")?.text ?? "";
+				components.push(new UserMessageComponent(text, getMarkdownTheme()));
+				break;
 			}
-			continue;
-		}
-
-		if (message.role === "toolResult") {
-			const resultMessage = message as any;
-			const existing = toolExecutions.get(resultMessage.toolCallId);
-			if (existing) {
-				existing.updateResult(
+			case "assistant-text":
+			case "assistant-thinking": {
+				const assistant = sanitizeAssistantMessage(
 					{
-						content: resultMessage.content as Array<{ type: string; text?: string; data?: string; mimeType?: string }>,
-						details: resultMessage.details,
-						isError: !!resultMessage.isError,
-					},
-					false,
+						role: "assistant",
+						api: "openai-responses",
+						provider: "openai",
+						model: "normalized-transcript",
+						stopReason: "stop",
+						timestamp: Date.parse(item.timestamp),
+						content: item.parts
+							.map((part) => {
+								if (!part.text) return undefined;
+								if (part.kind === "thinking") {
+									return { type: "thinking" as const, thinking: part.text };
+								}
+								return { type: "text" as const, text: part.text };
+							})
+							.filter((part): part is { type: "thinking"; thinking: string } | { type: "text"; text: string } => !!part),
+					} as AssistantMessage,
+					options.hideThinking,
 				);
+				components.push(new AssistantMessageComponent(assistant, options.hideThinking, getMarkdownTheme()));
+				break;
 			}
-			continue;
+			case "tool-call": {
+				const detail = item.parts.find((part) => part.kind === "detail")?.text;
+				let args: Record<string, unknown> = {};
+				if (detail) {
+					try {
+						args = JSON.parse(detail) as Record<string, unknown>;
+					} catch {
+						args = { raw: detail };
+					}
+				}
+				const toolComponent = new ToolExecutionComponent(item.toolName, args, {}, undefined, options.tui);
+				toolComponent.setExpanded(options.toolOutputExpanded);
+				const existing = toolExecutionsByName.get(item.toolName) ?? [];
+				existing.push(toolComponent);
+				toolExecutionsByName.set(item.toolName, existing);
+				components.push(toolComponent);
+				break;
+			}
+			case "tool-result": {
+				const detail = item.parts.find((part) => part.kind === "detail")?.text ?? "";
+				const queue = toolExecutionsByName.get(item.toolName);
+				const toolComponent = queue?.shift();
+				if (toolComponent) {
+					toolComponent.updateResult({
+						content: [{ type: "text", text: detail }],
+						isError: false,
+					});
+				}
+				break;
+			}
+			case "artifact":
+			case "runtime-status":
+				components.push(new Markdown(item.summary, 1, 0, getMarkdownTheme()));
+				break;
+			default:
+				components.push(new Markdown(item.summary, 1, 0, getMarkdownTheme()));
 		}
+	}
 
+	for (const message of normalized.unknownMessages) {
 		components.push(new Markdown(JSON.stringify(message, null, 2), 1, 0, getMarkdownTheme()));
 	}
 
