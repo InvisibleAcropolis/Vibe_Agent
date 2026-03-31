@@ -126,13 +126,42 @@ export type TranscriptItem =
 	| CheckpointTranscriptItem
 	| ErrorTranscriptItem;
 
+export interface ShellSurfaceRoutingScope {
+	readonly runtimeId?: string;
+	readonly sessionId?: string;
+}
+
+export interface ShellSurfaceRoutingDescriptor {
+	readonly route: string;
+	readonly scope: ShellSurfaceRoutingScope;
+	readonly initialPayload?: Record<string, unknown>;
+}
+
+export interface ShellSurfaceLifecycleContext {
+	readonly surfaceId: string;
+	readonly route: string;
+}
+
+export interface ShellSurfaceLifecycleHooks {
+	onOpen?: (context: ShellSurfaceLifecycleContext) => void;
+	onFocus?: (context: ShellSurfaceLifecycleContext) => void;
+	onClose?: (context: ShellSurfaceLifecycleContext) => void;
+}
+
+export interface ShellSurfaceSubscriptionDescriptor {
+	readonly source: "rpc" | "event-bus";
+	readonly subscribe: (context: { surfaceId: string }) => void | (() => void);
+}
+
 export interface ShellSurfaceDescriptor {
 	readonly id: string;
 	readonly title: string;
 	readonly kind: "overlay" | "panel" | "workspace";
 	readonly runtimeId?: string;
 	readonly sessionId?: string;
-	readonly open: () => void;
+	readonly routing: ShellSurfaceRoutingDescriptor;
+	readonly lifecycle?: ShellSurfaceLifecycleHooks;
+	readonly subscriptions?: readonly ShellSurfaceSubscriptionDescriptor[];
 }
 
 export interface RichDocumentSource {

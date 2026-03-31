@@ -8,6 +8,7 @@ import { createShellNextActions, type ShellNextActions } from "./actions.js";
 import { createShellNextChrome, type ShellNextChrome } from "./chrome.js";
 import { createShellNextRenderer, type ShellNextRenderer } from "./renderer.js";
 import { ShellNextView } from "./shell-next-view.js";
+import { createSurfaceLaunchManager, type ShellSurfaceLaunchRequest, type SurfaceLaunchManager } from "./surface-launch-manager.js";
 import { TranscriptTimelineController } from "./transcript-timeline.js";
 import { createInitialShellNextState, type ShellNextState } from "./state.js";
 
@@ -18,6 +19,7 @@ export interface ShellNextControllerOptions {
 	getMessages: () => AgentMessage[];
 	getAgentHost: () => AgentHost | undefined;
 	animationEngine?: AnimationEngine;
+	onSurfaceLaunch?: (request: ShellSurfaceLaunchRequest) => void;
 }
 
 export interface ShellNextController {
@@ -27,6 +29,7 @@ export interface ShellNextController {
 	readonly renderer: ShellNextRenderer;
 	readonly chrome: ShellNextChrome;
 	readonly timeline: TranscriptTimelineController;
+	readonly surfaceLaunchManager: SurfaceLaunchManager;
 }
 
 export function createShellNextController(options: ShellNextControllerOptions): ShellNextController {
@@ -35,6 +38,19 @@ export function createShellNextController(options: ShellNextControllerOptions): 
 	const renderer = createShellNextRenderer();
 	const chrome = createShellNextChrome();
 	const timeline = new TranscriptTimelineController();
+
+	const surfaceLaunchManager = createSurfaceLaunchManager(options.stateStore, {
+		onLaunch: (request) => options.onSurfaceLaunch?.(request),
+	});
+	surfaceLaunchManager.registerSurface({
+		id: "sessions-browser",
+		title: "Sessions Browser",
+		kind: "workspace",
+		routing: {
+			route: "sessions-browser",
+			scope: {},
+		},
+	});
 
 	const shellView = new ShellNextView(options.terminal ?? new ProcessTerminal());
 
@@ -45,5 +61,6 @@ export function createShellNextController(options: ShellNextControllerOptions): 
 		renderer,
 		chrome,
 		timeline,
+		surfaceLaunchManager,
 	};
 }
