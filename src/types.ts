@@ -30,6 +30,7 @@ import type { RuntimeCoordinator } from "./runtime/runtime-coordinator.js";
 import type { RuntimeDescriptor } from "./runtime/agent-runtime.js";
 import type { agentTheme } from "./theme.js";
 import type { VibeAppMode } from "./app-mode.js";
+import type { MainShellImplementation } from "./shell/main-shell-adapter.js";
 
 export interface OverlayRecord {
 	id: string;
@@ -65,6 +66,7 @@ export interface VibeAgentAppOptions {
 	configPath?: string;  // Optional override for config file path (used in tests)
 	durableRootPath?: string;
 	appMode?: VibeAppMode;
+	shellImplementation?: MainShellImplementation;
 	authStorage?: import("./local-coding-agent.js").AuthStorage;
 	getEnvApiKey?: (providerId: string) => string | undefined;
 	runtimes?: AgentRuntime[];

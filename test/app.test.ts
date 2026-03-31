@@ -567,6 +567,36 @@ test("VibeAgentApp boots with a coding runtime and catalogs artifacts", async ()
 	await flushAsyncWork();
 });
 
+test("VibeAgentApp can instantiate both legacy and next shell implementations", async () => {
+	const createApp = (shellImplementation: "legacy" | "next") => {
+		const host = new FakeAgentHost();
+		const app = new VibeAgentApp({
+			terminal: new VirtualTerminal(100, 30),
+			host,
+			shellImplementation,
+			configPath: path.join(tempRoot, `shell-${shellImplementation}-config.json`),
+			durableRootPath: path.join(tempRoot, `shell-${shellImplementation}-durable-root`),
+			getEnvApiKey: (providerId) => (providerId === "openai" ? "test-key" : undefined),
+		});
+		return { app, host };
+	};
+
+	const legacy = createApp("legacy");
+	legacy.app.start();
+	await flushAsyncWork();
+	assert.strictEqual(legacy.host.startCount, 1);
+	legacy.app.stop();
+	await flushAsyncWork();
+
+	const next = createApp("next");
+	next.app.start();
+	await flushAsyncWork();
+	assert.strictEqual(next.host.startCount, 1);
+	next.app.stop();
+	await flushAsyncWork();
+});
+
+
 test("VibeAgentApp starts registered coding, worker, and tool runtimes", async () => {
 	const terminal = new VirtualTerminal(100, 30);
 	const codingHost = new FakeAgentHost();
