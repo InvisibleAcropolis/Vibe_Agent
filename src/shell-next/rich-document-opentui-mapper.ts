@@ -7,7 +7,8 @@ export type OpenTuiRichComponentType =
 	| "MetadataRow"
 	| "Link"
 	| "TimelineCard"
-	| "Collapsible";
+	| "Collapsible"
+	| "MarkdownText";
 
 export interface OpenTuiRichComponent {
 	readonly id: string;
@@ -46,6 +47,8 @@ function toOpenTuiComponent(component: RichDocumentComponent): OpenTuiRichCompon
 			return { id: component.id, type: "TimelineCard", props: { title: component.title, date: component.date, body: component.body } };
 		case "collapsible":
 			return { id: component.id, type: "Collapsible", props: { title: component.title, content: component.content } };
+		case "markdown-text":
+			return { id: component.id, type: "MarkdownText", props: { text: component.text } };
 	}
 }
 
