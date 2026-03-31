@@ -30,8 +30,10 @@ import {
 } from "./local-coding-agent.js";
 import { MouseEnabledTerminal } from "./mouse-enabled-terminal.js";
 import { DefaultOverlayController } from "./overlay-controller.js";
+import { readPsmuxRuntimeContext } from "./psmux-runtime-context.js";
 import type { ShellView } from "./shell-view.js";
 import { createMainShellAdapter, type MainShellImplementation } from "./shell/main-shell-adapter.js";
+import { writeSecondarySurfaceRouteSignal } from "./shell-next/secondary-surface-router.js";
 import { SplashWindowController } from "./splash-window-controller.js";
 import { DefaultStartupController } from "./startup-controller.js";
 import { getThemeNames, onThemeConfigChange, setActiveTheme, type ThemeName } from "./themes/index.js";
@@ -132,6 +134,7 @@ export class VibeAgentApp {
 			?? new WorkbenchInventoryService(this.artifactCatalog, this.memoryStoreService, this.logCatalogService, { durableRoot: durableRootPath });
 
 		const selectedShellImplementation = this.resolveShellImplementation(options.shellImplementation);
+		const psmuxContext = readPsmuxRuntimeContext();
 		this.terminal = new MouseEnabledTerminal(options.terminal ?? new ProcessTerminal());
 		const shellAdapter = createMainShellAdapter({
 			implementation: selectedShellImplementation,
@@ -157,10 +160,34 @@ export class VibeAgentApp {
 						break;
 				}
 			},
-			onSurfaceLaunch: (target) => {
-				if (target === "sessions-browser") {
-					commandController?.openSessionsBrowserSurface();
+			onSurfaceLaunch: (request) => {
+				if (request.surfaceId !== "sessions-browser") {
+					return;
 				}
+				if (psmuxContext.sessionName) {
+					writeSecondarySurfaceRouteSignal({
+						sessionName: psmuxContext.sessionName,
+						surfaceId: request.surfaceId,
+						route: request.route,
+						action: request.reason,
+						reason: request.reason,
+						payload: request.payload,
+					});
+					this.stateStore.setStatusMessage(`Launched ${request.route} in secondary PSMUX surface.`);
+					return;
+				}
+				commandController?.openSessionsBrowserSurface();
+			},
+			onSurfaceClose: (surfaceId) => {
+				if (surfaceId !== "sessions-browser" || !psmuxContext.sessionName) {
+					return;
+				}
+				writeSecondarySurfaceRouteSignal({
+					sessionName: psmuxContext.sessionName,
+					surfaceId,
+					route: "sessions-browser",
+					action: "close",
+				});
 			},
 			onPromptFocus: () => this.setFocus(this.editorController.getComponent(), "editor"),
 		});
