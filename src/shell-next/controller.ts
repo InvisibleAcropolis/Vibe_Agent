@@ -7,6 +7,7 @@ import { DefaultShellView, type ShellView } from "../shell-view.js";
 import { createShellNextActions, type ShellNextActions } from "./actions.js";
 import { createShellNextChrome, type ShellNextChrome } from "./chrome.js";
 import { createShellNextRenderer, type ShellNextRenderer } from "./renderer.js";
+import { TranscriptTimelineController } from "./transcript-timeline.js";
 import { createInitialShellNextState, type ShellNextState } from "./state.js";
 
 export interface ShellNextControllerOptions {
@@ -24,6 +25,7 @@ export interface ShellNextController {
 	readonly actions: ShellNextActions;
 	readonly renderer: ShellNextRenderer;
 	readonly chrome: ShellNextChrome;
+	readonly timeline: TranscriptTimelineController;
 }
 
 export function createShellNextController(options: ShellNextControllerOptions): ShellNextController {
@@ -31,6 +33,7 @@ export function createShellNextController(options: ShellNextControllerOptions): 
 	const actions = createShellNextActions();
 	const renderer = createShellNextRenderer();
 	const chrome = createShellNextChrome();
+	const timeline = new TranscriptTimelineController();
 
 	// Initial migration step: route Shell Next through current DefaultShellView so
 	// both implementations are hostable while feature work continues in this namespace.
@@ -49,5 +52,6 @@ export function createShellNextController(options: ShellNextControllerOptions): 
 		actions,
 		renderer,
 		chrome,
+		timeline,
 	};
 }
