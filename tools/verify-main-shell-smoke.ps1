@@ -48,9 +48,12 @@ if (-not (Test-PsmuxSession -Name $SessionName)) {
 	$repoLiteral = Quote-PowerShellLiteral -Value $repoRoot
 	$launchCommand = @(
 		"Set-Location -LiteralPath $repoLiteral",
-		"`$env:VIBE_MAIN_SHELL='next'",
-		"`$env:VIBE_TRANSCRIPT_PUBLICATION_MODE='dual'",
-		"node .\bin\vibe-agent.js"
+		"`$env:VIBE_PSMUX_CHILD='1'",
+		"`$env:VIBE_PSMUX_ROLE='primary'",
+		"`$env:VIBE_PSMUX_SESSION='$SessionName'",
+		"`$env:VIBE_MAIN_SHELL='opentui'",
+		"`$env:VIBE_TRANSCRIPT_PUBLICATION_MODE='next'",
+		"bun .\src\launcher\psmux-launcher.ts --psmux-child"
 	) -join "; "
 
 	& psmux new-session -d -s $SessionName -x 160 -y 48 -c $repoRoot -- `

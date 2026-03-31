@@ -82,6 +82,7 @@ export class DefaultCommandController implements CommandController {
 			overlayController: this.dependencies.overlayController,
 			stateStore: this.dependencies.stateStore,
 			footerData: this.dependencies.footerData,
+			shellView: this.dependencies.shellView,
 			inventory: this.dependencies.inventory,
 			getHostState: () => this.safeGetHostState(),
 			onError: (context, error, details) => this.handleError(context, error, details),
@@ -139,6 +140,10 @@ export class DefaultCommandController implements CommandController {
 	}
 
 	openSessionsBrowserSurface(): void {
+		if (this.dependencies.shellView.implementation === "opentui") {
+			this.openSessionsOverlay();
+			return;
+		}
 		if (this.dependencies.requestSurfaceLaunch) {
 			this.dependencies.requestSurfaceLaunch("sessions-browser");
 			return;
@@ -258,6 +263,10 @@ export class DefaultCommandController implements CommandController {
 	}
 
 	openOrcDashboard(): void {
+		if (this.dependencies.shellView.implementation === "opentui" && this.dependencies.appMode !== "orc") {
+			void this.summonOrc().catch((error) => this.handleError("summonOrc", error));
+			return;
+		}
 		this.overlayService.openOrcDashboard();
 	}
 

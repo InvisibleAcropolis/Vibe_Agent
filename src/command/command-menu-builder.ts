@@ -17,41 +17,51 @@ export class CommandMenuBuilder {
 		thinkingItems: ShellMenuItem[];
 		onAction: (action: string) => void;
 	}): ShellMenuDefinition {
+		const isOpenTui = this.dependencies.shellView.implementation === "opentui";
+		const items: ShellMenuItem[] = [];
+		if (!isOpenTui) {
+			items.push(
+				{ kind: "action", id: "setup", label: "Setup Hub", description: "Provider and model recovery.", onSelect: () => options.onAction("setup") },
+				{ kind: "action", id: "provider", label: "Provider Setup", description: "Reconnect or switch provider.", onSelect: () => options.onAction("provider") },
+			);
+		}
+		items.push(
+			{ kind: "submenu", id: "model", label: "Choose Model", description: "Select the default model.", items: options.modelItems },
+			{ kind: "submenu", id: "theme", label: "Theme", description: "Switch the shell visual theme.", items: options.themeItems },
+			{ kind: "submenu", id: "thinking", label: "Thinking Level", description: "Adjust reasoning budget.", items: options.thinkingItems },
+			{
+				kind: "action",
+				id: "thinking-visibility",
+				label: this.dependencies.stateStore.getState().showThinking ? "Hide Thinking" : "Show Thinking",
+				description: this.dependencies.stateStore.getState().showThinking
+					? "Hide live reasoning output in the transcript."
+					: "Show live reasoning output in the transcript.",
+				onSelect: () => options.onAction("thinking-visibility"),
+			},
+			{ kind: "action", id: "new", label: "New Session", description: "Start a fresh session.", onSelect: () => options.onAction("new") },
+			{ kind: "action", id: "resume", label: "Resume Session", description: "Switch to another session.", onSelect: () => options.onAction("resume") },
+			{ kind: "action", id: "stats", label: "Session Stats", description: "View token usage and metadata.", onSelect: () => options.onAction("stats") },
+			{ kind: "action", id: "artifacts", label: "View Artifacts", description: "Browse generated files.", onSelect: () => options.onAction("artifacts") },
+			{ kind: "action", id: "rename", label: "Rename Session", description: "Update the session display name.", onSelect: () => options.onAction("rename") },
+			{ kind: "action", id: "export", label: "Export HTML", description: "Write an HTML export.", onSelect: () => options.onAction("export") },
+			{ kind: "action", id: "help", label: "Help", description: "Show commands and keybindings.", onSelect: () => options.onAction("help") },
+			{ kind: "action", id: "debug", label: "Write Debug Snapshot", description: "Capture the current shell state.", onSelect: () => options.onAction("debug") },
+		);
+		if (!isOpenTui) {
+			items.push({ kind: "action", id: "logout", label: "Logout Provider", description: "Disconnect a saved provider.", onSelect: () => options.onAction("logout") });
+		}
 		return {
 			title: "[F1] Settings",
 			subtitle: "Shell controls, defaults, and session operations.",
 			anchor: this.dependencies.shellView.getMenuAnchor("F1"),
 			width: 40,
 			childWidth: 52,
-			items: [
-				{ kind: "action", id: "setup", label: "Setup Hub", description: "Provider and model recovery.", onSelect: () => options.onAction("setup") },
-				{ kind: "action", id: "provider", label: "Provider Setup", description: "Reconnect or switch provider.", onSelect: () => options.onAction("provider") },
-				{ kind: "submenu", id: "model", label: "Choose Model", description: "Select the default model.", items: options.modelItems },
-				{ kind: "submenu", id: "theme", label: "Theme", description: "Switch the shell visual theme.", items: options.themeItems },
-				{ kind: "submenu", id: "thinking", label: "Thinking Level", description: "Adjust reasoning budget.", items: options.thinkingItems },
-				{
-					kind: "action",
-					id: "thinking-visibility",
-					label: this.dependencies.stateStore.getState().showThinking ? "Hide Thinking Tray" : "Show Thinking Tray",
-					description: this.dependencies.stateStore.getState().showThinking
-						? "Hide live reasoning output below the footer."
-						: "Show live reasoning output below the footer.",
-					onSelect: () => options.onAction("thinking-visibility"),
-				},
-				{ kind: "action", id: "new", label: "New Session", description: "Start a fresh session.", onSelect: () => options.onAction("new") },
-				{ kind: "action", id: "resume", label: "Resume Session", description: "Switch to another session.", onSelect: () => options.onAction("resume") },
-				{ kind: "action", id: "stats", label: "Session Stats", description: "View token usage and metadata.", onSelect: () => options.onAction("stats") },
-				{ kind: "action", id: "artifacts", label: "View Artifacts", description: "Browse generated files.", onSelect: () => options.onAction("artifacts") },
-				{ kind: "action", id: "rename", label: "Rename Session", description: "Update the session display name.", onSelect: () => options.onAction("rename") },
-				{ kind: "action", id: "export", label: "Export HTML", description: "Write an HTML export.", onSelect: () => options.onAction("export") },
-				{ kind: "action", id: "logout", label: "Logout Provider", description: "Disconnect a saved provider.", onSelect: () => options.onAction("logout") },
-				{ kind: "action", id: "help", label: "Help", description: "Show commands and keybindings.", onSelect: () => options.onAction("help") },
-				{ kind: "action", id: "debug", label: "Write Debug Snapshot", description: "Capture the current shell state.", onSelect: () => options.onAction("debug") },
-			],
+			items,
 		};
 	}
 
 	buildSessionsMenu(options: { onAction: (action: string) => void }): ShellMenuDefinition {
+		const isOpenTui = this.dependencies.shellView.implementation === "opentui";
 		return {
 			title: "[F2] Sessions",
 			subtitle: "Session navigation and tree controls.",
@@ -59,7 +69,13 @@ export class CommandMenuBuilder {
 			width: 38,
 			childWidth: 44,
 			items: [
-				{ kind: "action", id: "browser", label: "Sessions Browser", description: "Open grouped sessions in a floating browser surface.", onSelect: () => options.onAction("browser") },
+				{
+					kind: "action",
+					id: "browser",
+					label: isOpenTui ? "Session Actions" : "Sessions Browser",
+					description: isOpenTui ? "Open session actions inside the Coding Chat window." : "Open grouped sessions in a floating browser surface.",
+					onSelect: () => options.onAction("browser"),
+				},
 				{ kind: "action", id: "resume", label: "Resume Session", description: "Switch to another saved session.", onSelect: () => options.onAction("resume") },
 				{ kind: "action", id: "fork", label: "Fork Session", description: "Fork from a previous user message.", onSelect: () => options.onAction("fork") },
 				{ kind: "action", id: "tree", label: "Session Tree", description: "Navigate branch points.", onSelect: () => options.onAction("tree") },

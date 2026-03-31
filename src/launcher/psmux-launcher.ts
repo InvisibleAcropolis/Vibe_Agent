@@ -27,7 +27,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..", "..");
 const launcherEntry = path.join(repoRoot, "src", "launcher", "psmux-launcher.ts");
 const DEFAULT_SESSION_GEOMETRY = { width: 240, height: 60 };
-const DEFAULT_SECONDARY_PANE_PERCENT = 50;
 const DEFAULT_SESSION_SHELL = ["pwsh.exe", "-NoLogo"];
 
 class ProcessCommandRunner implements InteractiveSessionCommandRunner {
@@ -199,27 +198,16 @@ export async function launchVibeAgentWithPsmux(dependencies: PsmuxLauncherDepend
 
 	if (ensureResult.created) {
 		const primaryPaneId = await paneOrchestrator.capturePaneId(sessionName);
-		const secondaryPane = await paneOrchestrator.splitHorizontal("secondary", null, {
-			detached: true,
-			percentage: DEFAULT_SECONDARY_PANE_PERCENT,
-		});
 		const primaryCommand = buildPsmuxChildCommand({
 			cwd,
 			execPath,
 			args: childArgs,
 			role: "primary",
 			sessionName,
-		});
-		const secondaryCommand = buildPsmuxChildCommand({
-			cwd,
-			execPath,
-			args: childArgs,
-			role: "secondary",
-			sessionName,
+			env,
 		});
 
 		await paneOrchestrator.injectCommand(primaryPaneId, primaryCommand);
-		await paneOrchestrator.injectCommand(secondaryPane.paneId, secondaryCommand);
 		try {
 			await paneOrchestrator.selectPane(`${sessionName}:0.0`);
 		} catch {
@@ -239,23 +227,35 @@ export function buildPsmuxChildCommand(input: {
 	args: readonly string[];
 	role: PsmuxRuntimeRole;
 	sessionName: string;
+	env?: NodeJS.ProcessEnv;
 }): string {
-	const launcherArgs = [
-		quoteForPowerShell(input.execPath),
-		quoteForPowerShell("--import"),
-		quoteForPowerShell("tsx"),
-		quoteForPowerShell(launcherEntry),
-		quoteForPowerShell(PSMUX_CHILD_FLAG),
-		...input.args.map((arg) => quoteForPowerShell(arg)),
-	].join(" ");
+	const selectedShell = input.env?.VIBE_MAIN_SHELL?.toLowerCase() ?? "opentui";
+	const useBunRuntime = selectedShell === "opentui";
+	const runtimeCommand = useBunRuntime ? "bun" : input.execPath;
+	const launcherArgs = useBunRuntime
+		? [
+			quoteForPowerShell(runtimeCommand),
+			quoteForPowerShell(launcherEntry),
+			quoteForPowerShell(PSMUX_CHILD_FLAG),
+			...input.args.map((arg) => quoteForPowerShell(arg)),
+		].join(" ")
+		: [
+			quoteForPowerShell(runtimeCommand),
+			quoteForPowerShell("--import"),
+			quoteForPowerShell("tsx"),
+			quoteForPowerShell(launcherEntry),
+			quoteForPowerShell(PSMUX_CHILD_FLAG),
+			...input.args.map((arg) => quoteForPowerShell(arg)),
+		].join(" ");
 
 	return [
 		`Set-Location -LiteralPath ${quoteForPowerShell(input.cwd)}`,
 		`$env:${PSMUX_CHILD_ENV}='1'`,
 		`$env:${PSMUX_ROLE_ENV}='${input.role}'`,
 		`$env:${PSMUX_SESSION_ENV}='${escapePowerShellLiteral(input.sessionName)}'`,
+		useBunRuntime ? `$env:VIBE_MAIN_SHELL='opentui'` : undefined,
 		`& ${launcherArgs}`,
-	].join("; ");
+	].filter((line): line is string => Boolean(line)).join("; ");
 }
 
 export async function assertPsmuxAvailable(

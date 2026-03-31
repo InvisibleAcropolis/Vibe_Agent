@@ -85,10 +85,23 @@ export class DefaultExtensionUiHost implements ExtensionUiHost {
 			},
 			setWorkingMessage: (message) => this.stateStore.setWorkingMessage(message),
 			setWidget: (key, content, options) => {
+				if (this.shellView.implementation === "opentui") {
+					return;
+				}
 				this.shellView.setWidget(key, content as WidgetFactory | string[] | undefined, options?.placement);
 			},
-			setFooter: (factory) => this.shellView.setFooterFactory(factory as FooterFactory | undefined),
-			setHeader: (factory) => this.shellView.setHeaderFactory(factory as HeaderFactory | undefined),
+			setFooter: (factory) => {
+				if (this.shellView.implementation === "opentui") {
+					return;
+				}
+				this.shellView.setFooterFactory(factory as FooterFactory | undefined);
+			},
+			setHeader: (factory) => {
+				if (this.shellView.implementation === "opentui") {
+					return;
+				}
+				this.shellView.setHeaderFactory(factory as HeaderFactory | undefined);
+			},
 			setTitle: (title) => this.shellView.setTitle(title),
 			custom: async <T,>(
 				factory: (

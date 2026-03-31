@@ -1,7 +1,7 @@
 /** @jsxImportSource @opentui/solid */
-import { createCliRenderer, type CliRenderer, type KeyEvent, type ScrollBoxRenderable, type SelectOption } from "@opentui/core";
+import { createCliRenderer, type CliRenderer, type ScrollBoxRenderable, type SelectOption } from "@opentui/core";
 import { Portal, render as renderSolid, useKeyboard, useTerminalDimensions } from "@opentui/solid";
-import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { AgentHostState } from "../agent-host.js";
 import type { AppShellState, AppStateStore } from "../app-state-store.js";
 import { FooterDataProvider } from "../footer-data-provider.js";
@@ -10,17 +10,16 @@ import type { OverlayOptionsWithMousePolicy, ShellOverlayHandle } from "../overl
 import type { ShellView } from "../shell-view.js";
 import type { NormalizedTranscriptPublication } from "../shell/transcript-publication.js";
 import type { ShellMenuDefinition, ShellMenuItem } from "../components/shell-menu-overlay.js";
-import { dispatchLegacyKey, disposeLegacyRenderable, focusLegacyRenderable, renderLegacyRenderable } from "./legacy-adapter.js";
-import type { OpenTuiEditorComponent, OpenTuiEditorController } from "./editor-controller.js";
-
-type WidgetPlacement = "aboveEditor" | "belowEditor";
+import type { TranscriptItem, TranscriptPart } from "../shell-next/shared-models.js";
+import type { OpenTuiEditorController } from "./editor-controller.js";
+import { isOpenTuiOverlayModel, type OpenTuiDocumentOverlayItem } from "./overlay-models.js";
 
 type OverlayRecord =
 	| {
 		id: string;
 		kind: "select";
 		title: string;
-		description: string;
+		description?: string;
 		items: Array<{ value: unknown; label: string; description?: string }>;
 		selectedIndex: number;
 		onSelect: (value: unknown) => void;
@@ -30,7 +29,7 @@ type OverlayRecord =
 		id: string;
 		kind: "text-prompt";
 		title: string;
-		description: string;
+		description?: string;
 		value: string;
 		onSubmit: (value: string) => void;
 		onCancel?: () => void;
@@ -39,10 +38,10 @@ type OverlayRecord =
 		id: string;
 		kind: "editor-prompt";
 		title: string;
-		description: string;
+		description?: string;
 		value: string;
 		onSubmit: (value: string) => void;
-		onCancel: () => void;
+		onCancel?: () => void;
 	}
 	| {
 		id: string;
@@ -51,33 +50,37 @@ type OverlayRecord =
 		description?: string;
 		items: ShellMenuItem[];
 		selectedIndex: number;
-		parent?: OverlayRecord;
+		parentId?: string;
 	}
 	| {
 		id: string;
-		kind: "legacy";
+		kind: "text";
 		title: string;
-		component: unknown;
-		options: OverlayOptionsWithMousePolicy;
+		description?: string;
+		lines: readonly string[];
+	}
+	| {
+		id: string;
+		kind: "document";
+		title: string;
+		description?: string;
+		items: readonly OpenTuiDocumentOverlayItem[];
+		selectedIndex: number;
+		emptyMessage?: string;
 	};
 
 interface OpenTuiShellSnapshot {
-	headerLines: string[];
-	footerLines: string[];
-	widgetsAbove: string[];
-	widgetsBelow: string[];
-	editor: unknown;
-	overlays: OverlayRecord[];
 	width: number;
 	height: number;
-	transcriptLines: string[];
-	statusLine: string;
-	hintLine: string;
+	menuLine: string;
 	metaLine: string;
-}
-
-function isOpenTuiEditor(value: unknown): value is OpenTuiEditorComponent {
-	return typeof value === "object" && value !== null && (value as { kind?: string }).kind === "opentui-editor";
+	transcriptLines: string[];
+	composerTitle: string;
+	composerHelp: string;
+	statusLine: string;
+	statusTone: "info" | "warning" | "success" | "accent" | "dim";
+	footerLine: string;
+	overlays: OverlayRecord[];
 }
 
 function menuItemToOption(item: ShellMenuItem): SelectOption {
@@ -88,41 +91,153 @@ function menuItemToOption(item: ShellMenuItem): SelectOption {
 	};
 }
 
-function flattenTranscript(publication: NormalizedTranscriptPublication | undefined, shellState: AppShellState): string[] {
-	if (!publication) {
-		return [];
+function humanizeKind(kind: TranscriptItem["kind"]): string {
+	switch (kind) {
+		case "user":
+			return "You";
+		case "assistant-text":
+			return "Agent";
+		case "assistant-thinking":
+			return "Thinking";
+		case "tool-call":
+			return "Tool Call";
+		case "tool-result":
+			return "Tool Result";
+		case "artifact":
+			return "Artifact";
+		case "runtime-status":
+			return "Runtime";
+		case "subagent-event":
+			return "Subagent";
+		case "checkpoint":
+			return "Checkpoint";
+		case "error":
+			return "Error";
 	}
+}
+
+function clipLine(line: string, width: number): string {
+	if (width <= 0) {
+		return "";
+	}
+	if (line.length <= width) {
+		return line;
+	}
+	if (width <= 1) {
+		return line.slice(0, width);
+	}
+	return `${line.slice(0, width - 1)}…`;
+}
+
+function wrapText(text: string, width: number): string[] {
+	const normalized = text.replace(/\r/g, "");
 	const lines: string[] = [];
-	const expansion = shellState.transcript.expansionState;
+	for (const rawLine of normalized.split("\n")) {
+		if (!rawLine) {
+			lines.push("");
+			continue;
+		}
+		let remainder = rawLine;
+		while (remainder.length > width && width > 0) {
+			lines.push(remainder.slice(0, width));
+			remainder = remainder.slice(width);
+		}
+		lines.push(remainder);
+	}
+	return lines;
+}
+
+function partPrefix(part: TranscriptPart): string {
+	switch (part.kind) {
+		case "thinking":
+			return "Thinking";
+		case "detail":
+			return "Detail";
+		case "status":
+			return "Status";
+		case "artifact-link":
+			return "Artifact";
+		case "metadata":
+			return "Meta";
+		default:
+			return "";
+	}
+}
+
+function flattenTranscript(publication: NormalizedTranscriptPublication | undefined, shellState: AppShellState, width: number): string[] {
+	if (!publication || publication.normalizedTranscript.items.length === 0) {
+		return ["No transcript yet.", "", "Type a prompt below and press Enter to send it to the coding agent."];
+	}
+
+	const lines: string[] = [];
+	const expansionState = shellState.transcript.expansionState;
+
 	for (const item of publication.normalizedTranscript.items) {
 		if (!shellState.showThinking && item.kind === "assistant-thinking") {
 			continue;
 		}
-		const marker = shellState.transcript.selectedTranscriptItemId === item.id ? ">" : " ";
-		lines.push(`${marker} ${item.kind} · ${item.summary}`);
-		const expanded = expansion[item.id] ?? item.expanded ?? item.kind === "assistant-thinking";
+		const selected = shellState.transcript.selectedTranscriptItemId === item.id ? ">" : " ";
+		const expanded = expansionState[item.id] ?? item.expanded ?? item.kind === "assistant-thinking";
+		lines.push(clipLine(`${selected} ${humanizeKind(item.kind)}  ${item.summary}`, width));
+
 		for (const part of item.parts) {
-			if (part.kind === "thinking" && !shellState.showThinking) {
+			if (part.kind === "summary") {
 				continue;
 			}
-			if (part.kind === "summary") {
+			if (!shellState.showThinking && part.kind === "thinking") {
 				continue;
 			}
 			if (!expanded && part.kind !== "text" && part.kind !== "status") {
 				continue;
 			}
-			const prefix = part.kind === "thinking" ? "    thinking: " : "    ";
-			const text = (part.text ?? "").trim();
-			if (!text) {
+
+			const prefix = partPrefix(part);
+			const partText = part.text?.trim() ?? "";
+			if (!partText) {
 				continue;
 			}
-			for (const line of text.split(/\r?\n/)) {
-				lines.push(`${prefix}${line}`);
+			const partLines = wrapText(partText, Math.max(8, width - 6));
+			for (const line of partLines) {
+				const rendered = prefix ? `    ${prefix}: ${line}` : `    ${line}`;
+				lines.push(clipLine(rendered, width));
 			}
 		}
+
 		lines.push("");
 	}
-	return lines.length > 0 ? lines : ["No transcript yet."];
+
+	return lines;
+}
+
+function deriveStatus(snapshotState: AppShellState): { line: string; tone: OpenTuiShellSnapshot["statusTone"] } {
+	if (snapshotState.workingMessage) {
+		return { line: snapshotState.workingMessage, tone: "accent" };
+	}
+	if (snapshotState.contextTitle || snapshotState.contextMessage) {
+		return {
+			line: [snapshotState.contextTitle, snapshotState.contextMessage].filter(Boolean).join(" · "),
+			tone: snapshotState.contextTone ?? "info",
+		};
+	}
+	if (snapshotState.helpMessage) {
+		return { line: snapshotState.helpMessage, tone: "dim" };
+	}
+	return { line: snapshotState.statusMessage, tone: "info" };
+}
+
+function toneColor(tone: OpenTuiShellSnapshot["statusTone"]): string {
+	switch (tone) {
+		case "warning":
+			return "#3a1f00";
+		case "success":
+			return "#103320";
+		case "accent":
+			return "#10263c";
+		case "dim":
+			return "#1b1b1b";
+		default:
+			return "#202020";
+	}
 }
 
 export class OpenTuiShellView implements ShellView {
@@ -131,15 +246,12 @@ export class OpenTuiShellView implements ShellView {
 
 	private renderer?: CliRenderer;
 	private transcriptPublication?: NormalizedTranscriptPublication;
-	private editor: unknown;
-	private readonly widgets = new Map<string, { lines: string[]; placement: WidgetPlacement }>();
-	private headerLines: string[] = [];
-	private footerLines: string[] = [];
-	private overlays: OverlayRecord[] = [];
-	private listeners = new Set<() => void>();
+	private readonly listeners = new Set<() => void>();
 	private debugHandler?: () => void;
 	private scrollBox?: ScrollBoxRenderable;
+	private editor: unknown;
 	private viewport = { width: 80, height: 24 };
+	private overlays: OverlayRecord[] = [];
 
 	constructor(
 		private readonly options: {
@@ -168,79 +280,49 @@ export class OpenTuiShellView implements ShellView {
 		this.renderer?.destroy();
 		this.renderer = undefined;
 		this.footerData.dispose();
-		for (const overlay of this.overlays) {
-			if (overlay.kind === "legacy") {
-				disposeLegacyRenderable(overlay.component);
-			}
-		}
 	}
 
 	setEditor(component: unknown): void {
-		if (this.editor && this.editor !== component) {
-			disposeLegacyRenderable(this.editor);
-		}
 		this.editor = component;
-		focusLegacyRenderable(component, true);
 		this.notify();
 	}
 
-	setFocus(component: unknown): void {
-		if (component === this.editor) {
-			focusLegacyRenderable(this.editor, true);
-			this.notify();
-			return;
-		}
-		focusLegacyRenderable(this.editor, false);
+	setFocus(_component: unknown): void {
 		this.notify();
 	}
 
 	setMessages(_components: unknown[]): void {
-		// Legacy component publication is intentionally not used by the OpenTUI shell.
+		// The OpenTUI shell renders only from normalized transcript publication.
 	}
 
 	publishNormalizedTranscript(publication: NormalizedTranscriptPublication): void {
 		this.transcriptPublication = publication;
+		const latestItem = publication.normalizedTranscript.items.at(-1);
+		if (latestItem) {
+			const currentSelection = this.options.stateStore.getState().transcript.selectedTranscriptItemId;
+			if (!currentSelection || this.options.stateStore.getState().transcript.followMode) {
+				this.options.stateStore.setSelectedTranscriptItem(latestItem.id);
+			}
+		}
 		this.notify();
 	}
 
 	clearMessages(): void {
 		this.transcriptPublication = undefined;
+		this.options.stateStore.setSelectedTranscriptItem(undefined);
 		this.notify();
 	}
 
-	setWidget(key: string, content: unknown, placement: WidgetPlacement = "aboveEditor"): void {
-		if (!content) {
-			this.widgets.delete(key);
-			this.notify();
-			return;
-		}
-		if (Array.isArray(content)) {
-			this.widgets.set(key, { lines: [...content], placement });
-			this.notify();
-			return;
-		}
-		this.widgets.set(key, { lines: ["[custom widget unavailable in OpenTUI shell]"], placement });
-		this.notify();
+	setWidget(_key: string, _content: unknown, _placement?: "aboveEditor" | "belowEditor"): void {
+		// Legacy shell widget chrome is intentionally unsupported in the OpenTUI coding chat.
 	}
 
-	setHeaderFactory(factory: unknown): void {
-		if (!factory) {
-			this.headerLines = [];
-			this.notify();
-			return;
-		}
-		this.headerLines = ["[custom header unavailable in OpenTUI shell]"];
-		this.notify();
+	setHeaderFactory(_factory: unknown): void {
+		// Legacy shell header injection is intentionally unsupported in the OpenTUI coding chat.
 	}
 
-	setFooterFactory(factory: unknown): void {
-		if (!factory) {
-			this.footerLines = [];
-			this.notify();
-			return;
-		}
-		this.footerLines = ["[custom footer unavailable in OpenTUI shell]"];
-		this.notify();
+	setFooterFactory(_factory: unknown): void {
+		// Legacy shell footer injection is intentionally unsupported in the OpenTUI coding chat.
 	}
 
 	setTitle(title: string): void {
@@ -260,19 +342,25 @@ export class OpenTuiShellView implements ShellView {
 	}
 
 	scrollTranscript(lines: number): void {
-		this.scrollBox?.scrollBy({ y: lines, x: 0 });
+		if (!this.scrollBox) {
+			return;
+		}
+		this.scrollBox.scrollBy({ y: lines, x: 0 });
+		if (lines < 0) {
+			this.options.stateStore.setFollowMode(false);
+		}
 		this.requestRender();
 	}
 
 	scrollTranscriptToTop(): void {
-		this.scrollBox?.scrollTo({ y: 0, x: 0 });
+		this.scrollBox?.scrollTo({ x: 0, y: 0 });
 		this.options.stateStore.setFollowMode(false);
 		this.requestRender();
 	}
 
 	scrollTranscriptToBottom(): void {
 		if (this.scrollBox) {
-			this.scrollBox.scrollTo({ y: this.scrollBox.scrollHeight, x: 0 });
+			this.scrollBox.scrollTo({ x: 0, y: this.scrollBox.scrollHeight });
 		}
 		this.options.stateStore.setFollowMode(true);
 		this.requestRender();
@@ -283,22 +371,25 @@ export class OpenTuiShellView implements ShellView {
 	}
 
 	getMenuAnchor(key: string): { row: number; col: number } {
-		const mapping: Record<string, number> = { F1: 2, F2: 16, F3: 30 };
-		return { row: 2, col: mapping[key] ?? 2 };
+		const mapping: Record<string, number> = { F1: 2, F2: 18, F3: 34 };
+		return { row: 1, col: mapping[key] ?? 2 };
 	}
 
 	getDebugSnapshot(): { width: number; height: number; lines: string[] } {
 		const snapshot = this.getSnapshot();
-		const lines = [
-			snapshot.metaLine,
-			...snapshot.headerLines,
-			...snapshot.transcriptLines.slice(0, Math.max(1, snapshot.height - 8)),
-			...snapshot.widgetsAbove,
-			...snapshot.widgetsBelow,
-			snapshot.statusLine,
-			snapshot.hintLine,
-		];
-		return { width: snapshot.width, height: snapshot.height, lines };
+		return {
+			width: snapshot.width,
+			height: snapshot.height,
+			lines: [
+				snapshot.menuLine,
+				snapshot.metaLine,
+				...snapshot.transcriptLines,
+				snapshot.composerTitle,
+				snapshot.composerHelp,
+				snapshot.statusLine,
+				snapshot.footerLine,
+			],
+		};
 	}
 
 	setDebugHandler(handler: (() => void) | undefined): void {
@@ -313,6 +404,7 @@ export class OpenTuiShellView implements ShellView {
 		onSelect: (value: T) => void,
 		onCancel?: () => void,
 	): void {
+		this.closeOverlay(id);
 		this.overlays.push({
 			id,
 			kind: "select",
@@ -327,8 +419,10 @@ export class OpenTuiShellView implements ShellView {
 	}
 
 	openTextPrompt(title: string, description: string, initialValue: string, onSubmit: (value: string) => void, onCancel?: () => void): void {
+		const id = `text:${title}`;
+		this.closeOverlay(id);
 		this.overlays.push({
-			id: `text:${title}`,
+			id,
 			kind: "text-prompt",
 			title,
 			description,
@@ -340,11 +434,13 @@ export class OpenTuiShellView implements ShellView {
 	}
 
 	openEditorPrompt(title: string, prefill: string, onSubmit: (value: string) => void, onCancel: () => void): void {
+		const id = `editor:${title}`;
+		this.closeOverlay(id);
 		this.overlays.push({
-			id: `editor:${title}`,
+			id,
 			kind: "editor-prompt",
 			title,
-			description: "Edit text and submit.",
+			description: "Ctrl+Enter submits.",
 			value: prefill,
 			onSubmit,
 			onCancel,
@@ -353,6 +449,7 @@ export class OpenTuiShellView implements ShellView {
 	}
 
 	openMenuOverlay(id: string, definition: ShellMenuDefinition): void {
+		this.closeOverlay(id);
 		this.overlays.push({
 			id,
 			kind: "menu",
@@ -364,15 +461,31 @@ export class OpenTuiShellView implements ShellView {
 		this.notify();
 	}
 
-	showCustomOverlay(id: string, component: unknown, options: OverlayOptionsWithMousePolicy): ShellOverlayHandle {
-		const record: OverlayRecord = {
-			id,
-			kind: "legacy",
-			title: options.floatingTitle ?? id,
-			component,
-			options,
-		};
-		this.overlays.push(record);
+	showCustomOverlay(id: string, component: unknown, _options: OverlayOptionsWithMousePolicy): ShellOverlayHandle {
+		if (!isOpenTuiOverlayModel(component)) {
+			throw new Error("OpenTUI coding chat only accepts native OpenTUI overlay models.");
+		}
+
+		this.closeOverlay(id);
+		if (component.kind === "text") {
+			this.overlays.push({
+				id,
+				kind: "text",
+				title: component.title,
+				description: component.description,
+				lines: [...component.lines],
+			});
+		} else {
+			this.overlays.push({
+				id,
+				kind: "document",
+				title: component.title,
+				description: component.description,
+				items: [...component.items],
+				selectedIndex: 0,
+				emptyMessage: component.emptyMessage,
+			});
+		}
 		this.notify();
 		return {
 			hide: () => this.closeOverlay(id),
@@ -387,9 +500,6 @@ export class OpenTuiShellView implements ShellView {
 
 	closeTopOverlay(): void {
 		const overlay = this.overlays.pop();
-		if (overlay?.kind === "legacy") {
-			disposeLegacyRenderable(overlay.component);
-		}
 		if (overlay && "onCancel" in overlay) {
 			overlay.onCancel?.();
 		}
@@ -402,9 +512,6 @@ export class OpenTuiShellView implements ShellView {
 			return;
 		}
 		const [overlay] = this.overlays.splice(index, 1);
-		if (overlay?.kind === "legacy") {
-			disposeLegacyRenderable(overlay.component);
-		}
 		if (overlay && "onCancel" in overlay) {
 			overlay.onCancel?.();
 		}
@@ -443,37 +550,47 @@ export class OpenTuiShellView implements ShellView {
 	private getSnapshot(): OpenTuiShellSnapshot {
 		const shellState = this.options.stateStore.getState();
 		const hostState = this.options.getHostState();
-		const widgetsAbove = [...this.widgets.values()].filter((entry) => entry.placement === "aboveEditor").flatMap((entry) => entry.lines);
-		const widgetsBelow = [...this.widgets.values()].filter((entry) => entry.placement === "belowEditor").flatMap((entry) => entry.lines);
+		const { line: statusLine, tone: statusTone } = deriveStatus(shellState);
 		const branch = this.footerData.getGitBranch();
-		const surfaces = shellState.transcript.launchedSurfaceIds.length > 0 ? `surfaces:${shellState.transcript.launchedSurfaceIds.join(",")}` : undefined;
+		const model = hostState?.model ? `${hostState.model.provider}/${hostState.model.id}` : "model not selected";
+		const runtime = `${shellState.activeRuntimeName} (${shellState.activeRuntimeId})`;
+		const providers = `${this.footerData.getAvailableProviderCount()} provider${this.footerData.getAvailableProviderCount() === 1 ? "" : "s"}`;
+		const follow = shellState.transcript.followMode ? "follow on" : "follow off";
+		const surfaces = shellState.transcript.launchedSurfaceIds.length > 0
+			? `surfaces: ${shellState.transcript.launchedSurfaceIds.join(", ")}`
+			: undefined;
+
 		return {
-			headerLines: [...this.headerLines],
-			footerLines: [...this.footerLines],
-			widgetsAbove,
-			widgetsBelow,
-			editor: this.editor,
-			overlays: [...this.overlays],
 			width: this.viewport.width,
 			height: this.viewport.height,
-			transcriptLines: flattenTranscript(this.transcriptPublication, shellState),
-			statusLine: shellState.workingMessage ?? shellState.contextMessage ?? shellState.helpMessage ?? shellState.statusMessage,
-			hintLine: [branch ? `git:${branch}` : undefined, surfaces, "F1 settings", "F2 sessions", "F3 orc", "Ctrl+B surface"].filter(Boolean).join(" · "),
+			menuLine: ["[F1] Settings", "[F2] Sessions", "[F3] Orc", "[Esc] Palette"].join("   "),
 			metaLine: [
-				hostState?.model ? `${hostState.model.provider}/${hostState.model.id}` : "model:none",
-				`runtime:${shellState.activeRuntimeId}`,
-				shellState.showThinking ? "thinking:visible" : "thinking:hidden",
-				shellState.toolOutputExpanded ? "tools:expanded" : "tools:collapsed",
-				this.footerData.getPsmuxRuntimeLabel() ?? "local",
-			].join(" · "),
+				model,
+				runtime,
+				shellState.showThinking ? "thinking visible" : "thinking hidden",
+				shellState.toolOutputExpanded ? "tools expanded" : "tools collapsed",
+			].join("  |  "),
+			transcriptLines: flattenTranscript(this.transcriptPublication, shellState, Math.max(20, this.viewport.width - 6)),
+			composerTitle: `Composer · ${follow}`,
+			composerHelp: "Enter sends prompt · Shift+Enter newline · Ctrl+L model · Ctrl+T thinking · Ctrl+O tools",
+			statusLine,
+			statusTone,
+			footerLine: [
+				branch ? `git:${branch}` : undefined,
+				this.footerData.getSessionMode(),
+				providers,
+				this.footerData.getPsmuxRuntimeLabel(),
+				surfaces,
+			].filter((value): value is string => Boolean(value)).join("  |  "),
+			overlays: [...this.overlays],
 		};
 	}
 
 	private renderRoot() {
 		const [snapshot, setSnapshot] = createSignal(this.getSnapshot());
 		const dimensions = useTerminalDimensions();
-		let composerRef: any;
-		let editorPromptRef: any;
+		let composerRef: { plainText: string; setText: (text: string) => void } | undefined;
+		let editorPromptRef: { plainText: string } | undefined;
 
 		const listener = () => setSnapshot(this.getSnapshot());
 		this.listeners.add(listener);
@@ -489,29 +606,47 @@ export class OpenTuiShellView implements ShellView {
 		});
 
 		createEffect(() => {
-			const nextText = this.options.editorController?.getText() ?? "";
-			if (composerRef && typeof composerRef.setText === "function" && composerRef.plainText !== nextText) {
-				composerRef.setText(nextText);
+			const size = dimensions();
+			this.viewport = { width: size.width, height: size.height };
+			setSnapshot(this.getSnapshot());
+		});
+
+		createEffect(() => {
+			const value = this.options.editorController?.getText() ?? "";
+			if (composerRef && composerRef.plainText !== value) {
+				composerRef.setText(value);
+			}
+		});
+
+		createEffect(() => {
+			const current = snapshot();
+			if (this.scrollBox && this.options.stateStore.getState().transcript.followMode && current.overlays.length === 0) {
+				this.scrollBox.scrollTo({ x: 0, y: this.scrollBox.scrollHeight });
 			}
 		});
 
 		useKeyboard((event) => {
-			const current = snapshot();
 			this.viewport = { width: dimensions().width, height: dimensions().height };
-			const topOverlay = current.overlays.at(-1);
+			const topOverlay = this.overlays.at(-1);
+
 			if (topOverlay) {
-				if ((event.name === "escape" || event.name === "esc") && topOverlay.kind !== "text-prompt" && topOverlay.kind !== "editor-prompt") {
+				if (event.name === "escape" || event.name === "esc") {
 					event.preventDefault();
+					if (topOverlay.kind === "menu" && topOverlay.parentId) {
+						this.closeOverlay(topOverlay.id);
+						return;
+					}
 					this.closeTopOverlay();
 					return;
 				}
-				if (topOverlay.kind === "legacy") {
-					dispatchLegacyKey(topOverlay.component, event);
-					this.requestRender();
+				if (topOverlay.kind === "menu" && event.name === "left" && topOverlay.parentId) {
+					event.preventDefault();
+					this.closeOverlay(topOverlay.id);
 					return;
 				}
 				return;
 			}
+
 			if (event.name === "f1") {
 				event.preventDefault();
 				this.options.onShellAction?.({ type: "overlay-open", target: "settings" });
@@ -527,9 +662,14 @@ export class OpenTuiShellView implements ShellView {
 				this.options.onShellAction?.({ type: "overlay-open", target: "orchestration" });
 				return;
 			}
+			if ((event.name === "escape" || event.name === "esc") && !(this.options.editorController?.getText().trim())) {
+				event.preventDefault();
+				this.options.onShellAction?.({ type: "overlay-open", target: "command-palette" });
+				return;
+			}
 			if (event.ctrl && event.name === "b") {
 				event.preventDefault();
-				this.options.onShellAction?.({ type: "surface-launch", target: "sessions-browser" });
+				this.options.onShellAction?.({ type: "overlay-open", target: "sessions" });
 				return;
 			}
 			if (event.shift && event.ctrl && event.name === "d") {
@@ -537,44 +677,61 @@ export class OpenTuiShellView implements ShellView {
 				this.debugHandler?.();
 				return;
 			}
-			if (!isOpenTuiEditor(this.editor)) {
-				dispatchLegacyKey(this.editor, event);
+			if (event.name === "pageup") {
+				event.preventDefault();
+				this.scrollTranscript(-10);
+				return;
+			}
+			if (event.name === "pagedown") {
+				event.preventDefault();
+				this.scrollTranscript(10);
+				return;
+			}
+			if (event.name === "home") {
+				event.preventDefault();
+				this.scrollTranscriptToTop();
+				return;
+			}
+			if (event.name === "end") {
+				event.preventDefault();
+				this.scrollTranscriptToBottom();
 			}
 		});
 
-		const overlayWidth = () => Math.max(48, Math.min(Math.floor(dimensions().width * 0.72), 96));
-		const overlayLeft = () => Math.max(0, Math.floor((dimensions().width - overlayWidth()) / 2));
-		const overlayTop = () => Math.max(1, Math.floor((dimensions().height - Math.min(dimensions().height - 2, 20)) / 2));
+		const overlayWidth = createMemo(() => Math.max(56, Math.min(Math.floor(dimensions().width * 0.82), 120)));
+		const overlayHeight = createMemo(() => Math.max(14, Math.min(Math.floor(dimensions().height * 0.78), 28)));
+		const overlayLeft = createMemo(() => Math.max(0, Math.floor((dimensions().width - overlayWidth()) / 2)));
+		const overlayTop = createMemo(() => Math.max(1, Math.floor((dimensions().height - overlayHeight()) / 2)));
 
 		return (
-			<box flexDirection="column" width="100%" height="100%">
-				<box border padding={1}>
+			<box flexDirection="column" width="100%" height="100%" backgroundColor="#11161d">
+				<box paddingX={1} paddingY={0} backgroundColor="#1a344c">
+					<text>
+						<strong>{snapshot().menuLine}</strong>
+					</text>
+				</box>
+				<box paddingX={1} paddingY={0} backgroundColor="#16222d">
 					<text>{snapshot().metaLine}</text>
 				</box>
-				<For each={snapshot().headerLines}>{(line: string) => <text>{line}</text>}</For>
-				<scrollbox
-					ref={(value) => {
-						this.scrollBox = value;
-					}}
-					flexGrow={1}
-					scrollY
-					stickyScroll={snapshot().overlays.length === 0 && this.options.stateStore.getState().transcript.followMode}
-					stickyStart="bottom"
-					border
-					padding={1}
-				>
-					<For each={snapshot().transcriptLines}>{(line: string) => <text>{line}</text>}</For>
-				</scrollbox>
-				<For each={snapshot().widgetsAbove}>{(line: string) => <text>{line}</text>}</For>
-				<box border padding={1}>
-					<Show
-						when={isOpenTuiEditor(snapshot().editor)}
-						fallback={
-							<box flexDirection="column">
-								<For each={renderLegacyRenderable(snapshot().editor, Math.max(1, dimensions().width - 4))}>{(line: string) => <text>{line}</text>}</For>
-							</box>
-						}
+				<box flexGrow={1} padding={1}>
+					<scrollbox
+						ref={(value) => {
+							this.scrollBox = value;
+						}}
+						flexGrow={1}
+						border
+						borderStyle="rounded"
+						title="Coding Chat"
+						padding={1}
+						scrollY
+						stickyScroll={this.options.stateStore.getState().transcript.followMode}
+						stickyStart="bottom"
 					>
+						<For each={snapshot().transcriptLines}>{(line) => <text>{line}</text>}</For>
+					</scrollbox>
+				</box>
+				<box paddingX={1} paddingBottom={1}>
+					<box border borderStyle="rounded" title={snapshot().composerTitle} padding={1} flexDirection="column">
 						<textarea
 							ref={(value) => {
 								composerRef = value;
@@ -588,56 +745,78 @@ export class OpenTuiShellView implements ShellView {
 								col: value.visualColumn + 1,
 							})}
 							onKeyDown={(event) => {
-								const text = this.options.editorController?.getText() ?? "";
-								if (event.meta && (event.name === "return" || event.name === "enter")) {
+								const isControllerShortcut =
+									(event.ctrl && (event.name === "p" || event.name === "l" || event.name === "o" || event.name === "t" || event.name === "d"))
+									|| (event.shift && event.name === "tab")
+									|| ((event.name === "escape" || event.name === "esc") && !((this.options.editorController?.getText() ?? "").trim()))
+									|| ((event.name === "escape" || event.name === "esc") && (this.options.getHostState()?.isStreaming ?? false));
+
+								if ((event.name === "enter" || event.name === "return") && !event.shift && !event.ctrl && !event.meta && !event.option) {
 									event.preventDefault();
-									void this.options.editorController?.handleKeyEvent(event);
-									return;
-								}
-								if ((event.name === "return" || event.name === "enter") && !event.shift && !event.ctrl && !event.meta && !event.option) {
-									event.preventDefault();
-									void this.options.editorController?.handleKeyEvent({ ...event, meta: false } as KeyEvent);
-									if (text.trim()) {
+									if ((this.options.editorController?.getText() ?? "").trim()) {
 										void this.options.editorController?.submit("steer");
 									}
 									return;
 								}
+								if ((event.ctrl || event.meta) && (event.name === "enter" || event.name === "return")) {
+									event.preventDefault();
+									if ((this.options.editorController?.getText() ?? "").trim()) {
+										void this.options.editorController?.submit("followUp");
+									}
+									return;
+								}
+								if (isControllerShortcut) {
+									event.preventDefault();
+								}
 								void this.options.editorController?.handleKeyEvent(event);
 							}}
 						/>
-					</Show>
+						<text>{snapshot().composerHelp}</text>
+					</box>
 				</box>
-				<For each={snapshot().widgetsBelow}>{(line: string) => <text>{line}</text>}</For>
-				<For each={snapshot().footerLines}>{(line: string) => <text>{line}</text>}</For>
-				<text>{snapshot().statusLine}</text>
-				<text>{snapshot().hintLine}</text>
+				<box paddingX={1} backgroundColor={toneColor(snapshot().statusTone)}>
+					<text>{snapshot().statusLine}</text>
+				</box>
+				<box paddingX={1} backgroundColor="#131313">
+					<text>{snapshot().footerLine}</text>
+				</box>
 
 				<Show when={snapshot().overlays.length > 0}>
 					<Portal mount={this.renderer?.root}>
 						<For each={snapshot().overlays}>
-							{(overlay: OverlayRecord) => (
+							{(overlay) => (
 								<box
 									position="absolute"
 									left={overlayLeft()}
 									top={overlayTop()}
 									width={overlayWidth()}
+									height={overlayHeight()}
 									border
+									borderStyle="rounded"
+									title={overlay.title}
 									padding={1}
 									flexDirection="column"
-									backgroundColor="#111111"
+									backgroundColor="#0f1318"
 								>
-									<text>{overlay.title}</text>
-									<Show when={"description" in overlay && overlay.description}>
-										<text>{("description" in overlay ? overlay.description : "") as string}</text>
+									<Show when={overlay.description}>
+										<text>{overlay.description}</text>
 									</Show>
 									<Show when={overlay.kind === "select"}>
 										<select
 											focused
-											options={(overlay.kind === "select" ? overlay.items : []).map((item: { label: string; description?: string }) => ({
+											height={Math.max(6, overlayHeight() - 6)}
+											options={overlay.kind === "select" ? overlay.items.map((item) => ({
 												name: item.label,
-												value: String(item.label),
+												value: item.label,
 												description: item.description ?? "",
-											}))}
+											})) : []}
+											selectedIndex={overlay.kind === "select" ? overlay.selectedIndex : 0}
+											onChange={(index) => {
+												if (overlay.kind === "select") {
+													overlay.selectedIndex = index;
+													this.notify();
+												}
+											}}
 											onSelect={(index) => {
 												if (overlay.kind !== "select") {
 													return;
@@ -647,6 +826,7 @@ export class OpenTuiShellView implements ShellView {
 													return;
 												}
 												overlay.onSelect(item.value);
+												overlay.onCancel = undefined;
 												this.closeOverlay(overlay.id);
 											}}
 										/>
@@ -654,7 +834,15 @@ export class OpenTuiShellView implements ShellView {
 									<Show when={overlay.kind === "menu"}>
 										<select
 											focused
-											options={(overlay.kind === "menu" ? overlay.items : []).map(menuItemToOption)}
+											height={Math.max(6, overlayHeight() - 6)}
+											options={overlay.kind === "menu" ? overlay.items.map(menuItemToOption) : []}
+											selectedIndex={overlay.kind === "menu" ? overlay.selectedIndex : 0}
+											onChange={(index) => {
+												if (overlay.kind === "menu") {
+													overlay.selectedIndex = index;
+													this.notify();
+												}
+											}}
 											onSelect={(index) => {
 												if (overlay.kind !== "menu") {
 													return;
@@ -664,18 +852,21 @@ export class OpenTuiShellView implements ShellView {
 													return;
 												}
 												if (item.kind === "submenu") {
+													const childId = `${overlay.id}:${item.id}`;
+													this.closeOverlay(childId);
 													this.overlays.push({
-														id: `${overlay.id}:${item.id}`,
+														id: childId,
 														kind: "menu",
 														title: item.label,
 														description: item.description,
 														items: item.items,
 														selectedIndex: 0,
+														parentId: overlay.id,
 													});
 													this.notify();
 													return;
 												}
-												void Promise.resolve(item.onSelect()).finally(() => this.closeOverlay(overlay.id));
+												void Promise.resolve(item.onSelect()).finally(() => this.closeAllOverlays());
 											}}
 										/>
 									</Show>
@@ -688,12 +879,12 @@ export class OpenTuiShellView implements ShellView {
 													overlay.value = value;
 												}
 											}}
-											onSubmit={(value) => {
+											onSubmit={() => {
 												if (overlay.kind !== "text-prompt") {
 													return;
 												}
-												const nextValue = typeof value === "string" ? value : overlay.value;
-												overlay.onSubmit(nextValue.trim());
+												overlay.onSubmit(overlay.value.trim());
+												overlay.onCancel = undefined;
 												this.closeOverlay(overlay.id);
 											}}
 										/>
@@ -705,7 +896,7 @@ export class OpenTuiShellView implements ShellView {
 											}}
 											focused
 											initialValue={overlay.kind === "editor-prompt" ? overlay.value : ""}
-											height={8}
+											height={Math.max(8, overlayHeight() - 8)}
 											onContentChange={() => {
 												if (overlay.kind === "editor-prompt") {
 													overlay.value = editorPromptRef?.plainText ?? overlay.value;
@@ -715,21 +906,58 @@ export class OpenTuiShellView implements ShellView {
 												if (overlay.kind !== "editor-prompt") {
 													return;
 												}
-												if ((event.name === "return" || event.name === "enter") && event.ctrl) {
+												if (event.ctrl && (event.name === "enter" || event.name === "return")) {
 													event.preventDefault();
-													overlay.onSubmit(overlay.value);
+													overlay.onSubmit(editorPromptRef?.plainText ?? overlay.value);
+													overlay.onCancel = undefined;
 													this.closeOverlay(overlay.id);
 												}
 											}}
 										/>
 									</Show>
-									<Show when={overlay.kind === "legacy"}>
-										<box flexDirection="column">
-											<For each={renderLegacyRenderable(overlay.kind === "legacy" ? overlay.component : undefined, overlayWidth() - 4)}>
-												{(line: string) => <text>{line}</text>}
-											</For>
-										</box>
+									<Show when={overlay.kind === "text"}>
+										<scrollbox flexGrow={1} scrollY border padding={1}>
+											<For each={overlay.kind === "text" ? overlay.lines : []}>{(line) => <text>{line}</text>}</For>
+										</scrollbox>
 									</Show>
+									<Show when={overlay.kind === "document"}>
+										<Show
+											when={overlay.kind === "document" && overlay.items.length > 0}
+											fallback={<text>{overlay.kind === "document" ? (overlay.emptyMessage ?? "Nothing to show.") : ""}</text>}
+										>
+											<box flexDirection="row" flexGrow={1} gap={1}>
+												<select
+													width={Math.max(24, Math.floor(overlayWidth() * 0.28))}
+													height={Math.max(8, overlayHeight() - 7)}
+													focused
+													options={overlay.kind === "document" ? overlay.items.map((item) => ({
+														name: item.label,
+														value: item.id,
+														description: item.description ?? "",
+													})) : []}
+													selectedIndex={overlay.kind === "document" ? overlay.selectedIndex : 0}
+													onChange={(index) => {
+														if (overlay.kind === "document") {
+															overlay.selectedIndex = index;
+															this.notify();
+														}
+													}}
+												/>
+												<scrollbox flexGrow={1} height={Math.max(8, overlayHeight() - 7)} scrollY border padding={1}>
+													<For each={overlay.kind === "document"
+														? wrapText(overlay.items[overlay.selectedIndex]?.content ?? "", Math.max(20, overlayWidth() - 36))
+														: []}
+													>
+														{(line) => <text>{line}</text>}
+													</For>
+												</scrollbox>
+											</box>
+											<Show when={overlay.kind === "document" && overlay.items[overlay.selectedIndex]?.footer?.length}>
+												<text>{overlay.kind === "document" ? overlay.items[overlay.selectedIndex]?.footer?.join("  |  ") ?? "" : ""}</text>
+											</Show>
+										</Show>
+									</Show>
+									<text>Esc closes</text>
 								</box>
 							)}
 						</For>

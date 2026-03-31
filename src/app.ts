@@ -188,6 +188,15 @@ export class VibeAgentApp {
 					void commandController?.summonOrc().catch((error) => this.handleRuntimeError("surfaceLaunch.orcSession", error));
 					return;
 				}
+				if (selectedShellImplementation === "opentui") {
+					this.stateStore.setContextBanner(
+						"Sessions",
+						"Sessions stay inside the Coding Chat window in OpenTUI mode.",
+						"info",
+					);
+					commandController?.openSessionsOverlay();
+					return;
+				}
 				if (psmuxContext.sessionName) {
 					writeSecondarySurfaceRouteSignal({
 						sessionName: psmuxContext.sessionName,
@@ -601,6 +610,9 @@ export class VibeAgentApp {
 	}
 
 	private renderPromptControls(): void {
+		if (this.shellView.implementation === "opentui") {
+			return;
+		}
 		const lines = this.buildPromptControlLines();
 		this.shellView.setWidget("prompt-controls", lines, "belowEditor");
 	}

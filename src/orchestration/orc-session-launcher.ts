@@ -139,22 +139,33 @@ function buildDetachedOrcChildCommand(input: {
 	execPath: string;
 	sessionName: string;
 }): string {
-	const launcherArgs = [
-		quoteForPowerShell(input.execPath),
-		quoteForPowerShell("--import"),
-		quoteForPowerShell("tsx"),
-		quoteForPowerShell(launcherEntry),
-		quoteForPowerShell(PSMUX_CHILD_FLAG),
-		quoteForPowerShell("--app-mode=orc"),
-	].join(" ");
+	const selectedShell = process.env.VIBE_MAIN_SHELL?.toLowerCase() ?? "opentui";
+	const useBunRuntime = selectedShell === "opentui";
+	const runtimeCommand = useBunRuntime ? "bun" : input.execPath;
+	const launcherArgs = useBunRuntime
+		? [
+			quoteForPowerShell(runtimeCommand),
+			quoteForPowerShell(launcherEntry),
+			quoteForPowerShell(PSMUX_CHILD_FLAG),
+			quoteForPowerShell("--app-mode=orc"),
+		].join(" ")
+		: [
+			quoteForPowerShell(runtimeCommand),
+			quoteForPowerShell("--import"),
+			quoteForPowerShell("tsx"),
+			quoteForPowerShell(launcherEntry),
+			quoteForPowerShell(PSMUX_CHILD_FLAG),
+			quoteForPowerShell("--app-mode=orc"),
+		].join(" ");
 	return [
 		`Set-Location -LiteralPath ${quoteForPowerShell(input.cwd)}`,
 		`$env:${PSMUX_CHILD_ENV}='1'`,
 		`$env:${PSMUX_ROLE_ENV}='primary'`,
 		`$env:${PSMUX_SESSION_ENV}='${escapePowerShellLiteral(input.sessionName)}'`,
 		`$env:${VIBE_APP_MODE_ENV}='orc'`,
+		useBunRuntime ? `$env:VIBE_MAIN_SHELL='opentui'` : undefined,
 		`& ${launcherArgs}`,
-	].join("; ");
+	].filter((line): line is string => Boolean(line)).join("; ");
 }
 
 function quoteForPowerShell(value: string): string {
