@@ -77,11 +77,18 @@ export function createMainShellAdapter(options: MainShellAdapterOptions): MainSh
 			getMessages: options.getMessages,
 			getAgentHost: options.getAgentHost,
 			animationEngine: options.animationEngine,
+			onSurfaceLaunch: (request) => options.onSurfaceLaunch?.(request.route as LaunchSurfaceTarget),
 		});
 		return {
 			implementation: "next",
 			shellView: nextController.shellView,
-			dispatchShellAction: (action) => dispatchShellAction(nextController.shellView, action),
+			dispatchShellAction: (action) => {
+				if (action.type === "surface-launch") {
+					nextController.surfaceLaunchManager.launchSurface(action.target);
+					return true;
+				}
+				return dispatchShellAction(nextController.shellView, action);
+			},
 		};
 	}
 
