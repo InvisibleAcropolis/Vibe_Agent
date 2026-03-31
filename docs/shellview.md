@@ -1,837 +1,272 @@
-# Shell View Documentation
+# Shell View & Shell-Next Architecture Guide
 
-## Overview
+This document is the current shell architecture reference for engineers onboarding to the shell migration work.
 
-The **Shell View** is the main TUI (Terminal User Interface) component of the VibeAgent application. It orchestrates the visual rendering of the entire CLI experience, including the chrome (header, menu, status bars), transcript (chat messages), thinking panel, sessions panel, and editor area.
+- **Legacy shell runtime:** `src/shell-view.ts` + `src/shell/**`
+- **Shell-next runtime:** `src/shell-next/**`
+- **Adapter seam:** `src/shell/main-shell-adapter.ts`
 
-The shell view is **not** a shell terminal—it is a sophisticated terminal UI framework built on top of `@mariozechner/pi-tui`, a custom TypeScript TUI library.
-
----
-
-## Architecture Overview
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  HEADER INFO (Session, Mode, Chat, Thread, CTX usage)            │
-├─────────────────────────────────────────────────────────────────┤
-│  MENU BAR  [F1] Settings  ◆  [F2] Sessions  ◆  [F3] Orc       │
-├─────────────────────────────────────────────────────────────────┤
-│  SEPARATOR (animated crawling line)                             │
-├────────────────────────────┬────────────────────────────────────┤
-│                            │                                    │
-│   TRANSCRIPT VIEWPORT      │  SESSIONS PANEL (when visible)     │
-│   (scrollable messages)    │  - Grouped by date                │
-│                            │  - Session switching               │
-│                            │                                    │
-├────────────────────────────┴────────────────────────────────────┤
-│  SEPARATOR (animated crawling line)                             │
-├─────────────────────────────────────────────────────────────────┤
-│  WIDGET CONTAINER (above editor - extension widgets)            │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  EDITOR AREA (input area with multi-line text editing)          │
-│                                                                 │
-├─────────────────────────────────────────────────────────────────┤
-│  WIDGET CONTAINER (below editor - extension widgets)            │
-├─────────────────────────────────────────────────────────────────┤
-│  FOOTER CONTENT (custom footer from extensions)                 │
-├─────────────────────────────────────────────────────────────────┤
-│  STATUS LINE (working message, artifacts, pending count)         │
-├─────────────────────────────────────────────────────────────────┤
-│  SUMMARY LINE (providers, mode, model, transcript position)      │
-├─────────────────────────────────────────────────────────────────┤
-│  THINKING TRAY (expandable reasoning panel)                     │
-└─────────────────────────────────────────────────────────────────┘
-```
+The rest of the app should continue to talk to the `ShellView` abstraction and `MainShellAdapter`, while shell-next owns transcript-first behavior, launch contracts, and modernized secondary surface routing.
 
 ---
 
-## Core Components
+## 1) Component boundaries and ownership
 
-### 1. Shell View Interface (`src/shell-view.ts`)
+## 1.1 Main entrypoint boundary (`createMainShellAdapter`)
 
-The `ShellView` interface defines the contract for the TUI shell:
+`createMainShellAdapter()` is the migration seam and defines which implementation is active (`"legacy"` or `"next"`).
 
-```typescript
-export interface ShellView {
-  readonly tui: TUI;
-  readonly footerData: FooterDataProvider;
-  start(): void;
-  stop(): void;
-  setEditor(component: Component): void;
-  setFocus(component: Component | null): void;
-  setMessages(components: Component[]): void;
-  clearMessages(): void;
-  setWidget(key: string, content: WidgetFactory | string[] | undefined, placement?: "aboveEditor" | "belowEditor"): void;
-  setHeaderFactory(factory: HeaderFactory | undefined): void;
-  setFooterFactory(factory: FooterFactory | undefined): void;
-  setTitle(title: string): void;
-  refresh(): void;
-  toggleSessionsPanel(): void;
-  scrollTranscript(lines: number): void;
-  scrollTranscriptToTop(): void;
-  scrollTranscriptToBottom(): void;
-  dispatchMouse(event: MouseEvent): boolean;
-  getMenuAnchor(key: string): { row: number; col: number };
-}
-```
+Responsibilities:
 
-### 2. DefaultShellView (`src/shell-view.ts:41-286`)
+1. Create the selected shell implementation.
+2. Normalize shell input actions (`scroll`, `follow-toggle`, `prompt-focus`, `overlay-open`, `surface-launch`).
+3. Forward surface-launch actions to shell-next `SurfaceLaunchManager` when in next mode.
 
-The main implementation class. Key responsibilities:
+Practical rule: **application code should dispatch `ShellInputAction` through the adapter and avoid calling legacy layout methods directly.**
 
-- **Manages TUI lifecycle**: Creates and owns the `TUI` instance
-- **Manages layout**: Calculates the transcript viewport rectangle based on terminal dimensions
-- **Manages chrome**: Delegates rendering to `ShellExtensionChrome` and `renderShellChrome`
-- **Manages transcript**: Delegates to `ShellTranscriptController`
-- **Manages thinking**: Delegates to `ShellThinkingSync`
-- **Manages sessions**: Delegates to `ShellSessionsController`
+## 1.2 Legacy shell boundary (stable but maintenance mode)
 
-#### Constructor Dependencies
+The legacy stack (`DefaultShellView`, shell chrome renderer, extension chrome, tray logic) still owns:
 
-```typescript
-constructor(
-  terminal: Terminal,                              // Raw terminal (ProcessTerminal)
-  stateStore: AppStateStore,                       // Global reactive state
-  getHostState: () => AgentHostState | undefined, // Host state getter
-  getMessages: () => AgentMessage[],              // Messages getter
-  getAgentHost: () => AgentHost | undefined,      // Agent host getter
-  animationEngine?: AnimationEngine,              // Animation controller
-)
-```
+- current production row-based frame rendering,
+- extension header/footer/widget placement,
+- sessions split-pane behavior.
 
-#### Child Component Hierarchy (added to TUI)
+It remains supported during migration but is no longer the source of truth for new transcript behavior and secondary-surface launch semantics.
 
-The `DefaultShellView` adds these components to the TUI in order:
+## 1.3 Shell-next boundary (source of truth for new behavior)
 
-1. `customHeaderContainer` - Custom header from extensions
-2. `chromeHeaderInfo` - Main header (session info, context bar)
-3. `chromeMenuBar` - F1/F2/F3 menu bar
-4. `chromeSeparatorTop` - Animated separator
-5. `contentArea` - SideBySideContainer (transcript + sessions panel)
-6. `chromeSeparatorMid` - Second animated separator
-7. `widgetContainerAbove` - Extension widgets above editor
-8. `editorContainer` - Editor input area
-9. `widgetContainerBelow` - Extension widgets below editor
-10. `footerContentContainer` - Custom footer from extensions
-11. `chromeStatus` - Status line (working message)
-12. `chromeSummary` - Summary line (model, transcript position)
-13. `thinkingTray` - Thinking/reasoning panel
+Shell-next modules split responsibilities as follows:
 
-#### Key Methods
-
-| Method | Purpose |
-|--------|---------|
-| `start()` | Initialize TUI and start render loop |
-| `stop()` | Clean up all subscriptions and stop TUI |
-| `refresh()` | Recalculate layout and re-render chrome |
-| `setEditor(component)` | Set the editor input component |
-| `setMessages(components)` | Update transcript with new message components |
-| `setWidget(key, content, placement)` | Register extension widgets |
-| `toggleSessionsPanel()` | Show/hide the sessions panel |
-
-#### Layout Calculation (`refresh()` method)
-
-The layout is recalculated on every refresh:
-
-1. All components render themselves to get their heights
-2. `measureShellLayout()` calculates the content area height:
-   ```
-   contentHeight = terminalRows - sum(all fixed heights)
-   ```
-3. The transcript rect is computed:
-   ```
-   transcriptRect = {
-     row: 1 + customHeaderHeight + headerHeight + menuHeight + separatorTopHeight,
-     col: 1,
-     width: leftWidth (terminal width minus sessions panel if visible),
-     height: contentHeight
-   }
-   ```
+- `controller.ts`: constructs state/actions/renderer/chrome/timeline/surface launch manager.
+- `actions.ts`: timeline-first input semantics for keyboard and mouse scrolling.
+- `transcript-timeline.ts`: transcript viewport state, follow mode, and per-part expansion behavior.
+- `surface-launch-manager.ts`: typed launch/focus/close lifecycle and subscription ownership.
+- `shared-models.ts`: canonical contracts for transcript items/parts/actions and launch descriptors.
 
 ---
 
-## The Chrome System
+## 2) Transcript model contracts
 
-### Shell Chrome Renderer (`src/shell/shell-chrome-renderer.ts`)
+Canonical model types live in `src/shell-next/shared-models.ts`.
 
-Renders all the static-looking border/header elements using ANSI styling.
+## 2.1 `TranscriptItem` contract
 
-#### `renderShellChrome()` Function
+A transcript entry is a discriminated union with stable `id`, `timestamp`, `summary`, and `parts`:
 
-Main entry point that returns all chrome text strings:
+- `user`
+- `assistant-text`
+- `assistant-thinking`
+- `tool-call`
+- `tool-result`
+- `artifact`
+- `runtime-status`
+- `subagent-event`
+- `checkpoint`
+- `error`
 
-```typescript
-function renderShellChrome(input: ShellChromeRenderInput): ShellChromeRenderResult
-```
+Required invariants:
 
-**Output:**
+1. `id` must be stable across rerenders so expansion, selection, and jump targets remain valid.
+2. `summary` must always be present and renderable as a timeline row.
+3. `parts` may include collapsible subcontent keyed by stable `part.id`.
 
-| Field | Content |
-|-------|---------|
-| `headerInfoText` | Box-drawn header with session info, mode, chat, thread, context % |
-| `menuBarText` | F1/F2/F3 menu items with trailing fill characters |
-| `separatorTopText` | Animated separator line (crawling pattern) |
-| `separatorMidText` | Second animated separator |
-| `statusText` | Status line with working message, artifact count, pending count |
-| `summaryText` | Bottom summary: providers, mode, model, transcript scroll position |
-| `wipeChar` | Block fill character for wipe transition (░▒▓█) |
-| `sessionBorderColor` | Border color for sessions panel flash |
+## 2.2 `TranscriptPart` contract
 
-#### Header Info (`renderHeaderInfo()`)
+Supported part kinds:
 
-Displays in a box-drawn frame (`╔═╗║╚═╝`):
+- `summary`, `text`, `thinking`, `detail`, `status`, `artifact-link`, `metadata`
 
-- **Session name**: Current session's display name
-- **Mode**: Active runtime name (coding/orc)
-- **Chat**: Current conversation label
-- **Thread**: Git branch name
-- **CTX**: Context window usage percentage with bar visualization
-- **Host**: psmux runtime label (if applicable)
-- **Context title**: Styled banner for context changes
-- **Help message**: Warning banner for important messages
+Current collapsible behavior in timeline controller:
 
-#### Status Line (`renderStatusLine()`)
+- `thinking` parts are collapsible.
+- `detail` parts are collapsible only for `tool-result` items.
 
-```
-╠══ <streaming status> ════════════════════════ <badges> ═══╣
-```
+Expansion key format is internal but stable within session state: `"<itemId>::<partId>"`.
 
-Badges include:
-- `artifacts:N` - Number of generated artifacts
-- `pending:N` - Pending message count
+## 2.3 Transcript action hooks
 
-#### Summary Line (`renderSummaryLine()`)
+`TranscriptAction` and `TranscriptActionHooks` provide typed action affordances for:
 
-```
-╚══ providers:N ◆ mode:SessionMode ◆ ⬡ provider ◆ model:id ◆ transcript:1-20/100 ◆ follow/paused ◆ thinking:level ══ ● idle/compacting/streaming ══╝
-```
+- expand
+- collapse
+- open-overlay
+- open-surface
 
-### Shell Layout (`src/shell/shell-layout.ts`)
-
-Two functions for layout calculation:
-
-#### `measureShellLayout()`
-
-Computes the vertical layout of all shell elements:
-
-```typescript
-function measureShellLayout(input: ShellLayoutInput): ShellLayoutResult
-```
-
-**Input heights to account for:**
-- `customHeaderHeight` - Extension-provided header
-- `headerHeight` - Shell chrome header
-- `menuHeight` - Menu bar (1 line)
-- `separatorTopHeight` - Top separator (1 line)
-- `separatorMidHeight` - Middle separator (1 line)
-- `widgetAboveHeight` - Widgets above editor
-- `editorHeight` - Editor component height
-- `widgetBelowHeight` - Widgets below editor
-- `footerContentHeight` - Extension footer
-- `statusHeight` - Status line (1 line)
-- `summaryHeight` - Summary line (1 line)
-- `thinkingTrayHeight` - Thinking panel (0-8 lines)
-
-**Output:**
-
-```typescript
-interface ShellLayoutResult {
-  contentHeight: number;  // Available height for transcript
-  transcriptRect: Rect;  // {row, col, width, height}
-}
-```
-
-#### `measureShellMenuAnchor()`
-
-Calculates the screen position for menu item popups:
-
-```typescript
-function measureShellMenuAnchor(input: ShellMenuAnchorInput): { row: number; col: number }
-```
-
-Returns the row/col where a menu's dropdown should anchor.
+These hooks let renderers and adapters stay model-driven instead of coupling to legacy row geometry.
 
 ---
 
-## Transcript System
+## 3) Follow mode and expansion state behavior
 
-### Transcript Viewport (`src/components/transcript-viewport.ts`)
+Primary implementation: `src/shell-next/transcript-timeline.ts`.
 
-Scrollable viewport for displaying chat messages.
+## 3.1 Follow mode contract
 
-```typescript
-export class TranscriptViewport implements Component {
-  private components: Component[] = [];
-  private viewportHeight = 1;
-  private scrollOffset = 0;
-  private followTail = true;  // Auto-scroll to bottom
-  
-  setComponents(components: Component[]): void;
-  setViewportHeight(height: number): void;
-  scrollBy(lines: number): void;
-  scrollToTop(): void;
-  scrollToBottom(): void;
-  render(width: number): string[];
-}
-```
+State fields:
 
-**Key behavior:**
+- `followMode`: whether viewport should stay at tail.
+- `isStreaming`: whether stream append behavior is active.
 
-- Flattens all message components into lines
-- Handles scrolling with `followTail` mode (auto-scroll when at bottom)
-- Preserves scroll position when content changes (smart repositioning)
-- Returns exactly `viewportHeight` lines (pads with empty lines if needed)
+Behavior:
 
-**State tracking:**
+1. While `isStreaming && followMode`, appended items pin viewport to bottom.
+2. Keyboard/mouse upward scroll disengages follow mode.
+3. `scrollToBottom()` re-enables follow mode.
+4. Offsets are clamped via `maxOffset(total, viewport)` for long-history stability.
 
-```typescript
-interface TranscriptViewportState {
-  scrollOffset: number;      // Current scroll position
-  totalLines: number;        // Total content lines
-  contentHeight: number;     // Viewport height
-  followTail: boolean;       // Auto-scroll enabled?
-}
-```
+## 3.2 Expansion state contract
 
-### Shell Transcript Controller (`src/shell/shell-transcript-controller.ts`)
+Timeline expansion is maintained in `partExpansion: Record<string, boolean>` and toggled by `togglePartExpansion(itemId, partId)`.
 
-Mediator between `DefaultShellView` and `TranscriptViewport`.
+Anchor preservation behavior:
 
-```typescript
-export class ShellTranscriptController {
-  constructor(private readonly transcriptViewport: TranscriptViewport) {}
-  
-  setMessages(components: Component[]): void;
-  clearMessages(): void;
-  setViewportHeight(height: number): void;
-  getState(): TranscriptViewportState;
-  scrollBy(lines: number): void;
-  scrollToTop(): void;
-  scrollToBottom(): void;
-  dispatchMouse(input: TranscriptMouseInput): boolean;  // Mouse wheel handling
-}
-```
+- The controller captures the top visible row id before toggling.
+- After expansion change, it restores scroll to that row when possible.
+- This avoids jumpy viewport movement during expand/collapse operations.
+
+## 3.3 App-state compatibility surface
+
+`AppStateStore` keeps migration-compatible transcript behavior in `state.transcript`:
+
+- `followMode`
+- `expansionState`
+- `selectedTranscriptItemId`
+- `launchedSurfaceIds`
+
+Legacy mirrors (`toolOutputExpanded`, `hideThinking`) remain for compatibility but should not be used as primary model state in new shell logic.
 
 ---
 
-## Thinking Panel
+## 4) Extension mapping behavior (legacy API -> shell-next destinations)
 
-### Thinking Tray (`src/components/thinking-tray.ts`)
+During migration, extension APIs are preserved while their render destination can change by shell implementation.
 
-Collapsible panel showing the agent's reasoning/thinking process.
+Mapping guidance:
 
-```typescript
-export class ThinkingTray implements Component {
-  setEnabled(enabled: boolean): void;
-  setThinkingText(text: string | undefined): void;
-  render(width: number): string[];
-}
-```
+- `setStatus(...)` -> shell-next compact status/meta row fields.
+- `setWidget(...)` -> transcript-adjacent cards or prompt-adjacent blocks (instead of fixed legacy row slots where possible).
+- `setHeader(...)` / `setFooter(...)` -> compact chrome or surface-specific contextual blocks.
+- `custom` / complex workflows -> launchable overlay/surface flows via typed actions and descriptors.
 
-**Visual structure:**
+Engineering rule:
 
-```
-┌─ Thinking ────────────────────────┐
-│ Markdown-rendered thinking text  │
-│ (up to 6 lines, min 2)            │
-└───────────────────────────────────┘
-```
-
-- Uses `Markdown` component for rich text rendering
-- Respects `showThinking` state from `AppStateStore`
-- Falls back to extracting thinking from agent messages
-
-### Shell Thinking Sync (`src/shell/shell-thinking-sync.ts`)
-
-Synchronizes thinking display with app state:
-
-```typescript
-export class ShellThinkingSync {
-  sync(): void {
-    // Reads state.showThinking and state.activeThinking
-    // Updates thinkingTray accordingly
-    // Falls back to extracting from messages if no explicit thinking state
-  }
-}
-```
-
-**Priority order for thinking text:**
-1. Explicit `activeThinking.text` from state
-2. `activeThinking.hasTurnState` flag
-3. `activeThinking.hasThinkingEvents` flag
-4. Latest thinking text extracted from messages
+1. Preserve extension intent (status, control, detail, launch).
+2. Prefer transcript-first or surface-first placement over adding new fixed rows.
+3. Keep behavior parity in adapter/action layer, not by exposing legacy container internals.
 
 ---
 
-## Sessions Panel
+## 5) `ShellSurfaceDescriptor` launch contract
 
-### Sessions Panel (`src/components/sessions-panel.ts`)
+Primary contracts:
 
-Multi-session management UI with tree view:
+- `src/shell-next/shared-models.ts` (`ShellSurfaceDescriptor`)
+- `src/shell-next/surface-launch-manager.ts` (`createSurfaceLaunchManager`)
 
-```typescript
-export class SessionsPanel implements Focusable {
-  borderColor: string;
-  
-  async refresh(): Promise<void>;  // Fetch sessions from host
-  handleInput(data: string): void;  // Keyboard navigation
-  render(width: number): string[];
-}
-```
+## 5.1 Descriptor fields
 
-**Features:**
-- Groups sessions by date: Today, Yesterday, Last Week, Older
-- Keyboard navigation (up/down/left/right/enter)
-- Tab switching between Sessions and Extensions
-- Current session indicator (●)
-- Thread expansion for multi-threaded sessions
-- Escape to close
+`ShellSurfaceDescriptor` requires:
 
-### Shell Sessions Controller (`src/shell/shell-sessions-controller.ts`)
+- `id`, `title`, `kind` (`overlay` | `panel` | `workspace`)
+- `routing`:
+  - `route` (canonical route key)
+  - `scope` (`runtimeId?`, `sessionId?`)
+  - `initialPayload?`
+- optional `lifecycle` hooks: `onOpen`, `onFocus`, `onClose`
+- optional `subscriptions` for `rpc` / `event-bus` feeds
 
-Manages sessions panel visibility and integration:
+## 5.2 Launch manager semantics
 
-```typescript
-export class ShellSessionsController {
-  toggle(): void;  // Show/hide sessions panel
-  isVisible(): boolean;
-  setBorderColor(color: string | undefined): void;
-}
-```
+`launchSurface(surfaceId, payload?)`:
 
-**Toggle behavior:**
-1. First toggle: Creates `SessionsPanel`, attaches to `SideBySideContainer.right`
-2. Sets focus to the panel
-3. Triggers focus flash animation
-4. Second toggle: Removes panel, restores focus to editor
+- unknown `surfaceId` => throws `Unknown shell surface`.
+- unopened surface => emits launch `reason: "open"`, runs `onOpen`, persists launched id to app state, activates subscriptions.
+- already-open surface => emits launch `reason: "focus"`, runs `onFocus`, does not duplicate persisted ids.
 
----
+`focusSurface(surfaceId)`:
 
-## Side-by-Side Container (`src/components/side-by-side-container.ts`)
+- unopened `surfaceId` => throws `Cannot focus unopened shell surface`.
+- open surface => emits launch with `reason: "focus"`, runs `onFocus`.
 
-Split-pane container for transcript + sessions panel:
+`closeSurface(surfaceId)`:
 
-```typescript
-export class SideBySideContainer implements Component {
-  wipeChar: string | null;  // For wipe transition fill
-  maxHeight: number | null;
-  
-  constructor(
-    public left: Component,      // Transcript viewport
-    public right: Component | null,  // Sessions panel
-    public rightWidth: number,  // Sessions panel width
-  );
-}
-```
+- if open: runs subscription unsubs, runs `onClose`, removes persisted launched id, emits optional close hook.
+- if not open: no-op.
 
-**Wipe transition:**
+`rediscoverOpenSurfaces()`:
 
-When `wipeChar` is set (during session switch), the container fills with block characters instead of rendering content:
+- restores subscriptions for ids in `state.transcript.launchedSurfaceIds`.
+- emits launch with `reason: "attach"`.
+- calls lifecycle `onFocus` so reattached panes rehydrate active UI.
 
-```typescript
-if (this.wipeChar !== null) {
-  return Array.from({ length: rows }, () => this.wipeChar!.repeat(width));
-}
-```
+## 5.3 PSMUX v1 routing behavior
 
-Wipe characters in order: `░` → `▒` → `▓` → `█`
+For sessions browser launches, shell-next writes a durable route signal under tracker artifacts so detached/reattached secondary panes can recover route state (`open` / `focus` / `close`) without requiring a fresh operator action.
 
 ---
 
-## Extension System
+## 6) Troubleshooting guide
 
-### Shell Extension Chrome (`src/shell/shell-extension-chrome.ts`)
+## 6.1 Follow mode issues
 
-Manages extension-provided UI elements:
+**Symptom:** transcript stops auto-following during stream.
 
-```typescript
-export class ShellExtensionChrome {
-  setWidget(key: string, content: WidgetFactory | string[] | undefined, placement: "aboveEditor" | "belowEditor"): void;
-  setHeaderFactory(factory: HeaderFactory | undefined): void;
-  setFooterFactory(factory: FooterFactory | undefined): void;
-  renderWidgets(): void;
-  renderFooterContent(): void;
-}
-```
+Checks:
 
-**Widget factories:**
+1. Confirm `followMode` is still true (up-scroll disables it intentionally).
+2. Confirm `isStreaming` is true while stream events append.
+3. Verify caller uses `appendItems(...)` and not full replacement that resets expected flow.
 
-```typescript
-type WidgetFactory = (tui: TUI, theme: Theme) => Component & { dispose?(): void };
-type FooterFactory = (tui: TUI, theme: Theme, footerData: FooterDataProvider) => Component & { dispose?(): void };
-type HeaderFactory = (tui: TUI, theme: Theme) => Component & { dispose?(): void };
-```
+Recovery:
 
-**Usage:**
-- `setWidget()` - Registers extension widgets above/below editor
-- `setHeaderFactory()` - Replaces default header with custom component
-- `setFooterFactory()` - Adds custom footer content
+- invoke `scrollToBottom()` (or equivalent end-key path) to re-enable follow mode.
 
----
+## 6.2 Expansion state issues
 
-## Animation System
+**Symptom:** thinking/tool sections collapse unexpectedly or jump scroll.
 
-### Animation Engine (`src/animation-engine.ts`)
+Checks:
 
-Centralized animation controller running at 80ms tick intervals.
+1. Verify `item.id` and `part.id` are stable between refreshes.
+2. Ensure collapsible kinds are correctly emitted (`thinking`, or `tool-result` + `detail`).
+3. Confirm expansion writes use per-part keys (not a global toggle only).
 
-```typescript
-export interface AnimationState {
-  hueOffset: number;           // 0-359, cycling hue for borders
-  spinnerFrame: number;        // 0-7, Braille spinner animation
-  breathPhase: number;         // 0.0-1.0, sine wave for subtle effects
-  glitchActive: boolean;       // Random glitch effect every ~6 seconds
-  tickCount: number;           // Global tick counter
-  focusFlashTicks: number;     // Focus change flash countdown (3→0)
-  focusedComponent: "editor" | "sessions" | "overlay";
-  wipeTransition: { active: boolean; frame: number };  // Session switch fill
-  separatorOffset: number;      // Crawling separator animation
-  typewriter: { target: string; displayed: string; ticksSinceChar: number };
-}
-```
+Recovery:
 
-**Animation features:**
+- regenerate normalized transcript with stable ids.
+- avoid replacing items with new ids unless a true history reset is intended.
 
-| Feature | Trigger | Behavior |
-|---------|---------|----------|
-| **Focus flash** | `triggerFocusFlash()` | 3-tick border color flash on focus change |
-| **Wipe transition** | `triggerWipeTransition()` | Block fill (░▒▓█) during session switch |
-| **Separator crawl** | Every 8 ticks | Animated line pattern in separators |
-| **Typewriter** | `setTypewriterTarget()` | Character-by-character status reveal |
-| **Hue rotation** | Every tick | Slowly rotating hue for borders (faster during streaming) |
-| **Spinner** | Every tick | 8-frame Braille spinner rotation |
-| **Glitch** | Every 75 ticks | Random 3-tick glitch effect |
+## 6.3 Surface-launch failure handling
+
+**Symptom:** `surface-launch` action does nothing or throws.
+
+Checks:
+
+1. Confirm descriptor was registered via `registerSurface(...)` before launch.
+2. Validate route/scope fields in descriptor routing payload.
+3. Verify subscription handlers do not throw during activation.
+4. If using PSMUX secondary pane, validate route signal writer/reader paths and session names.
+
+Failure handling recommendations:
+
+- Catch manager errors at the action boundary and surface a clear operator status message with failing surface id.
+- On subscription failure during open, close partial state and report failure rather than leaving a half-open surface.
+- Preserve idempotent close behavior (`closeSurface` remains safe as recovery cleanup).
 
 ---
 
-## Footer Data Provider (`src/footer-data-provider.ts`)
+## 7) Test references
 
-Provides contextual information for the shell:
+Current targeted tests for transcript behavior are in `test/shell-next-transcript-timeline.test.ts` and validate:
 
-```typescript
-export class FooterDataProvider {
-  getGitBranch(): string | null;      // Current git branch
-  getExtensionStatuses(): ReadonlyMap<string, string>;  // Extension statuses
-  getAvailableProviderCount(): number;
-  getSessionMode(): string;
-  getPsmuxRuntimeLabel(): string | undefined;  // psmux session label
-  onBranchChange(callback: () => void): () => void;  // Git watcher unsubscribe
-}
-```
+1. sticky-bottom follow while streaming;
+2. follow disengage on upward scroll;
+3. mouse-wheel behavior and follow re-engagement at tail.
 
-**Features:**
-- Caches git branch with file system watcher for live updates
-- Tracks extension statuses (used in summary line)
-- Reads psmux runtime context for distributed setups
+For surface launch behavior, add or maintain manager-focused tests around:
 
----
-
-## App State Store (`src/app-state-store.ts`)
-
-Reactive state container for the entire shell:
-
-```typescript
-export interface AppShellState {
-  statusMessage: string;
-  workingMessage?: string;
-  helpMessage?: string;
-  contextTitle?: string;
-  contextTone?: "accent" | "info" | "success" | "warning" | "dim";
-  showThinking: boolean;
-  toolOutputExpanded: boolean;
-  focusLabel: string;
-  overlayIds: string[];
-  artifacts: Artifact[];
-  showArtifactPanel: boolean;
-  sessionStatsVisible: boolean;
-  activeRuntimeId: string;
-  activeRuntimeName: string;
-  activeConversationLabel: string;
-  activeThinking: ActiveThinkingState;
-  permissionPending?: { toolName: string; args: Record<string, unknown>; resolve: (approved: boolean) => void };
-}
-```
-
-**Publishing/subscribing pattern:**
-
-```typescript
-subscribe(listener: AppStateListener): () => void;
-// Listener called immediately with current state
-// Returns unsubscribe function
-```
-
----
-
-## The pi-tui Framework (`@mariozechner/pi-tui`)
-
-The shell view is built on a custom TUI framework with these characteristics:
-
-### Component Interface
-
-```typescript
-interface Component {
-  render(width: number): string[];  // Returns lines for given width
-  invalidate?(): void;               // Called on theme/structural change
-  handleInput?(data: string): void; // Keyboard input when focused
-  wantsKeyRelease?: boolean;         // Opt-in to key release events
-}
-```
-
-### Container
-
-```typescript
-class Container implements Component {
-  children: Component[];
-  addChild(component: Component): void;
-  removeChild(component: Component): void;
-  clear(): void;
-  render(width: number): string[];  // Concatenates all children
-}
-```
-
-### TUI Class
-
-```typescript
-class TUI extends Container {
-  terminal: Terminal;
-  
-  start(): void;
-  stop(): void;
-  setFocus(component: Component | null): void;
-  requestRender(): void;  // Schedules render on next tick
-  showOverlay(component: Component, options?: OverlayOptions): OverlayHandle;
-  hideOverlay(): void;
-}
-```
-
-### Differential Rendering
-
-The TUI uses **three rendering strategies**:
-
-1. **First render**: Output all lines without clearing (assumes clean screen)
-2. **Resize**: Full clear + re-render on terminal resize
-3. **Incremental**: Only re-render changed lines:
-   - Compare previous and new line arrays
-   - Find `firstChanged` and `lastChanged` indices
-   - Use CSI 2026 synchronized output for atomic updates
-   - Clear individual changed lines with `ESC[2K`
-
-### Synchronized Output (CSI 2026)
-
-Prevents terminal flicker by wrapping output:
-
-```
-\x1b[?2026h  // Begin synchronized output
-...content...
-\x1b[?2026l  // End synchronized output
-```
-
-### Overlay System
-
-Modal overlays with anchor-based positioning:
-
-```typescript
-interface OverlayOptions {
-  width?: SizeValue;        // "50%" or 40
-  maxHeight?: SizeValue;
-  anchor?: "center" | "top-left" | "top-right" | "bottom-left" | "bottom-right" | "top-center" | "bottom-center" | "left-center" | "right-center";
-  offsetX?: number;
-  offsetY?: number;
-  row?: SizeValue;
-  col?: SizeValue;
-  margin?: OverlayMargin | number;
-  visible?: (termWidth: number, termHeight: number) => boolean;
-  nonCapturing?: boolean;   // Don't grab keyboard focus
-}
-```
-
----
-
-## Menu Bar System (`src/components/menu-bar.ts`)
-
-### `renderMenuBar()`
-
-Renders the F1/F2/F3 menu bar line:
-
-```
-[F1] Settings  ◆  [F2] Sessions  ◆  [F3] Orc ════════════════════════
-```
-
-- Uses box-drawing fill character `═` to extend to terminal edge
-- Styled with animated border colors
-- `◆` separator between items
-
-### `measureMenuBarItems()`
-
-Calculates column positions for menu item popups:
-
-```typescript
-function measureMenuBarItems(items: MenuBarItem[]): MenuBarItemLayout[]
-// Returns: { key, label, startCol, endCol } for each item
-```
-
-Used by `measureShellMenuAnchor()` to position dropdown menus.
-
-### Menu Items (from `shell-constants.ts`)
-
-```typescript
-export const SHELL_MENU_ITEMS: MenuBarItem[] = [
-  { key: "F1", label: "Settings" },
-  { key: "F2", label: "Sessions" },
-  { key: "F3", label: "Orc" },
-];
-```
-
----
-
-## Theme System
-
-### Agent Theme (`src/theme.ts`)
-
-Dynamic theme with ANSI styling functions:
-
-```typescript
-export const agentTheme = {
-  // Styling functions that return ANSI-colored strings
-  accent: (text: string) => string;
-  text: (text: string) => string;
-  dim: (text: string) => string;
-  muted: (text: string) => string;
-  warning: (text: string) => string;
-  success: (text: string) => string;
-  
-  // Segment joining
-  segmentSep: () => string;  // Returns " ◆ "
-  
-  // Special styling
-  border: (text: string) => string;
-  borderAnimated: (text: string) => string;
-  headerLine: (text: string) => string;
-  footerLine: (text: string) => string;
-  statusStreaming: (text: string) => string;
-  statusIdle: (text: string) => string;
-  thinkingSegment: (text: string) => string;
-  providerSegment: (text: string) => string;
-  modelSegment: (text: string) => string;
-  artifactLabel: (text: string) => string;
-  
-  // Banner styles
-  bannerAccent: (text: string) => string;
-  bannerInfo: (text: string) => string;
-  bannerSuccess: (text: string) => string;
-  bannerWarning: (text: string) => string;
-  bannerDim: (text: string) => string;
-  
-  // Markdown theme
-  markdownTheme: MarkdownTheme;
-};
-```
-
-### Dynamic Theme (`createDynamicTheme()`)
-
-Creates border color styler that cycles through hues based on animation state:
-
-```typescript
-function createDynamicTheme(animationState: AnimationState): (text: string) => string {
-  // Returns HSL-colored text based on animationState.hueOffset
-}
-```
-
----
-
-## Context Window Estimation (`src/shell/shell-coding-agent-interop.ts`)
-
-```typescript
-export function estimateContextUsagePercent(
-  messages: AgentMessage[],
-  contextWindow: number
-): number {
-  if (messages.length === 0 || contextWindow <= 0) {
-    return 0;
-  }
-  return Math.round(estimateContextTokens(messages).tokens / contextWindow * 100);
-}
-```
-
-Displayed in header as:
-
-```
-CTX: 45% ████████░░░░░
-```
-
-Color changes to `warning` (red) when >= 70%.
-
----
-
-## Entry Point Flow
-
-```
-main.ts
-  └── startVibeAgentApp() [run-app.ts]
-        └── new VibeAgentApp() [app.ts]
-              ├── new ProcessTerminal() [pi-tui terminal.ts]
-              ├── new TUI(terminal)
-              ├── new DefaultShellView(terminal, stateStore, ...)
-              │     ├── new SideBySideContainer(transcriptViewport, null, 30)
-              │     ├── new ShellExtensionChrome({...})
-              │     ├── new ShellThinkingSync({...})
-              │     └── new ShellSessionsController({...})
-              ├── new AnimationEngine()
-              └── app.start()
-                    └── lifecycle.start()
-                          └── startupController.initialize()
-```
-
----
-
-## Key Files
-
-| File | Purpose |
-|------|---------|
-| `src/shell-view.ts` | Main ShellView interface and DefaultShellView implementation |
-| `src/shell/shell-chrome-renderer.ts` | Renders all chrome elements (header, menu, separators, status, summary) |
-| `src/shell/shell-layout.ts` | Layout calculations for shell dimensions |
-| `src/shell/shell-extension-chrome.ts` | Manages extension-provided UI (widgets, header, footer) |
-| `src/shell/shell-transcript-controller.ts` | Mediator for transcript viewport |
-| `src/shell/shell-sessions-controller.ts` | Manages sessions panel visibility |
-| `src/shell/shell-thinking-sync.ts` | Syncs thinking display with app state |
-| `src/shell/shell-types.ts` | Type definitions for shell interfaces |
-| `src/shell/shell-constants.ts` | Constants like menu items, Braille frames |
-| `src/shell/shell-coding-agent-interop.ts` | Interop with coding agent (theme, context estimation) |
-| `src/components/transcript-viewport.ts` | Scrollable message viewport |
-| `src/components/thinking-tray.ts` | Thinking/reasoning panel |
-| `src/components/side-by-side-container.ts` | Split-pane container |
-| `src/components/sessions-panel.ts` | Sessions tree view panel |
-| `src/components/menu-bar.ts` | Menu bar renderer |
-| `src/app-state-store.ts` | Reactive state container |
-| `src/footer-data-provider.ts` | Contextual footer data |
-| `src/animation-engine.ts` | Animation controller |
-| `resources/pi-mono-main/packages/tui/src/tui.ts` | pi-tui framework TUI class |
-| `resources/pi-mono-main/packages/tui/src/terminal.ts` | pi-tui ProcessTerminal |
-
----
-
-## Constants
-
-### Braille Spinner Frames
-
-```typescript
-const BRAILLE_FRAMES = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"];
-```
-
-### Wipe Transition Characters
-
-```typescript
-const WIPE_CHARS = ["░", "▒", "▓", "█"];
-// Progressively denser block characters for session switch fill
-```
-
-### Context Bar
-
-```typescript
-function ctxBar(pct: number, width = 8): string {
-  const filled = Math.round((pct / 100) * width);
-  return "█".repeat(filled) + "░".repeat(width - filled);
-}
-```
+- unknown surface failures,
+- open/focus lifecycle ordering,
+- subscription cleanup on close,
+- attach semantics via rediscovery.
