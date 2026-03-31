@@ -29,7 +29,8 @@ import {
 } from "./local-coding-agent.js";
 import { MouseEnabledTerminal } from "./mouse-enabled-terminal.js";
 import { DefaultOverlayController } from "./overlay-controller.js";
-import { DefaultShellView, type ShellView } from "./shell-view.js";
+import type { ShellView } from "./shell-view.js";
+import { createMainShellAdapter, type MainShellImplementation } from "./shell/main-shell-adapter.js";
 import { SplashWindowController } from "./splash-window-controller.js";
 import { DefaultStartupController } from "./startup-controller.js";
 import { getThemeNames, onThemeConfigChange, setActiveTheme, type ThemeName } from "./themes/index.js";
@@ -128,15 +129,18 @@ export class VibeAgentApp {
 			options.inventoryService
 			?? new WorkbenchInventoryService(this.artifactCatalog, this.memoryStoreService, this.logCatalogService, { durableRoot: durableRootPath });
 
+		const selectedShellImplementation = this.resolveShellImplementation(options.shellImplementation);
 		this.terminal = new MouseEnabledTerminal(options.terminal ?? new ProcessTerminal());
-		this.shellView = new DefaultShellView(
-			this.terminal,
-			this.stateStore,
-			() => this.safeGetHostState(),
-			() => this.safeGetMessages(),
-			() => this.host,
-			this.animEngine,
-		);
+		const shellAdapter = createMainShellAdapter({
+			implementation: selectedShellImplementation,
+			terminal: this.terminal,
+			stateStore: this.stateStore,
+			getHostState: () => this.safeGetHostState(),
+			getMessages: () => this.safeGetMessages(),
+			getAgentHost: () => this.host,
+			animationEngine: this.animEngine,
+		});
+		this.shellView = shellAdapter.shellView;
 		const psmuxRuntimeLabel = this.shellView.footerData.getPsmuxRuntimeLabel();
 		this.shellView.setTitle(psmuxRuntimeLabel ? `Vibe Agent - ${psmuxRuntimeLabel}` : "Vibe Agent");
 		this.splashWindowController = new SplashWindowController(this.shellView.tui, this.animEngine, {
@@ -459,6 +463,15 @@ export class VibeAgentApp {
 		this.lifecycle.handleRuntimeError(context, error);
 	}
 
+
+	private resolveShellImplementation(requested?: MainShellImplementation): MainShellImplementation {
+		if (requested) {
+			return requested;
+		}
+
+		const envValue = process.env.VIBE_MAIN_SHELL?.toLowerCase();
+		return envValue === "next" ? "next" : "legacy";
+	}
 	private stateStoreSnapshot(): { showThinking: boolean; toolOutputExpanded: boolean } {
 		const state = this.stateStore.getState();
 		return {
