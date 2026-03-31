@@ -29,7 +29,7 @@ export class AppMessageSyncService {
 		const messages = options.messages ?? this.host.getMessages();
 		const hostState = options.hostState ?? this.host.getState();
 		const renderResult = renderAgentMessages(messages, {
-			hideThinking: true,
+			hideThinking: this.stateStore.getState().hideThinking,
 			toolOutputExpanded: this.stateStore.getState().toolOutputExpanded,
 			tui: this.shellView.tui,
 		});

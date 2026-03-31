@@ -4,6 +4,7 @@ import { AppConfigRepository } from "./app/app-config-repository.js";
 import { AppDebugSnapshotService } from "./app/app-debug-snapshot-service.js";
 import { AppLifecycleController } from "./app/app-lifecycle-controller.js";
 import { AppMessageSyncService } from "./app/app-message-sync-service.js";
+import { TranscriptPublicationBridge, resolveTranscriptPublicationMode } from "./app/transcript-publication-bridge.js";
 import { AppRuntimeFactoryResult, createAppRuntimeFactory } from "./app/app-runtime-factory.js";
 import { AppRuntimePresentation } from "./app/app-runtime-presentation.js";
 import { AppSessionCoordinator } from "./app/app-session-coordinator.js";
@@ -165,6 +166,22 @@ export class VibeAgentApp {
 					return;
 				}
 				if (request.surfaceId === "orc-session") {
+					if (psmuxContext.sessionName) {
+						writeSecondarySurfaceRouteSignal({
+							sessionName: psmuxContext.sessionName,
+							surfaceId: request.surfaceId,
+							route: request.route,
+							action: request.reason === "open" ? "open" : "focus",
+							reason: request.reason === "open" ? "open" : "focus",
+							payload: request.payload,
+						});
+					}
+					const statusVerb = request.reason === "attach" ? "Rediscovered" : request.reason === "focus" ? "Refocused" : "Launching";
+					this.stateStore.setContextBanner(
+						"Orc surface",
+						`${statusVerb} ${request.route} in a dedicated Orc session.`,
+						"info",
+					);
 					void commandController?.summonOrc().catch((error) => this.handleRuntimeError("surfaceLaunch.orcSession", error));
 					return;
 				}
@@ -214,6 +231,12 @@ export class VibeAgentApp {
 		this.stateStore.setOnStatusChange((message) => this.animEngine.setTypewriterTarget(message));
 
 		let runtimePresentation!: AppRuntimePresentation;
+		const transcriptBridge = new TranscriptPublicationBridge(
+			resolveTranscriptPublicationMode(
+				process.env.VIBE_TRANSCRIPT_PUBLICATION_MODE
+				?? (selectedShellImplementation === "next" ? "dual" : "legacy"),
+			),
+		);
 		this.messageSync = new AppMessageSyncService(
 			this.host,
 			this.shellView,
@@ -221,6 +244,7 @@ export class VibeAgentApp {
 			this.artifactCatalog,
 			this.inventoryService,
 			() => runtimePresentation.getRuntimeContext(),
+			transcriptBridge,
 		);
 
 		const keybindings = InternalKeybindingsManager.create();
@@ -538,7 +562,7 @@ export class VibeAgentApp {
 		}
 
 		const envValue = process.env.VIBE_MAIN_SHELL?.toLowerCase();
-		return envValue === "next" ? "next" : "legacy";
+		return envValue === "legacy" ? "legacy" : "next";
 	}
 	private stateStoreSnapshot(): { showThinking: boolean; toolOutputExpanded: boolean } {
 		const state = this.stateStore.getState();

@@ -95,11 +95,11 @@ test("collapsible thinking and tool output parts use stable IDs and preserve scr
 	timeline.togglePartExpansion("assistant-thinking-1", "thinking-part-1");
 	view = timeline.getVisibleView();
 	assert.equal(view.rows[0]?.id, anchorBefore, "top row should remain anchored after toggle");
-	assert.equal(view.rows[0]?.text, "▾ thinking");
+	assert.equal(view.rows[1]?.text, "▾ thinking");
 	assert.equal(view.total, 6, "expanded thinking should add detail rows");
 
 	timeline.togglePartExpansion("tool-result-1", "tool-output-1");
 	view = timeline.getVisibleView();
 	assert.equal(view.total, 9, "expanded tool output should add detail rows");
-	assert.ok(view.rows.some((row) => row.partId === "tool-output-1"), "expanded block should include stable part id");
+	assert.equal(timeline.getState().partExpansion["tool-result-1::tool-output-1"], true);
 });

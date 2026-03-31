@@ -1,5 +1,12 @@
 import type { RichDocumentComponent, RichDocumentSection, RichDocumentSourcePolicy } from "./shared-models.js";
 
+type ParsedHeadingComponent = Omit<Extract<RichDocumentComponent, { kind: "heading" }>, "id">;
+type ParsedMetadataComponent = Omit<Extract<RichDocumentComponent, { kind: "metadata" }>, "id">;
+type ParsedLinkComponent = Omit<Extract<RichDocumentComponent, { kind: "link" }>, "id">;
+type ParsedCalloutComponent = Omit<Extract<RichDocumentComponent, { kind: "callout" }>, "id">;
+type ParsedTimelineCardComponent = Omit<Extract<RichDocumentComponent, { kind: "timeline-card" }>, "id">;
+type ParsedCollapsibleComponent = Omit<Extract<RichDocumentComponent, { kind: "collapsible" }>, "id">;
+
 export const TRUSTED_COMPONENT_ALLOWLIST = new Set<RichDocumentComponent["kind"]>([
 	"heading",
 	"callout",
@@ -16,7 +23,7 @@ function createComponentId(sectionId: string, index: number): string {
 	return `${sectionId}:component:${index + 1}`;
 }
 
-function parseHeading(line: string): Omit<RichDocumentComponent, "id"> | undefined {
+function parseHeading(line: string): ParsedHeadingComponent | undefined {
 	const match = /^(#{1,6})\s+(.+)$/.exec(line.trim());
 	if (!match) return undefined;
 	return {
@@ -26,7 +33,7 @@ function parseHeading(line: string): Omit<RichDocumentComponent, "id"> | undefin
 	};
 }
 
-function parseMetadata(line: string): Omit<RichDocumentComponent, "id"> | undefined {
+function parseMetadata(line: string): ParsedMetadataComponent | undefined {
 	const match = /^@([a-zA-Z0-9_.-]+):\s*(.+)$/.exec(line.trim());
 	if (!match) return undefined;
 	return {
@@ -36,7 +43,7 @@ function parseMetadata(line: string): Omit<RichDocumentComponent, "id"> | undefi
 	};
 }
 
-function parseLink(line: string): Omit<RichDocumentComponent, "id"> | undefined {
+function parseLink(line: string): ParsedLinkComponent | undefined {
 	const match = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(line.trim());
 	if (!match) return undefined;
 	return {
@@ -46,17 +53,17 @@ function parseLink(line: string): Omit<RichDocumentComponent, "id"> | undefined 
 	};
 }
 
-function parseCallout(line: string): Omit<RichDocumentComponent, "id"> | undefined {
+function parseCallout(line: string): ParsedCalloutComponent | undefined {
 	const match = /^!\[(note|tip|warn|danger|info)\]\s*(.+)$/.exec(line.trim());
 	if (!match) return undefined;
 	return {
 		kind: "callout",
-		variant: match[1],
+		variant: match[1] as ParsedCalloutComponent["variant"],
 		text: match[2].trim(),
 	};
 }
 
-function parseTimelineCard(line: string): Omit<RichDocumentComponent, "id"> | undefined {
+function parseTimelineCard(line: string): ParsedTimelineCardComponent | undefined {
 	const match = /^\[timeline-card\]\s*([^|]+)\|\s*([^|]+)\|\s*(.+)$/.exec(line.trim());
 	if (!match) return undefined;
 	return {
@@ -67,7 +74,7 @@ function parseTimelineCard(line: string): Omit<RichDocumentComponent, "id"> | un
 	};
 }
 
-function parseCollapsible(line: string): Omit<RichDocumentComponent, "id"> | undefined {
+function parseCollapsible(line: string): ParsedCollapsibleComponent | undefined {
 	const match = /^\[collapsible\]\s*([^|]+)\|\s*(.+)$/.exec(line.trim());
 	if (!match) return undefined;
 	return {
@@ -154,6 +161,13 @@ function sanitizeInlineMarkdown(line: string): string {
 		.replace(/<[^>]+>/g, "")
 		.replace(/\{[^}]*\}/g, "")
 		.trim();
+}
+
+function sanitizeMarkdownParagraphText(line: string): string {
+	return sanitizeInlineMarkdown(line).replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, text: string, href: string) => {
+		const safeHref = sanitizeLinkHref(href);
+		return safeHref ? `[${text}](${safeHref})` : text;
+	});
 }
 
 function sanitizeLinkHref(href: string): string | undefined {
@@ -253,7 +267,7 @@ export function parseSafeMarkdownComponents(content: string, sectionId: string):
 		}
 
 		collectSafeLinkComponents(rawLine, sectionId, components);
-		const safeLine = sanitizeInlineMarkdown(rawLine);
+		const safeLine = sanitizeMarkdownParagraphText(rawLine);
 		if (safeLine) paragraphBuffer.push(safeLine);
 		idx += 1;
 	}

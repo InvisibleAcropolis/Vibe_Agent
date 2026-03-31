@@ -63,6 +63,11 @@ export interface NormalizedTranscript {
 	unknownMessages: AgentMessage[];
 }
 
+interface OrderedTranscriptItem {
+	item: TranscriptItem;
+	order: number;
+}
+
 type ToolCallContent = Extract<AssistantMessage["content"][number], { type: "toolCall" }>;
 
 type UnknownAssistantPart = {
@@ -205,6 +210,18 @@ function appendTelemetryParts(itemId: string, compact: string, expanded: string,
 	];
 }
 
+function isAssistantTextPart(
+	content: AssistantMessage["content"][number] | UnknownAssistantPart,
+): content is Extract<AssistantMessage["content"][number], { type: "text"; text: string }> {
+	return content.type === "text" && typeof (content as { text?: unknown }).text === "string";
+}
+
+function isAssistantThinkingPart(
+	content: AssistantMessage["content"][number] | UnknownAssistantPart,
+): content is Extract<AssistantMessage["content"][number], { type: "thinking"; thinking: string }> {
+	return content.type === "thinking" && typeof (content as { thinking?: unknown }).thinking === "string";
+}
+
 export function normalizeOrcTelemetryToTranscriptItems(events: readonly OrcTelemetryEvent[]): TranscriptItem[] {
 	const items: TranscriptItem[] = [];
 	for (const [index, event] of events.entries()) {
@@ -336,22 +353,24 @@ export function normalizeRpcTelemetryToTranscriptItems(events: readonly RpcTelem
 	return items;
 }
 
-function compareByTimestampThenId(left: TranscriptItem, right: TranscriptItem): number {
-	const leftMs = Date.parse(left.timestamp);
-	const rightMs = Date.parse(right.timestamp);
+function compareByTimestampThenOrder(left: OrderedTranscriptItem, right: OrderedTranscriptItem): number {
+	const leftMs = Date.parse(left.item.timestamp);
+	const rightMs = Date.parse(right.item.timestamp);
 	if (Number.isFinite(leftMs) && Number.isFinite(rightMs) && leftMs !== rightMs) {
 		return leftMs - rightMs;
 	}
-	if (left.timestamp !== right.timestamp) {
-		return left.timestamp < right.timestamp ? -1 : 1;
-	}
-	return left.id.localeCompare(right.id);
+	return left.order - right.order;
 }
 
 export function normalizeTranscript(messages: AgentMessage[], telemetry?: TelemetryTranscriptInput): NormalizedTranscript {
-	const items: TranscriptItem[] = [];
+	const orderedItems: OrderedTranscriptItem[] = [];
 	const unknownMessages: AgentMessage[] = [];
 	const toolCallNames = new Map<string, string>();
+	let order = 0;
+
+	const pushItem = (item: TranscriptItem): void => {
+		orderedItems.push({ item, order: order++ });
+	};
 
 	for (const [messageIndex, message] of messages.entries()) {
 		const timestamp = toIsoTimestamp((message as { timestamp?: number | string }).timestamp);
@@ -359,7 +378,7 @@ export function normalizeTranscript(messages: AgentMessage[], telemetry?: Teleme
 		if (message.role === "user") {
 			const text = readTextBlocks(message.content);
 			const itemId = stableId("user", [message.role, timestamp, messageIndex, text]);
-			items.push({
+			pushItem({
 				id: itemId,
 				kind: "user",
 				timestamp,
@@ -371,11 +390,11 @@ export function normalizeTranscript(messages: AgentMessage[], telemetry?: Teleme
 
 		if (message.role === "assistant") {
 			for (const [contentIndex, content] of (message.content as Array<AssistantMessage["content"][number] | UnknownAssistantPart>).entries()) {
-				if (content.type === "text") {
+				if (isAssistantTextPart(content)) {
 					const text = content.text.trim();
 					if (!text) continue;
 					const itemId = stableId("assistant-text", [timestamp, messageIndex, contentIndex, text]);
-					items.push({
+					pushItem({
 						id: itemId,
 						kind: "assistant-text",
 						timestamp,
@@ -385,11 +404,11 @@ export function normalizeTranscript(messages: AgentMessage[], telemetry?: Teleme
 					continue;
 				}
 
-				if (content.type === "thinking") {
+				if (isAssistantThinkingPart(content)) {
 					const text = content.thinking.trim();
 					if (!text) continue;
 					const itemId = stableId("assistant-thinking", [timestamp, messageIndex, contentIndex, text]);
-					items.push({
+					pushItem({
 						id: itemId,
 						kind: "assistant-thinking",
 						timestamp,
@@ -404,7 +423,7 @@ export function normalizeTranscript(messages: AgentMessage[], telemetry?: Teleme
 					toolCallNames.set(call.id, call.name);
 					const argsText = JSON.stringify(call.arguments ?? {}, null, 2);
 					const itemId = stableId("tool-call", [timestamp, messageIndex, contentIndex, call.id, call.name]);
-					items.push({
+					pushItem({
 						id: itemId,
 						kind: "tool-call",
 						timestamp,
@@ -419,7 +438,7 @@ export function normalizeTranscript(messages: AgentMessage[], telemetry?: Teleme
 					const artifactPart = content as UnknownAssistantPart;
 					const artifactId = getArtifactId(artifactPart, stableId("artifact-ref", [timestamp, messageIndex, contentIndex]));
 					const itemId = stableId("artifact", [timestamp, messageIndex, contentIndex, artifactId]);
-					items.push({
+					pushItem({
 						id: itemId,
 						kind: "artifact",
 						timestamp,
@@ -437,7 +456,7 @@ export function normalizeTranscript(messages: AgentMessage[], telemetry?: Teleme
 						? (status as "idle" | "running" | "busy" | "done" | "failed")
 						: "running";
 					const itemId = stableId("runtime-status", [timestamp, messageIndex, contentIndex, status, JSON.stringify(statusPart)]);
-					items.push({
+					pushItem({
 						id: itemId,
 						kind: "runtime-status",
 						timestamp,
@@ -455,7 +474,7 @@ export function normalizeTranscript(messages: AgentMessage[], telemetry?: Teleme
 			const text = readTextBlocks(message.content);
 			const toolName = toolCallNames.get(message.toolCallId) ?? message.toolName;
 			const itemId = stableId("tool-result", [timestamp, messageIndex, message.toolCallId, toolName, text]);
-			items.push({
+			pushItem({
 				id: itemId,
 				kind: "tool-result",
 				timestamp,
@@ -470,12 +489,16 @@ export function normalizeTranscript(messages: AgentMessage[], telemetry?: Teleme
 	}
 
 	if (telemetry?.orc?.length) {
-		items.push(...normalizeOrcTelemetryToTranscriptItems(telemetry.orc));
+		for (const item of normalizeOrcTelemetryToTranscriptItems(telemetry.orc)) {
+			pushItem(item);
+		}
 	}
 	if (telemetry?.rpc?.length) {
-		items.push(...normalizeRpcTelemetryToTranscriptItems(telemetry.rpc));
+		for (const item of normalizeRpcTelemetryToTranscriptItems(telemetry.rpc)) {
+			pushItem(item);
+		}
 	}
 
-	items.sort(compareByTimestampThenId);
-	return { items, unknownMessages };
+	orderedItems.sort(compareByTimestampThenOrder);
+	return { items: orderedItems.map((entry) => entry.item), unknownMessages };
 }

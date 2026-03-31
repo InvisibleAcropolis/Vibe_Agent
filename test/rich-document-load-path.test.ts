@@ -83,7 +83,7 @@ test("trusted fixtures only emit allowlisted components", () => {
 	const kinds = model.sections[0]?.components?.map((component) => component.kind) ?? [];
 
 	assert.deepEqual(kinds, fixture.expectedKinds);
-	assert.ok(!kinds.includes(fixture.blockedHint));
+	assert.ok(!kinds.includes(fixture.blockedHint as (typeof kinds)[number]));
 	assert.ok(!JSON.stringify(model.sections[0]?.components).includes(fixture.blockedHint));
 });
 
@@ -109,7 +109,7 @@ test("safe markdown blocks MDX/component bypass attempts from untrusted user age
 
 	const serialized = JSON.stringify(model.sections[0]?.components ?? []);
 	const kinds = model.sections[0]?.components?.map((component) => component.kind) ?? [];
-	assert.deepEqual(kinds, ["link", "markdown-text", "markdown-text", "code"]);
+	assert.deepEqual(kinds, ["link", "markdown-text", "code"]);
 	assert.equal(serialized.includes("DangerousTool"), false);
 	assert.equal(serialized.includes("javascript:alert"), false);
 	assert.equal(serialized.includes("<script>"), false);

@@ -64,7 +64,11 @@ export function createShellNextController(options: ShellNextControllerOptions): 
 	});
 	surfaceLaunchManager.rediscoverOpenSurfaces();
 
-	const shellView = new ShellNextView(options.terminal ?? new ProcessTerminal());
+	const shellView = new ShellNextView({
+		terminal: options.terminal ?? new ProcessTerminal(),
+		stateStore: options.stateStore,
+		getHostState: options.getHostState,
+	});
 
 	return {
 		shellView,

@@ -57,6 +57,24 @@ export class TranscriptTimelineController {
 		return { ...this.state, items: [...this.state.items], partExpansion: { ...this.state.partExpansion } };
 	}
 
+	setFollowMode(followMode: boolean): void {
+		if (followMode) {
+			this.scrollToBottom();
+			return;
+		}
+		this.state = {
+			...this.state,
+			followMode: false,
+		};
+	}
+
+	setPartExpansion(partExpansion: Readonly<Record<string, boolean>>): void {
+		this.state = {
+			...this.state,
+			partExpansion: { ...partExpansion },
+		};
+	}
+
 	setViewportSize(viewportSize: number): void {
 		const nextViewport = Math.max(1, Math.floor(viewportSize));
 		this.state = {
@@ -173,12 +191,27 @@ export class TranscriptTimelineController {
 				id: `${item.id}::summary`,
 				itemId: item.id,
 				depth: 0,
-				text: item.summary,
+				text: this.formatSummaryRow(item),
 			});
 			for (const part of item.parts) {
+				if (part.kind === "text" && part.text) {
+					const textLines = part.text.split("\n");
+					for (let index = 0; index < textLines.length; index += 1) {
+						rows.push({
+							id: `${item.id}::${part.id}::text-${index}`,
+							itemId: item.id,
+							partId: part.id,
+							depth: 1,
+							text: textLines[index] || " ",
+						});
+					}
+					continue;
+				}
 				if (!isCollapsiblePart(item, part)) continue;
 				const key = createPartExpansionKey(item.id, part.id);
-				const expanded = this.state.partExpansion[key] ?? false;
+				const expanded = item.kind === "tool-result"
+					? (this.state.partExpansion[key] ?? this.state.partExpansion["tool-output"] ?? false)
+					: (this.state.partExpansion[key] ?? false);
 				rows.push({
 					id: `${item.id}::${part.id}::toggle`,
 					itemId: item.id,
@@ -202,6 +235,31 @@ export class TranscriptTimelineController {
 			}
 		}
 		return rows;
+	}
+
+	private formatSummaryRow(item: TranscriptItem): string {
+		switch (item.kind) {
+			case "user":
+				return `You · ${item.summary}`;
+			case "assistant-text":
+				return `Assistant · ${item.summary}`;
+			case "assistant-thinking":
+				return `Thinking · ${item.summary}`;
+			case "tool-call":
+				return `Tool → ${item.summary}`;
+			case "tool-result":
+				return `Tool ← ${item.summary}`;
+			case "artifact":
+				return `Artifact · ${item.summary}`;
+			case "runtime-status":
+				return `Status · ${item.summary}`;
+			case "subagent-event":
+				return `Subagent · ${item.summary}`;
+			case "checkpoint":
+				return `Checkpoint · ${item.summary}`;
+			case "error":
+				return `Error · ${item.summary}`;
+		}
 	}
 
 	private syncFollowToTail(): void {
