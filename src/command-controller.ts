@@ -12,6 +12,8 @@ import { CommandSelectionService } from "./command/command-selection-service.js"
 import { CommandThemePreferencesService } from "./command/command-theme-preferences-service.js";
 import { SlashCommandRouter } from "./command/slash-command-router.js";
 import type { CommandConfigStore, SetupActions } from "./command/command-types.js";
+import type { VibeAppMode } from "./app-mode.js";
+import type { OrcExternalSessionLauncher } from "./orchestration/orc-session-launcher.js";
 
 export interface CommandController {
 	handleSlashCommand(text: string): Promise<boolean>;
@@ -56,6 +58,8 @@ export class DefaultCommandController implements CommandController {
 			inventory: WorkbenchInventoryService;
 			setupActions: SetupActions;
 			configStore: CommandConfigStore;
+			appMode: VibeAppMode;
+			orcLauncher?: OrcExternalSessionLauncher;
 			onRuntimeActivated: () => void;
 		},
 	) {
@@ -202,6 +206,7 @@ export class DefaultCommandController implements CommandController {
 		this.dependencies.overlayController.openMenuOverlay(
 			"menu-orc",
 			this.menuBuilder.buildOrchestrationMenu({
+				includeSummonOrc: this.dependencies.appMode !== "orc",
 				onAction: (action) => {
 					switch (action) {
 						case "summon-orc":
@@ -209,9 +214,6 @@ export class DefaultCommandController implements CommandController {
 							break;
 						case "dashboard":
 							this.openOrcDashboard();
-							break;
-						case "coding-chat":
-							void this.returnToCodingChat().catch((error) => this.handleError("returnToCodingChat", error));
 							break;
 						case "orc-resume":
 							this.resumeOrcThread();
@@ -245,9 +247,17 @@ export class DefaultCommandController implements CommandController {
 	}
 
 	async summonOrc(): Promise<void> {
-		await this.dependencies.host.switchRuntime("orc");
-		this.dependencies.onRuntimeActivated();
-		this.dependencies.stateStore.setStatusMessage("Orc orchestration chat active. Phase 1 backend is running in its dedicated session namespace.");
+		if (this.dependencies.appMode === "orc") {
+			this.dependencies.stateStore.setStatusMessage("This window is already the dedicated Orc deepagent session.");
+			return;
+		}
+		if (!this.dependencies.orcLauncher) {
+			throw new Error("Orc launcher is unavailable in this app mode.");
+		}
+		const launched = await this.dependencies.orcLauncher.launchOrAttach();
+		this.dependencies.stateStore.setStatusMessage(
+			`${launched.created ? "Opened" : "Reattached"} Orc session '${launched.sessionName}' using ${launched.providerId}/${launched.modelId}.`,
+		);
 	}
 
 	resumeOrcThread(): void {
@@ -263,9 +273,7 @@ export class DefaultCommandController implements CommandController {
 	}
 
 	async returnToCodingChat(): Promise<void> {
-		await this.dependencies.host.switchRuntime("coding");
-		this.dependencies.onRuntimeActivated();
-		this.dependencies.stateStore.setStatusMessage("Standard coding chat active.");
+		this.dependencies.stateStore.setStatusMessage("The main Vibe window remains on the coding chat. Orc now runs in its own external session.");
 	}
 
 	openStatsOverlay(): void {

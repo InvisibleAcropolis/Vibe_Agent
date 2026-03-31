@@ -1,5 +1,5 @@
 import { createAppDebugger } from "./app-debugger.js";
-import { createDefaultAgentHost } from "./debug-agent-host.js";
+import { readVibeAppMode } from "./app-mode.js";
 import { readPsmuxRuntimeContext } from "./psmux-runtime-context.js";
 import { startSplashPaneApp, type SplashPaneAppHandle } from "./splash-pane-app.js";
 import { VibeAgentApp } from "./app.js";
@@ -12,6 +12,7 @@ export function startVibeAgentApp(): RuntimeHandle {
 		appRoot: process.cwd(),
 	});
 	const runtimeContext = readPsmuxRuntimeContext();
+	const appMode = readVibeAppMode();
 	const app =
 		runtimeContext.role === "secondary"
 			? startSplashPaneApp({
@@ -20,7 +21,7 @@ export function startVibeAgentApp(): RuntimeHandle {
 			})
 			: new VibeAgentApp({
 				debugger: debuggerSink,
-				host: createDefaultAgentHost(debuggerSink),
+				appMode,
 			});
 
 	const stopApp = () => {

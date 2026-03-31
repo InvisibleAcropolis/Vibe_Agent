@@ -46,18 +46,32 @@ export function createInitialState(input: {
 
 export function buildLaunchInput(context: OrcRuntimeThreadContext, checkpoint?: OrcCheckpointMetadata) {
 	const checkpointId = checkpoint?.checkpointId ?? context.state.checkpointId;
+	const sessionMetadata = context.session as {
+		modelSelection?: {
+			providerId: string;
+			modelId: string;
+			modelSpec: string;
+		};
+		runnerContextId?: string;
+	};
 	return {
 		threadId: context.threadId,
 		projectRoot: context.state.project.projectRoot,
 		workspaceRoot: context.securityPolicy.workerSandbox.workspaceRoot,
+		prompt: context.state.messages.find((message) => message.role === "user")?.content ?? "",
 		phaseIntent: checkpoint ? `resume:${checkpoint.phase}` : `launch:${context.state.phase}`,
 		securityPolicy: context.securityPolicy,
 		checkpointId,
 		runCorrelationId: context.runCorrelationId,
+		selectedProviderId: sessionMetadata.modelSelection?.providerId,
+		selectedModelId: sessionMetadata.modelSelection?.modelId,
+		modelSpec: sessionMetadata.modelSelection?.modelSpec,
+		runnerContextId: sessionMetadata.runnerContextId,
 		metadata: {
 			projectId: context.state.project.projectId,
 			projectName: context.state.project.projectName ?? null,
 			branchName: context.state.project.branchName ?? null,
+			...(context.state.project.metadata ?? {}),
 		},
 		resume: {
 			checkpointId,

@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+from .deepagent_graph import run_orc_deepagent
 
 RUNNER_VERSION = "0.2.0"
 _MAX_STRING_LENGTH = 400
@@ -66,12 +67,17 @@ class OrcRunnerLaunchInput:
     thread_id: str
     project_root: str
     workspace_root: str
+    prompt: str
     phase_intent: str
     security_policy: SecurityPolicySnapshot
     resume: ResumeContext = field(default_factory=ResumeContext)
     checkpoint_id: str | None = None
     run_correlation_id: str | None = None
     graph_name: str = "orc_langgraph"
+    selected_provider_id: str | None = None
+    selected_model_id: str | None = None
+    model_spec: str | None = None
+    runner_context_id: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -84,6 +90,7 @@ class OrcRunnerLaunchInput:
             thread_id=str(payload["threadId"]),
             project_root=str(payload.get("projectRoot") or payload.get("workspaceRoot") or ""),
             workspace_root=str(payload.get("workspaceRoot") or payload.get("projectRoot") or ""),
+            prompt=str(payload.get("prompt") or ""),
             phase_intent=str(payload.get("phaseIntent") or payload.get("phase") or "bootstrapping"),
             security_policy=SecurityPolicySnapshot(
                 allowed_working_directories=_string_list(security_payload.get("allowedWorkingDirectories")),
@@ -108,6 +115,10 @@ class OrcRunnerLaunchInput:
             checkpoint_id=_optional_string(payload.get("checkpointId")),
             run_correlation_id=_optional_string(payload.get("runCorrelationId")) or f"orc-run-{uuid.uuid4()}",
             graph_name=str(payload.get("graphName") or "orc_langgraph"),
+            selected_provider_id=_optional_string(payload.get("selectedProviderId")),
+            selected_model_id=_optional_string(payload.get("selectedModelId")),
+            model_spec=_optional_string(payload.get("modelSpec")),
+            runner_context_id=_optional_string(payload.get("runnerContextId")),
             metadata=dict(payload.get("metadata") or {}),
         )
 
@@ -218,23 +229,19 @@ def main(argv: list[str] | None = None) -> int:
             f"[orc-runner] boot thread={launch_input.thread_id} graph={launch_input.graph_name} cwd={os.getcwd()}"
         )
         boot_event_id = _emit_bootstrap_sequence(emitter, launch_input, payload)
-        _emit_demo_graph_activity(emitter, launch_input, payload, boot_event_id)
+        run_orc_deepagent(launch_input, emitter)
         emitter.emit(
             category="lifecycle",
             name="completion",
             status="succeeded",
             payload={
                 "graphName": launch_input.graph_name,
-                "reason": "bootstrap_demo_complete",
+                "reason": "deepagent_run_complete",
                 "emittedCategories": sorted(
                     {
                         "lifecycle",
                         "checkpoint",
-                        "tracker",
                         "agent_message",
-                        "tool_call",
-                        "tool_result",
-                        "diagnostic",
                     }
                 ),
             },
@@ -248,6 +255,7 @@ def main(argv: list[str] | None = None) -> int:
             thread_id="unknown-thread",
             project_root="",
             workspace_root="",
+            prompt="",
             phase_intent="failed",
             security_policy=SecurityPolicySnapshot(),
             run_correlation_id=f"orc-run-{uuid.uuid4()}",
@@ -303,6 +311,9 @@ def _emit_bootstrap_sequence(
             "phaseIntent": launch_input.phase_intent,
             "projectRoot": launch_input.project_root,
             "workspaceRoot": launch_input.workspace_root,
+            "providerId": launch_input.selected_provider_id,
+            "modelId": launch_input.selected_model_id,
+            "modelSpec": launch_input.model_spec,
         },
         raw_payload={"launchInput": stdin_payload},
         who=TelemetryActor(kind="agent", id=launch_input.graph_name, label="Orc Graph"),
@@ -323,41 +334,6 @@ def _emit_bootstrap_sequence(
         raw_payload={"resume": launch_input.resume.metadata, "checkpointId": launch_input.checkpoint_id},
     )
     return f"{launch_input.thread_id}:1"
-
-
-def _emit_demo_graph_activity(
-    emitter: OrcRunnerTelemetryEmitter,
-    launch_input: OrcRunnerLaunchInput,
-    stdin_payload: Mapping[str, Any],
-    parent_event_id: str,
-) -> None:
-    graph_actor = TelemetryActor(kind="agent", id=launch_input.graph_name, label="Orc Graph")
-    subagent_actor = TelemetryActor(kind="agent", id="worker-planner", label="Planner Subagent", worker_id="worker-planner")
-    tool_actor = TelemetryActor(kind="tool", id="workspace_scan", label="workspace_scan", worker_id="worker-planner")
-    wave_id = launch_input.resume.active_wave_id or "wave-bootstrap"
-
-    emitter.emit(
-        category="tracker",
-        name="graph_node_transition",
-        status="started",
-        who=graph_actor,
-        how={"environment": "worker"},
-        payload={
-            "graphName": launch_input.graph_name,
-            "fromNode": "boot",
-            "toNode": "planner",
-            "routeKey": "bootstrap_to_planner",
-        },
-        raw_payload={"graph": {"node": "planner", "priorNode": "boot", "route": "bootstrap_to_planner"}},
-        parent_event_id=parent_event_id,
-        wave_id=wave_id,
-    )
-    emitter.emit(
-        category="tracker",
-        name="subagent_creation",
-        status="started",
-        who=subagent_actor,
-        how={"environment": "worker"},
         payload={
             "subagentId": subagent_actor.id,
             "workerId": subagent_actor.worker_id,
@@ -378,114 +354,6 @@ def _emit_demo_graph_activity(
         payload={
             "messageId": "msg-plan-1",
             "content": "Planning orchestration telemetry contract.\nEach stdout record remains strict JSONL.",
-            "audience": "operator",
-            "streamState": "final",
-        },
-        raw_payload={"sdk": {"role": "assistant", "text": "Planning orchestration telemetry contract.\nEach stdout record remains strict JSONL."}},
-        parent_event_id=parent_event_id,
-        wave_id=wave_id,
-        worker_id=subagent_actor.worker_id,
-    )
-    emitter.emit(
-        category="tool_call",
-        name="tool_call",
-        status="started",
-        who=tool_actor,
-        how={
-            "environment": "tool_runtime",
-            "toolName": "workspace_scan",
-            "toolCallId": "tool-call-1",
-            "interactionTarget": "computer",
-        },
-        payload={
-            "callId": "tool-call-1",
-            "toolName": "workspace_scan",
-            "arguments": {"paths": [launch_input.workspace_root], "binary": b"\x00\x01scan-bytes"},
-            "workingDirectory": launch_input.workspace_root,
-        },
-        raw_payload={"sdkToolCall": {"id": "tool-call-1", "name": "workspace_scan", "args": stdin_payload}},
-        parent_event_id=parent_event_id,
-        wave_id=wave_id,
-        worker_id=tool_actor.worker_id,
-    )
-    emitter.emit(
-        category="tool_result",
-        name="tool_result",
-        status="succeeded",
-        who=tool_actor,
-        how={
-            "environment": "tool_runtime",
-            "toolName": "workspace_scan",
-            "toolCallId": "tool-call-1",
-        },
-        payload={
-            "callId": "tool-call-1",
-            "toolName": "workspace_scan",
-            "status": "succeeded",
-            "result": {
-                "files": ["LANGEXTtracker.md", "src/orchestration/python/orc_runner/runner.py"],
-                "summary": "scanner completed without transport violations",
-            },
-            "stdout": "line one\nline two",
-        },
-        raw_payload={"sdkToolResult": {"id": "tool-call-1", "ok": True, "stdout": "line one\nline two"}},
-        parent_event_id=parent_event_id,
-        wave_id=wave_id,
-        worker_id=tool_actor.worker_id,
-    )
-    emitter.emit(
-        category="diagnostic",
-        name="retry",
-        status="started",
-        severity="warning",
-        who=subagent_actor,
-        how={"environment": "worker"},
-        payload={
-            "operation": "planner_model_request",
-            "attempt": 2,
-            "reason": "transient_provider_timeout",
-        },
-        raw_payload={"sdkRetry": {"attempt": 2, "error": "provider timeout", "retryInSeconds": 1}},
-        parent_event_id=parent_event_id,
-        wave_id=wave_id,
-        worker_id=subagent_actor.worker_id,
-    )
-    emitter.emit(
-        category="diagnostic",
-        name="interrupt",
-        status="waiting_on_input",
-        severity="notice",
-        who=subagent_actor,
-        how={"interactionTarget": "user", "environment": "worker"},
-        payload={
-            "interruptKind": "approval_required",
-            "detail": "Need operator confirmation before destructive tool use.",
-        },
-        raw_payload={"sdkInterrupt": {"kind": "approval_required", "detail": "Need operator confirmation before destructive tool use."}},
-        parent_event_id=parent_event_id,
-        wave_id=wave_id,
-        worker_id=subagent_actor.worker_id,
-    )
-    emitter.emit(
-        category="diagnostic",
-        name="failure",
-        status="failed",
-        severity="error",
-        who=subagent_actor,
-        how={"environment": "worker"},
-        payload={
-            "operation": "non_blocking_demo_validation",
-            "message": "Demonstration failure emitted to exercise downstream reducers.",
-            "recoverable": True,
-            "sampleBlob": b"\x00\xfffailure-demo",
-        },
-        raw_payload={"sdkFailure": {"message": "Demonstration failure emitted to exercise downstream reducers.", "recoverable": True}},
-        parent_event_id=parent_event_id,
-        wave_id=wave_id,
-        worker_id=subagent_actor.worker_id,
-    )
-
-
 def _read_launch_payload() -> Mapping[str, Any]:
     raw = sys.stdin.read()
     if not raw.strip():
@@ -497,12 +365,14 @@ def _read_launch_payload() -> Mapping[str, Any]:
 
 
 def _validate_launch_input(launch_input: OrcRunnerLaunchInput) -> None:
-    for field_name in ("thread_id", "project_root", "workspace_root", "phase_intent"):
+    for field_name in ("thread_id", "project_root", "workspace_root", "phase_intent", "prompt"):
         if not getattr(launch_input, field_name):
             raise ValueError(f"{field_name} is required")
     for root in (launch_input.project_root, launch_input.workspace_root):
         if not Path(root).is_absolute():
             raise ValueError(f"expected absolute path for root: {root}")
+    if not launch_input.model_spec:
+        raise ValueError("model_spec is required")
 
 
 def _sanitize_for_json(value: Any, *, path: str, depth: int = 0) -> Any:

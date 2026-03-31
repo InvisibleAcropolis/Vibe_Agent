@@ -1115,6 +1115,7 @@ test("OrcPythonChildProcessTransport writes opt-in debug artifacts for stderr, r
 		threadId,
 		projectRoot: durableRoot,
 		workspaceRoot: durableRoot,
+		prompt: "debug transport smoke",
 		phaseIntent: "debug-test",
 		securityPolicy: createDefaultOrcSecurityPolicy(),
 		resume: {},

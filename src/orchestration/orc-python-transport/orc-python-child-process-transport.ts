@@ -161,7 +161,11 @@ export class OrcPythonChildProcessTransport implements OrcPythonTransport {
 			},
 		};
 		this.exitPromise = new Promise<void>((resolve) => { this.resolveExitPromise = resolve; });
-		const child = spawn(contract.command, contract.args, { cwd: contract.cwd, stdio: ["pipe", "pipe", "pipe"] });
+		const child = spawn(contract.command, contract.args, {
+			cwd: contract.cwd,
+			env: contract.env ?? process.env,
+			stdio: ["pipe", "pipe", "pipe"],
+		});
 		this.child = child;
 		this.health.pid = child.pid;
 		this.health.stage = "spawned";

@@ -7,11 +7,20 @@ export interface LaunchOrcRequest {
 	prompt: string;
 	resumeThreadId?: string;
 	resumeCheckpointId?: string;
+	modelSelection?: OrcModelSelection;
+	runnerContextId?: string;
+	sessionMetadata?: Record<string, string | number | boolean | null>;
 	/**
 	 * Phase 1 override hook for the runtime/session factory.
 	 * Later implementations should merge and enforce these values before any worker tools start.
 	 */
 	securityPolicyOverrides?: OrcSecurityPolicyOverrides;
+}
+
+export interface OrcModelSelection {
+	providerId: string;
+	modelId: string;
+	modelSpec: string;
 }
 
 export interface OrcRunnerResumeContext {
@@ -27,12 +36,17 @@ export interface OrcRunnerLaunchInput {
 	threadId: string;
 	projectRoot: string;
 	workspaceRoot: string;
+	prompt: string;
 	phaseIntent: string;
 	securityPolicy: OrcSecurityPolicy;
 	resume: OrcRunnerResumeContext;
 	checkpointId?: string;
 	runCorrelationId?: OrcRunCorrelationId;
 	graphName?: string;
+	selectedProviderId?: string;
+	selectedModelId?: string;
+	modelSpec?: string;
+	runnerContextId?: string;
 	metadata?: Record<string, string | number | boolean | null>;
 }
 
@@ -45,6 +59,7 @@ export interface OrcPythonRunnerSpawnContract {
 	command: string;
 	args: string[];
 	cwd: string;
+	env?: NodeJS.ProcessEnv;
 	stdinPayload: OrcRunnerLaunchInput;
 	stdoutProtocol: "jsonl";
 	stderrProtocol: "diagnostic_text";

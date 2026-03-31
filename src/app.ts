@@ -34,6 +34,8 @@ import { SplashWindowController } from "./splash-window-controller.js";
 import { DefaultStartupController } from "./startup-controller.js";
 import { getThemeNames, onThemeConfigChange, setActiveTheme, type ThemeName } from "./themes/index.js";
 import type { VibeAgentAppOptions } from "./types.js";
+import { normalizeVibeAppMode } from "./app-mode.js";
+import { OrcExternalSessionLauncher } from "./orchestration/orc-session-launcher.js";
 
 export class VibeAgentApp {
 	readonly debugger: PiMonoAppDebugger;
@@ -74,6 +76,7 @@ export class VibeAgentApp {
 
 		this.stateStore = new DefaultAppStateStore();
 		const durableRootPath = options.durableRootPath ?? getVibeDurableRoot();
+		const appMode = normalizeVibeAppMode(options.appMode);
 		ensureVibeDurableStorage({ durableRoot: durableRootPath });
 
 		this.configRepository = new AppConfigRepository(
@@ -91,6 +94,8 @@ export class VibeAgentApp {
 			getEnvApiKey: options.getEnvApiKey,
 			debuggerSink: this.debugger,
 			durableRootPath,
+			appMode,
+			configRepository: this.configRepository,
 			onSessionReady: async (session) => {
 				await sessionCoordinator.applyConfiguredModelToSession(session);
 			},
@@ -279,6 +284,14 @@ export class VibeAgentApp {
 				getConfig: () => this.sessionCoordinator.getConfig(),
 				saveConfig: (config) => this.sessionCoordinator.saveConfig(config),
 			},
+			appMode,
+			orcLauncher: appMode === "orc"
+				? undefined
+				: new OrcExternalSessionLauncher({
+					configRepository: this.configRepository,
+					authStorage: runtimeFactory.authStorage,
+					modelRegistry: runtimeFactory.modelRegistry,
+				}),
 			onRuntimeActivated: () => this.runtimePresentation.handleRuntimeActivated(),
 		});
 		this.commandController = commandController;

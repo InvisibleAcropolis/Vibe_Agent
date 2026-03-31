@@ -29,6 +29,7 @@ import type { AgentRuntime } from "./runtime/agent-runtime.js";
 import type { RuntimeCoordinator } from "./runtime/runtime-coordinator.js";
 import type { RuntimeDescriptor } from "./runtime/agent-runtime.js";
 import type { agentTheme } from "./theme.js";
+import type { VibeAppMode } from "./app-mode.js";
 
 export interface OverlayRecord {
 	id: string;
@@ -63,6 +64,7 @@ export interface VibeAgentAppOptions {
 	debugger?: PiMonoAppDebugger;
 	configPath?: string;  // Optional override for config file path (used in tests)
 	durableRootPath?: string;
+	appMode?: VibeAppMode;
 	authStorage?: import("./local-coding-agent.js").AuthStorage;
 	getEnvApiKey?: (providerId: string) => string | undefined;
 	runtimes?: AgentRuntime[];

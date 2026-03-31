@@ -68,25 +68,31 @@ export class CommandMenuBuilder {
 		};
 	}
 
-	buildOrchestrationMenu(options: { onAction: (action: string) => void }): ShellMenuDefinition {
+	buildOrchestrationMenu(options: {
+		onAction: (action: string) => void;
+		includeSummonOrc?: boolean;
+	}): ShellMenuDefinition {
+		const items: ShellMenuItem[] = [];
+		if (options.includeSummonOrc !== false) {
+			items.push({ kind: "action", id: "summon-orc", label: "Summon Orc", description: "Open or reattach the dedicated external Orc window.", onSelect: () => options.onAction("summon-orc") });
+		}
+		items.push(
+			{ kind: "action", id: "dashboard", label: "Dashboard", description: "Open the friendly Orc telemetry dashboard.", onSelect: () => options.onAction("dashboard") },
+			{ kind: "action", id: "orc-resume", label: "Resume Thread", description: "Placeholder controller action for resuming an Orc thread.", onSelect: () => options.onAction("orc-resume") },
+			{ kind: "action", id: "orc-checkpoints", label: "Inspect Checkpoints", description: "Placeholder controller action for viewing Orc checkpoints.", onSelect: () => options.onAction("orc-checkpoints") },
+			{ kind: "action", id: "orc-rewind", label: "Rewind Checkpoint", description: "Placeholder controller action for rewinding to a checkpoint.", onSelect: () => options.onAction("orc-rewind") },
+			{ kind: "action", id: "tracker", label: "Tracker", description: "Browse tracker docs, summaries, and reserved LANGEXT exports.", onSelect: () => options.onAction("tracker") },
+			{ kind: "action", id: "artifacts", label: "Artifacts", description: "Browse plans, roadmaps, research notes, and session documents.", onSelect: () => options.onAction("artifacts") },
+			{ kind: "action", id: "logs", label: "Logs", description: "Review orchestration execution logs via generated summaries.", onSelect: () => options.onAction("logs") },
+			{ kind: "action", id: "settings", label: "Settings", description: "Adjust orchestration defaults and preferences.", onSelect: () => options.onAction("settings") },
+		);
 		return {
 			title: "[F3] Orc",
-			subtitle: "Phase 1 orchestration surfaces and status hooks.",
+			subtitle: "Dedicated Orc session launch, tracker views, and checkpoint tooling.",
 			anchor: this.dependencies.shellView.getMenuAnchor("F3"),
 			width: 34,
 			childWidth: 46,
-			items: [
-				{ kind: "action", id: "summon-orc", label: "Summon Orc", description: "Initialize the orchestration assistant shell.", onSelect: () => options.onAction("summon-orc") },
-				{ kind: "action", id: "dashboard", label: "Dashboard", description: "Open the friendly Orc telemetry dashboard.", onSelect: () => options.onAction("dashboard") },
-				{ kind: "action", id: "coding-chat", label: "Coding Chat", description: "Return to the standard coding session transcript.", onSelect: () => options.onAction("coding-chat") },
-				{ kind: "action", id: "orc-resume", label: "Resume Thread", description: "Placeholder controller action for resuming an Orc thread.", onSelect: () => options.onAction("orc-resume") },
-				{ kind: "action", id: "orc-checkpoints", label: "Inspect Checkpoints", description: "Placeholder controller action for viewing Orc checkpoints.", onSelect: () => options.onAction("orc-checkpoints") },
-				{ kind: "action", id: "orc-rewind", label: "Rewind Checkpoint", description: "Placeholder controller action for rewinding to a checkpoint.", onSelect: () => options.onAction("orc-rewind") },
-				{ kind: "action", id: "tracker", label: "Tracker", description: "Browse tracker docs, summaries, and reserved LANGEXT exports.", onSelect: () => options.onAction("tracker") },
-				{ kind: "action", id: "artifacts", label: "Artifacts", description: "Browse plans, roadmaps, research notes, and session documents.", onSelect: () => options.onAction("artifacts") },
-				{ kind: "action", id: "logs", label: "Logs", description: "Review orchestration execution logs via generated summaries.", onSelect: () => options.onAction("logs") },
-				{ kind: "action", id: "settings", label: "Settings", description: "Adjust orchestration defaults and preferences.", onSelect: () => options.onAction("settings") },
-			],
+			items,
 		};
 	}
 

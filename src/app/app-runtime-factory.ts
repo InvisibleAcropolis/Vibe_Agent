@@ -1,19 +1,19 @@
 import { getEnvApiKey, stream, streamSimple, supportsXhigh, type ProviderStreamOptions } from "@mariozechner/pi-ai";
 import type { StreamFn } from "@mariozechner/pi-agent-core";
 import type { PiMonoAppDebugger } from "../app-debugger.js";
+import type { AppConfigRepository } from "./app-config-repository.js";
 import type { AgentHost } from "../agent-host.js";
+import type { VibeAppMode } from "../app-mode.js";
 import { createDefaultAgentHost } from "../debug-agent-host.js";
-import { DirectAgentHost } from "../direct-agent-host.js";
 import {
 	AuthStorage,
 	ModelRegistry,
-	SessionManager,
 	type AgentSession,
 } from "../local-coding-agent.js";
+import { createOrcAgentHost } from "../orchestration/orc-agent-host.js";
 import { CompatAgentRuntime } from "../runtime/compat-agent-runtime.js";
 import { CoordinatedAgentHost } from "../runtime/coordinated-agent-host.js";
 import { RuntimeCoordinator } from "../runtime/runtime-coordinator.js";
-import { getRuntimeSessionDir } from "../runtime/runtime-session-namespace.js";
 import { createWebTools } from "../tools/web-tools.js";
 import type { VibeAgentAppOptions } from "../types.js";
 
@@ -51,6 +51,8 @@ export function createAppRuntimeFactory(
 	options: Pick<VibeAgentAppOptions, "host" | "runtimes" | "runtimeCoordinator" | "authStorage" | "getEnvApiKey"> & {
 		debuggerSink: PiMonoAppDebugger;
 		durableRootPath: string;
+		appMode: VibeAppMode;
+		configRepository: AppConfigRepository;
 		onSessionReady: (session: AgentSession) => Promise<void>;
 	},
 ): AppRuntimeFactoryResult {
@@ -60,54 +62,47 @@ export function createAppRuntimeFactory(
 	const customTools = createWebTools();
 
 	const innerHost =
-		options.host ??
-		createDefaultAgentHost(options.debuggerSink, {
-			createOptions: {
+		options.host
+		?? (options.appMode === "orc"
+			? createOrcAgentHost({
+				configRepository: options.configRepository,
 				authStorage,
 				modelRegistry,
-				streamFn,
-				customTools,
-			},
-			onSessionReady: async (session) => {
-				await options.onSessionReady(session);
-			},
-		});
-
-	const orcHost = new DirectAgentHost({
-		createOptions: {
-			authStorage,
-			modelRegistry,
-			streamFn,
-			customTools,
-			sessionManager: SessionManager.create(process.cwd(), getRuntimeSessionDir("orc", process.cwd(), options.durableRootPath)),
-		},
-		onSessionReady: async (session) => {
-			await options.onSessionReady(session);
-		},
-	});
+				durableRootPath: options.durableRootPath,
+			})
+			: createDefaultAgentHost(options.debuggerSink, {
+				createOptions: {
+					authStorage,
+					modelRegistry,
+					streamFn,
+					customTools,
+				},
+				onSessionReady: async (session) => {
+					await options.onSessionReady(session);
+				},
+			}));
 
 	const runtimeCoordinator =
 		options.runtimeCoordinator ??
 		new RuntimeCoordinator(
 			options.runtimes ?? [
 				new CompatAgentRuntime(
-					{
-						id: "coding",
-						kind: "coding",
-						displayName: "Coding Runtime",
-						capabilities: ["interactive-prompt", "session-management", "model-selection", "artifact-source", "log-source"],
-						primary: true,
-					},
+					options.appMode === "orc"
+						? {
+							id: "orc",
+							kind: "orchestration",
+							displayName: "Orc Deepagent",
+							capabilities: ["interactive-prompt", "planning", "checkpoint-visibility", "orchestration-status"],
+							primary: true,
+						}
+						: {
+							id: "coding",
+							kind: "coding",
+							displayName: "Coding Runtime",
+							capabilities: ["interactive-prompt", "session-management", "model-selection", "artifact-source", "log-source"],
+							primary: true,
+						},
 					innerHost,
-				),
-				new CompatAgentRuntime(
-					{
-						id: "orc",
-						kind: "orchestration",
-						displayName: "Orc",
-						capabilities: ["interactive-prompt", "session-management", "planning", "checkpoint-visibility", "orchestration-status"],
-					},
-					orcHost,
 				),
 			],
 			{

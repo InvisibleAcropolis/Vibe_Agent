@@ -98,7 +98,7 @@ export class AppRuntimePresentation {
 	syncRuntimeDisplayState(): void {
 		try {
 			const descriptor = this.dependencies.host.getActiveRuntimeDescriptor();
-			const conversationLabel = descriptor.id === "orc" ? "Orc orchestration chat" : "Coding chat";
+			const conversationLabel = descriptor.id === "orc" ? "Orc deepagent session" : "Coding chat";
 			this.dependencies.stateStore.setActiveRuntime({
 				id: descriptor.id,
 				name: descriptor.displayName,
