@@ -17,6 +17,15 @@ const EMPTY_ACTIVE_THINKING: ActiveThinkingState = {
 	turnActive: false,
 };
 
+export type TranscriptExpansionState = Record<string, boolean>;
+
+export interface TranscriptBehaviorState {
+	followMode: boolean;
+	expansionState: TranscriptExpansionState;
+	selectedTranscriptItemId?: string;
+	launchedSurfaceIds: string[];
+}
+
 export interface AppShellState {
 	statusMessage: string;
 	workingMessage?: string;
@@ -25,8 +34,11 @@ export interface AppShellState {
 	contextMessage?: string;
 	contextTone?: "accent" | "info" | "success" | "warning" | "dim";
 	showThinking: boolean;
+	/** @deprecated Use `showThinking` only; this mirror flag exists for migration compatibility. */
 	hideThinking: boolean;
+	/** @deprecated Use `transcript.expansionState["tool-output"]` for transcript-first expansion state. */
 	toolOutputExpanded: boolean;
+	/** @deprecated Focus labels are a legacy row-layout affordance and should not drive transcript behavior. */
 	focusLabel: string;
 	overlayIds: string[];
 	lastStartupPhase?: string;
@@ -37,6 +49,7 @@ export interface AppShellState {
 	activeRuntimeName: string;
 	activeConversationLabel: string;
 	activeThinking: ActiveThinkingState;
+	transcript: TranscriptBehaviorState;
 	permissionPending?: { toolName: string; args: Record<string, unknown>; resolve: (approved: boolean) => void };
 }
 
@@ -56,7 +69,14 @@ export interface AppStateStore {
 	): void;
 	setShowThinking(show: boolean): void;
 	setHideThinking(hidden: boolean): void;
+	setFollowMode(followMode: boolean): void;
 	setToolOutputExpanded(expanded: boolean): void;
+	setTranscriptExpansionState(expansionState: TranscriptExpansionState): void;
+	setTranscriptItemExpanded(itemId: string, expanded: boolean): void;
+	setSelectedTranscriptItem(itemId: string | undefined): void;
+	launchSurface(surfaceId: string): void;
+	closeLaunchedSurface(surfaceId: string): void;
+	clearLaunchedSurfaces(): void;
 	setFocusLabel(label: string): void;
 	pushOverlay(id: string): void;
 	removeOverlay(id: string): void;
@@ -88,6 +108,12 @@ export class DefaultAppStateStore implements AppStateStore {
 		activeRuntimeName: "Coding Runtime",
 		activeConversationLabel: "Coding chat",
 		activeThinking: { ...EMPTY_ACTIVE_THINKING },
+		transcript: {
+			followMode: true,
+			expansionState: {},
+			selectedTranscriptItemId: undefined,
+			launchedSurfaceIds: [],
+		},
 	};
 	private listeners = new Set<AppStateListener>();
 	private onStatusChange?: (message: string) => void;
@@ -102,6 +128,12 @@ export class DefaultAppStateStore implements AppStateStore {
 			overlayIds: [...this.state.overlayIds],
 			artifacts: [...this.state.artifacts],
 			activeThinking: { ...this.state.activeThinking },
+			transcript: {
+				followMode: this.state.transcript.followMode,
+				expansionState: { ...this.state.transcript.expansionState },
+				selectedTranscriptItemId: this.state.transcript.selectedTranscriptItemId,
+				launchedSurfaceIds: [...this.state.transcript.launchedSurfaceIds],
+			},
 		};
 	}
 
@@ -144,8 +176,88 @@ export class DefaultAppStateStore implements AppStateStore {
 		this.update({ hideThinking: hidden, showThinking: !hidden });
 	}
 
+	setFollowMode(followMode: boolean): void {
+		this.update({
+			transcript: {
+				...this.state.transcript,
+				followMode,
+			},
+		});
+	}
+
 	setToolOutputExpanded(expanded: boolean): void {
-		this.update({ toolOutputExpanded: expanded });
+		this.update({
+			toolOutputExpanded: expanded,
+			transcript: {
+				...this.state.transcript,
+				expansionState: {
+					...this.state.transcript.expansionState,
+					"tool-output": expanded,
+				},
+			},
+		});
+	}
+
+	setTranscriptExpansionState(expansionState: TranscriptExpansionState): void {
+		this.update({
+			transcript: {
+				...this.state.transcript,
+				expansionState: { ...expansionState },
+			},
+			toolOutputExpanded: Boolean(expansionState["tool-output"]),
+		});
+	}
+
+	setTranscriptItemExpanded(itemId: string, expanded: boolean): void {
+		this.setTranscriptExpansionState({
+			...this.state.transcript.expansionState,
+			[itemId]: expanded,
+		});
+	}
+
+	setSelectedTranscriptItem(itemId: string | undefined): void {
+		this.update({
+			transcript: {
+				...this.state.transcript,
+				selectedTranscriptItemId: itemId,
+			},
+		});
+	}
+
+	launchSurface(surfaceId: string): void {
+		if (this.state.transcript.launchedSurfaceIds.includes(surfaceId)) {
+			return;
+		}
+		this.update({
+			transcript: {
+				...this.state.transcript,
+				launchedSurfaceIds: [...this.state.transcript.launchedSurfaceIds, surfaceId],
+			},
+		});
+	}
+
+	closeLaunchedSurface(surfaceId: string): void {
+		if (!this.state.transcript.launchedSurfaceIds.includes(surfaceId)) {
+			return;
+		}
+		this.update({
+			transcript: {
+				...this.state.transcript,
+				launchedSurfaceIds: this.state.transcript.launchedSurfaceIds.filter((id) => id !== surfaceId),
+			},
+		});
+	}
+
+	clearLaunchedSurfaces(): void {
+		if (this.state.transcript.launchedSurfaceIds.length === 0) {
+			return;
+		}
+		this.update({
+			transcript: {
+				...this.state.transcript,
+				launchedSurfaceIds: [],
+			},
+		});
 	}
 
 	setFocusLabel(label: string): void {
