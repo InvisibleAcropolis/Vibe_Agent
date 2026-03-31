@@ -164,6 +164,20 @@ export interface ShellSurfaceDescriptor {
 	readonly subscriptions?: readonly ShellSurfaceSubscriptionDescriptor[];
 }
 
+export interface RichDocumentTrustMetadata {
+	readonly trust: "trusted" | "untrusted";
+	readonly policyVersion: string;
+	readonly evaluatedAt: string;
+	readonly assertedBy?: string;
+	readonly reason?: string;
+}
+
+export interface RichDocumentSourcePolicy {
+	readonly pipeline: "mdx-capable" | "safe-markdown" | "plain-text";
+	readonly renderMode: "mdx" | "markdown" | "plain-text";
+	readonly allowShellComponents: boolean;
+}
+
 export interface RichDocumentSource {
 	readonly id: string;
 	readonly uri: string;
@@ -171,6 +185,8 @@ export interface RichDocumentSource {
 	readonly title?: string;
 	readonly trust: "trusted" | "untrusted";
 	readonly metadata?: Readonly<Record<string, string>>;
+	readonly trustMetadata: RichDocumentTrustMetadata;
+	readonly sourcePolicy: RichDocumentSourcePolicy;
 }
 
 export interface RichDocumentSection {
