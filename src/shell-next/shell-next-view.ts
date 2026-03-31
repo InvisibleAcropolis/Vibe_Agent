@@ -4,6 +4,7 @@ import type { MouseEvent, Rect } from "../mouse.js";
 import type { FooterFactory, HeaderFactory, WidgetFactory } from "../shell/shell-types.js";
 import type { ShellView } from "../shell-view.js";
 import { TranscriptViewport } from "../components/transcript-viewport.js";
+import type { NormalizedTranscriptPublication } from "../shell/transcript-publication.js";
 
 export class ShellNextView implements ShellView {
 	readonly tui: TUI;
@@ -11,6 +12,7 @@ export class ShellNextView implements ShellView {
 	private readonly transcriptViewport = new TranscriptViewport();
 	private readonly root = new Container();
 	private transcriptRect: Rect = { row: 1, col: 1, width: 1, height: 1 };
+	private latestTranscriptPublication?: NormalizedTranscriptPublication;
 
 	constructor(terminal: Terminal) {
 		this.tui = new TUI(terminal, true);
@@ -38,6 +40,10 @@ export class ShellNextView implements ShellView {
 		this.transcriptViewport.setComponents(components);
 		this.refresh();
 		this.tui.requestRender();
+	}
+
+	publishNormalizedTranscript(publication: NormalizedTranscriptPublication): void {
+		this.latestTranscriptPublication = publication;
 	}
 	clearMessages(): void {
 		this.transcriptViewport.setComponents([]);

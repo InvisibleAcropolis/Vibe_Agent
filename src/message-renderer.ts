@@ -22,6 +22,7 @@ export interface MessageRendererOptions {
 
 export interface MessageRenderResult {
 	components: Component[];
+	normalizedTranscript: ReturnType<typeof normalizeTranscript>;
 }
 
 /**
@@ -111,7 +112,7 @@ export function renderAgentMessages(messages: AgentMessage[], options: MessageRe
 		components.push(new Markdown(JSON.stringify(message, null, 2), 1, 0, getMarkdownTheme()));
 	}
 
-	return { components };
+	return { components, normalizedTranscript: normalized };
 }
 
 function sanitizeAssistantMessage(message: AssistantMessage, hideThinking: boolean): AssistantMessage {
