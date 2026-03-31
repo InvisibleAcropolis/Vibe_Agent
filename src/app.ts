@@ -178,7 +178,11 @@ export class VibeAgentApp {
 						payload: request.payload,
 					});
 					const statusVerb = request.reason === "attach" ? "Rediscovered" : request.reason === "focus" ? "Refocused" : "Launched";
-					this.stateStore.setStatusMessage(`${statusVerb} ${request.route} in secondary PSMUX surface.`);
+					this.stateStore.setContextBanner(
+						"Secondary surface",
+						`${statusVerb} ${request.route} in secondary PSMUX surface.`,
+						"info",
+					);
 					return;
 				}
 				commandController?.openSessionsBrowserSurface();
@@ -193,6 +197,11 @@ export class VibeAgentApp {
 					route: "sessions-browser",
 					action: "close",
 				});
+				this.stateStore.setContextBanner(
+					"Secondary surface",
+					"Closed sessions-browser in secondary PSMUX surface.",
+					"info",
+				);
 			},
 			onPromptFocus: () => this.setFocus(this.editorController.getComponent(), "editor"),
 		});

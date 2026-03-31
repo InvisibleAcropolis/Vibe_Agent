@@ -5,6 +5,7 @@ import type { AnimationEngine } from "../animation-engine.js";
 import type { AppStateStore } from "../app-state-store.js";
 import { DefaultShellView, type ShellView } from "../shell-view.js";
 import { createShellNextController } from "../shell-next/controller.js";
+import { createSurfaceLaunchManager } from "../shell-next/surface-launch-manager.js";
 import type { ShellSurfaceLaunchRequest } from "../shell-next/surface-launch-manager.js";
 import type { LaunchSurfaceTarget, OverlayTarget, ShellInputAction } from "./shell-input-actions.js";
 
@@ -77,6 +78,33 @@ export function createMainShellAdapter(options: MainShellAdapterOptions): MainSh
 		}
 	};
 
+	const createDefaultSurfaceManager = () => {
+		const manager = createSurfaceLaunchManager(options.stateStore, {
+			onLaunch: (request) => options.onSurfaceLaunch?.(request),
+			onClose: (surfaceId) => options.onSurfaceClose?.(surfaceId),
+		});
+		manager.registerSurface({
+			id: "sessions-browser",
+			title: "Sessions Browser",
+			kind: "workspace",
+			routing: {
+				route: "sessions-browser",
+				scope: {},
+			},
+		});
+		manager.registerSurface({
+			id: "orc-session",
+			title: "Orc Session",
+			kind: "workspace",
+			routing: {
+				route: "orc-session",
+				scope: {},
+			},
+		});
+		manager.rediscoverOpenSurfaces();
+		return manager;
+	};
+
 	if (options.implementation === "next") {
 		const nextController = createShellNextController({
 			terminal: options.terminal,
@@ -101,6 +129,7 @@ export function createMainShellAdapter(options: MainShellAdapterOptions): MainSh
 		};
 	}
 
+	const legacySurfaceLaunchManager = createDefaultSurfaceManager();
 	const shellView = new DefaultShellView(
 		options.terminal ?? new ProcessTerminal(),
 		options.stateStore,
@@ -113,6 +142,12 @@ export function createMainShellAdapter(options: MainShellAdapterOptions): MainSh
 	return {
 		implementation: "legacy",
 		shellView,
-		dispatchShellAction: (action) => dispatchShellAction(shellView, action),
+		dispatchShellAction: (action) => {
+			if (action.type === "surface-launch") {
+				legacySurfaceLaunchManager.launchSurface(action.target);
+				return true;
+			}
+			return dispatchShellAction(shellView, action);
+		},
 	};
 }
