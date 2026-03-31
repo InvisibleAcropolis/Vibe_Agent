@@ -15,9 +15,10 @@ export function measureShellLayout(input: ShellLayoutInput): ShellLayoutResult {
 		input.footerContentHeight +
 		input.statusHeight +
 		input.summaryHeight +
-		input.thinkingTrayHeight;
+		(input.useLegacyFixedRows ? input.thinkingTrayHeight : 0);
 	const contentHeight = Math.max(3, input.rows - fixedHeight);
-	const leftWidth = input.sessionsPanelVisible ? Math.max(0, input.cols - input.rightWidth - 1) : input.cols;
+	const leftWidth =
+		input.useLegacyFixedRows && input.sessionsPanelVisible ? Math.max(0, input.cols - input.rightWidth - 1) : input.cols;
 	const contentRow = 1 + input.customHeaderHeight + input.headerHeight + input.menuHeight + input.separatorTopHeight;
 
 	return {
