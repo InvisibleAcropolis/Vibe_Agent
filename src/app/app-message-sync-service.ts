@@ -5,8 +5,11 @@ import { ArtifactCatalogService } from "../durable/artifacts/artifact-catalog-se
 import { WorkbenchInventoryService } from "../durable/workbench-inventory-service.js";
 import { renderAgentMessages } from "../message-renderer.js";
 import type { ShellView } from "../shell-view.js";
+import { resolveTranscriptPublicationMode, TranscriptPublicationBridge } from "./transcript-publication-bridge.js";
 
 export class AppMessageSyncService {
+	private readonly transcriptBridge: TranscriptPublicationBridge;
+
 	constructor(
 		private readonly host: AgentHost,
 		private readonly shellView: ShellView,
@@ -14,7 +17,10 @@ export class AppMessageSyncService {
 		private readonly artifactCatalog: ArtifactCatalogService,
 		private readonly inventory: WorkbenchInventoryService,
 		private readonly getRuntimeContext: () => { runtimeId: string; sessionId?: string },
-	) {}
+		transcriptBridge?: TranscriptPublicationBridge,
+	) {
+		this.transcriptBridge = transcriptBridge ?? new TranscriptPublicationBridge(resolveTranscriptPublicationMode(process.env.VIBE_TRANSCRIPT_PUBLICATION_MODE));
+	}
 
 	sync(options: {
 		messages?: AgentMessage[];
@@ -28,7 +34,12 @@ export class AppMessageSyncService {
 			tui: this.shellView.tui,
 		});
 
-		this.shellView.setMessages(renderResult.components);
+		this.transcriptBridge.publish(this.shellView, {
+			messages,
+			hostState,
+			normalizedTranscript: renderResult.normalizedTranscript,
+			renderResult,
+		});
 		this.artifactCatalog.replaceFromMessages(this.getRuntimeContext(), messages);
 		this.stateStore.setArtifacts(this.inventory.listArtifactViews());
 

@@ -15,6 +15,7 @@ import { ShellSessionsController } from "./shell/shell-sessions-controller.js";
 import { ShellThinkingSync } from "./shell/shell-thinking-sync.js";
 import { ShellTranscriptController } from "./shell/shell-transcript-controller.js";
 import type { FooterFactory, HeaderFactory, WidgetFactory } from "./shell/shell-types.js";
+import type { NormalizedTranscriptPublication } from "./shell/transcript-publication.js";
 
 export interface ShellView {
 	readonly tui: TUI;
@@ -24,6 +25,7 @@ export interface ShellView {
 	setEditor(component: Component): void;
 	setFocus(component: Component | null): void;
 	setMessages(components: Component[]): void;
+	publishNormalizedTranscript?(publication: NormalizedTranscriptPublication): void;
 	clearMessages(): void;
 	setWidget(key: string, content: WidgetFactory | string[] | undefined, placement?: "aboveEditor" | "belowEditor"): void;
 	setHeaderFactory(factory: HeaderFactory | undefined): void;
