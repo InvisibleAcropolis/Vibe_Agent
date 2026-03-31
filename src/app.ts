@@ -139,6 +139,28 @@ export class VibeAgentApp {
 			getMessages: () => this.safeGetMessages(),
 			getAgentHost: () => this.host,
 			animationEngine: this.animEngine,
+			onOverlayOpen: (target) => {
+				switch (target) {
+					case "command-palette":
+						commandController?.openCommandPalette();
+						break;
+					case "settings":
+						commandController?.openSettingsOverlay();
+						break;
+					case "sessions":
+						commandController?.openSessionsOverlay();
+						break;
+					case "orchestration":
+						commandController?.openOrchestrationOverlay();
+						break;
+				}
+			},
+			onSurfaceLaunch: (target) => {
+				if (target === "sessions-panel") {
+					this.shellView.toggleSessionsPanel();
+				}
+			},
+			onPromptFocus: () => this.setFocus(this.editorController.getComponent(), "editor"),
 		});
 		this.shellView = shellAdapter.shellView;
 		const psmuxRuntimeLabel = this.shellView.footerData.getPsmuxRuntimeLabel();
@@ -327,11 +349,9 @@ export class VibeAgentApp {
 			this.shellView.tui,
 			this.stateStore,
 			this.overlayController,
-			this.commandController,
-			this.shellView,
+			shellAdapter,
 			this.debugger,
 			() => this.stop(),
-			() => this.shellView.toggleSessionsPanel(),
 		);
 
 		this.extensionUiHost = new DefaultExtensionUiHost(

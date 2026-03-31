@@ -1,11 +1,11 @@
 import { matchesKey, type TUI } from "@mariozechner/pi-tui";
 import type { PiMonoAppDebugger } from "./app-debugger.js";
 import type { AppStateStore } from "./app-state-store.js";
-import type { CommandController } from "./command-controller.js";
 import type { OverlayController } from "./overlay-controller.js";
-import type { ShellView } from "./shell-view.js";
 import type { MouseEvent } from "./mouse.js";
 import { parseMouseEvent } from "./mouse.js";
+import type { MainShellAdapter } from "./shell/main-shell-adapter.js";
+import type { ShellInputAction } from "./shell/shell-input-actions.js";
 
 type TerminalInputHandler = (data: string) => { consume?: boolean; data?: string } | undefined;
 
@@ -21,11 +21,9 @@ export class DefaultInputController implements InputController {
 		private readonly tui: TUI,
 		private readonly stateStore: AppStateStore,
 		private readonly overlayController: OverlayController,
-		private readonly commandController: CommandController,
-		private readonly shellView: ShellView,
+		private readonly shellAdapter: MainShellAdapter,
 		private readonly debuggerSink: PiMonoAppDebugger,
 		private readonly onStop: () => void,
-		private readonly onToggleSessionsPanel?: () => void,
 	) {}
 
 	attach(): void {
@@ -47,10 +45,10 @@ export class DefaultInputController implements InputController {
 		if (mouseEvent) {
 			this.logMouse(mouseEvent);
 			if (this.overlayController.getOverlayDepth() > 0) {
-				if (!this.overlayController.dispatchMouse(mouseEvent) && !this.shellView.dispatchMouse(mouseEvent)) {
+				if (!this.overlayController.dispatchMouse(mouseEvent) && !this.shellAdapter.shellView.dispatchMouse(mouseEvent)) {
 					return undefined;
 				}
-			} else if (!this.shellView.dispatchMouse(mouseEvent)) {
+			} else if (!this.shellAdapter.shellView.dispatchMouse(mouseEvent)) {
 				return undefined;
 			}
 			this.tui.requestRender();
@@ -59,19 +57,19 @@ export class DefaultInputController implements InputController {
 
 		if (this.overlayController.getOverlayDepth() === 0) {
 			if (data === "\x1b[5~") {
-				this.shellView.scrollTranscript(-10);
+				this.dispatchShellAction({ type: "scroll", target: "page-up" });
 				return { consume: true };
 			}
 			if (data === "\x1b[6~") {
-				this.shellView.scrollTranscript(10);
+				this.dispatchShellAction({ type: "scroll", target: "page-down" });
 				return { consume: true };
 			}
 			if (matchesKey(data, "home") || data === "\x1b[H") {
-				this.shellView.scrollTranscriptToTop();
+				this.dispatchShellAction({ type: "scroll", target: "top" });
 				return { consume: true };
 			}
 			if (matchesKey(data, "end") || data === "\x1b[F") {
-				this.shellView.scrollTranscriptToBottom();
+				this.dispatchShellAction({ type: "scroll", target: "bottom" });
 				return { consume: true };
 			}
 		}
@@ -92,15 +90,15 @@ export class DefaultInputController implements InputController {
 			return { consume: true };
 		}
 		if (matchesKey(nextData, "f1")) {
-			this.openSettingsSubmenu();
+			this.dispatchShellAction({ type: "overlay-open", target: "settings" });
 			return { consume: true };
 		}
 		if (matchesKey(nextData, "f2")) {
-			this.openSessionsSubmenu();
+			this.dispatchShellAction({ type: "overlay-open", target: "sessions" });
 			return { consume: true };
 		}
 		if (matchesKey(nextData, "f3")) {
-			this.openOrcSubmenu();
+			this.dispatchShellAction({ type: "overlay-open", target: "orchestration" });
 			return { consume: true };
 		}
 		if ((matchesKey(nextData, "escape") || matchesKey(nextData, "esc")) && this.overlayController.getOverlayDepth() > 0) {
@@ -113,16 +111,8 @@ export class DefaultInputController implements InputController {
 		return undefined;
 	}
 
-	private openSettingsSubmenu(): void {
-		this.commandController.openSettingsOverlay();
-	}
-
-	private openSessionsSubmenu(): void {
-		this.commandController.openSessionsOverlay();
-	}
-
-	private openOrcSubmenu(): void {
-		this.commandController.openOrchestrationOverlay();
+	private dispatchShellAction(action: ShellInputAction): void {
+		this.shellAdapter.dispatchShellAction(action);
 	}
 
 	private logMouse(event: MouseEvent): void {
