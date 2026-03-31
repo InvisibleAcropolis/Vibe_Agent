@@ -21,6 +21,7 @@ export interface ShellSurfaceLaunchRequest {
 
 export interface SurfaceLaunchManagerHooks {
 	onLaunch: (request: ShellSurfaceLaunchRequest) => void;
+	onClose?: (surfaceId: string) => void;
 }
 
 export interface SurfaceLaunchManager {
@@ -118,6 +119,7 @@ export function createSurfaceLaunchManager(stateStore: AppStateStore, hooks: Sur
 			entry.descriptor.lifecycle?.onClose?.({ surfaceId, route: entry.descriptor.routing.route });
 			openSurfaces.delete(surfaceId);
 			stateStore.closeLaunchedSurface(surfaceId);
+			hooks.onClose?.(surfaceId);
 			notify();
 		},
 		subscribe(listener) {

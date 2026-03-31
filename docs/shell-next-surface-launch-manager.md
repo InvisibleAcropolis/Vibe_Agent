@@ -43,3 +43,23 @@ Secondary surfaces (sessions browser, RPC dashboards, event-bus-backed overlays)
 
 `createMainShellAdapter()` now routes shell-next `surface-launch` actions through the manager, making it the single launch path for new shell code.
 
+## V1 target selection and PSMUX route contract
+
+For the first production launch path, shell-next targets the **sessions browser** (`route: "sessions-browser"`).  
+The main shell writes a durable route signal when this surface is opened/focused/closed under PSMUX:
+
+- Signal file: `tracker/secondary-surface-route-<session>.json`
+- Writer: `writeSecondarySurfaceRouteSignal()` in `src/shell-next/secondary-surface-router.ts`
+- Reader: `readSecondarySurfaceRouteSignal()` in secondary pane host (`src/splash-pane-app.ts`)
+
+Signal payload contract:
+
+- `sessionName`: owning PSMUX session.
+- `surfaceId`: shell descriptor id.
+- `route`: canonical route key.
+- `action`: `open` | `focus` | `close`.
+- `reason`: launch reason (`open`/`focus`) when relevant.
+- `payload`: optional launch payload.
+- `requestedAt`, `token`: monotonic operator/audit markers for replay-safe polling.
+
+This keeps routing ownership in shell-next while allowing a detached/reattached secondary pane to recover the most recent launch state.

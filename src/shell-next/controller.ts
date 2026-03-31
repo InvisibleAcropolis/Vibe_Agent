@@ -20,6 +20,7 @@ export interface ShellNextControllerOptions {
 	getAgentHost: () => AgentHost | undefined;
 	animationEngine?: AnimationEngine;
 	onSurfaceLaunch?: (request: ShellSurfaceLaunchRequest) => void;
+	onSurfaceClose?: (surfaceId: string) => void;
 }
 
 export interface ShellNextController {
@@ -41,6 +42,7 @@ export function createShellNextController(options: ShellNextControllerOptions): 
 
 	const surfaceLaunchManager = createSurfaceLaunchManager(options.stateStore, {
 		onLaunch: (request) => options.onSurfaceLaunch?.(request),
+		onClose: (surfaceId) => options.onSurfaceClose?.(surfaceId),
 	});
 	surfaceLaunchManager.registerSurface({
 		id: "sessions-browser",

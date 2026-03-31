@@ -5,6 +5,7 @@ import { paintLine, paintLineTwoParts } from "./ansi.js";
 import { getVibeDurableRoot } from "./durable/durable-paths.js";
 import { MouseEnabledTerminal } from "./mouse-enabled-terminal.js";
 import { SplashWindowController } from "./splash-window-controller.js";
+import { readSecondarySurfaceRouteSignal } from "./shell-next/secondary-surface-router.js";
 import { agentTheme } from "./theme.js";
 
 export interface SplashPaneAppOptions {
@@ -22,6 +23,7 @@ class SplashPaneBackdrop implements Component {
 	constructor(
 		private readonly getRows: () => number,
 		private readonly getSessionLabel: () => string,
+		private readonly getSurfaceStatus: () => string | undefined,
 	) {}
 
 	invalidate(): void {}
@@ -37,6 +39,10 @@ class SplashPaneBackdrop implements Component {
 			),
 		);
 		lines[rows - 2] = paintLine(agentTheme.dim("Passive bootstrap splash host"), width, agentTheme.panelBgRaised);
+		const surfaceStatus = this.getSurfaceStatus();
+		if (surfaceStatus) {
+			lines[rows - 3] = paintLine(agentTheme.accent(surfaceStatus), width, agentTheme.panelBgRaised);
+		}
 		lines[rows - 1] = agentTheme.footerLine(
 			paintLineTwoParts(
 				agentTheme.dim("Waiting for replay signal"),
@@ -53,19 +59,24 @@ class SplashPaneApp implements SplashPaneAppHandle {
 	private readonly tui = new TUI(this.terminal, true);
 	private readonly animationEngine = new AnimationEngine();
 	private readonly splashController: SplashWindowController;
+	private readonly sessionName?: string;
+	private readonly durableRootPath: string;
 
 	constructor(
 		private readonly debuggerSink: PiMonoAppDebugger,
 		options: SplashPaneAppOptions,
 	) {
+		this.sessionName = options.sessionName;
+		this.durableRootPath = options.durableRootPath ?? getVibeDurableRoot();
 		this.splashController = new SplashWindowController(this.tui, this.animationEngine, {
 			sessionName: options.sessionName,
-			durableRootPath: options.durableRootPath ?? getVibeDurableRoot(),
+			durableRootPath: this.durableRootPath,
 		});
 		this.tui.addChild(
 			new SplashPaneBackdrop(
 				() => this.terminal.rows,
 				() => options.sessionName ?? "detached",
+				() => this.getSurfaceStatus(),
 			),
 		);
 	}
@@ -87,6 +98,22 @@ class SplashPaneApp implements SplashPaneAppHandle {
 
 	writeDebugSnapshot(_reason: string): string | undefined {
 		return undefined;
+	}
+
+	private getSurfaceStatus(): string | undefined {
+		if (!this.sessionName) {
+			return undefined;
+		}
+		const signal = readSecondarySurfaceRouteSignal(this.sessionName, {
+			durableRoot: this.durableRootPath,
+		});
+		if (!signal) {
+			return undefined;
+		}
+		if (signal.action === "close") {
+			return `secondary surface closed · route:${signal.route}`;
+		}
+		return `secondary surface ${signal.action} · route:${signal.route}`;
 	}
 }
 

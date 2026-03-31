@@ -5,6 +5,7 @@ import type { AnimationEngine } from "../animation-engine.js";
 import type { AppStateStore } from "../app-state-store.js";
 import { DefaultShellView, type ShellView } from "../shell-view.js";
 import { createShellNextController } from "../shell-next/controller.js";
+import type { ShellSurfaceLaunchRequest } from "../shell-next/surface-launch-manager.js";
 import type { LaunchSurfaceTarget, OverlayTarget, ShellInputAction } from "./shell-input-actions.js";
 
 export type MainShellImplementation = "legacy" | "next";
@@ -18,7 +19,8 @@ export interface MainShellAdapterOptions {
 	getAgentHost: () => AgentHost | undefined;
 	animationEngine?: AnimationEngine;
 	onOverlayOpen?: (target: OverlayTarget) => void;
-	onSurfaceLaunch?: (target: LaunchSurfaceTarget) => void;
+	onSurfaceLaunch?: (request: ShellSurfaceLaunchRequest) => void;
+	onSurfaceClose?: (surfaceId: string) => void;
 	onPromptFocus?: () => void;
 	onToggleFollow?: () => void;
 }
@@ -64,7 +66,13 @@ export function createMainShellAdapter(options: MainShellAdapterOptions): MainSh
 				options.onOverlayOpen?.(action.target);
 				return true;
 			case "surface-launch":
-				options.onSurfaceLaunch?.(action.target);
+				options.onSurfaceLaunch?.({
+					surfaceId: action.target,
+					route: action.target,
+					kind: "workspace",
+					scope: {},
+					reason: "open",
+				});
 				return true;
 		}
 	};
@@ -77,7 +85,8 @@ export function createMainShellAdapter(options: MainShellAdapterOptions): MainSh
 			getMessages: options.getMessages,
 			getAgentHost: options.getAgentHost,
 			animationEngine: options.animationEngine,
-			onSurfaceLaunch: (request) => options.onSurfaceLaunch?.(request.route as LaunchSurfaceTarget),
+			onSurfaceLaunch: (request) => options.onSurfaceLaunch?.(request),
+			onSurfaceClose: (surfaceId) => options.onSurfaceClose?.(surfaceId),
 		});
 		return {
 			implementation: "next",

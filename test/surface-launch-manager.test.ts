@@ -10,9 +10,13 @@ test("launch manager opens surfaces with descriptor scope/payload, focuses reope
 	let focused = 0;
 	let closed = 0;
 	let unsubscribed = 0;
+	let closedSurfaceId: string | undefined;
 
 	const manager = createSurfaceLaunchManager(stateStore, {
 		onLaunch: (request) => launches.push(request),
+		onClose: (surfaceId) => {
+			closedSurfaceId = surfaceId;
+		},
 	});
 	manager.registerSurface({
 		id: "rpc-log",
@@ -54,5 +58,5 @@ test("launch manager opens surfaces with descriptor scope/payload, focuses reope
 	assert.deepEqual(stateStore.getState().transcript.launchedSurfaceIds, []);
 	assert.equal(closed, 1);
 	assert.equal(unsubscribed, 1);
+	assert.equal(closedSurfaceId, "rpc-log");
 });
-
