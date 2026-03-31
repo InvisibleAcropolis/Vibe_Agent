@@ -34,10 +34,9 @@ export interface OpenOverlayShellAction {
 	readonly target: OverlayTarget;
 }
 
-export type LaunchSurfaceTarget = "sessions-panel";
+export type LaunchSurfaceTarget = "sessions-browser";
 
 export interface LaunchSurfaceShellAction {
 	readonly type: "surface-launch";
 	readonly target: LaunchSurfaceTarget;
 }
-

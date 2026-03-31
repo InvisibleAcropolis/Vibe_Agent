@@ -12,7 +12,6 @@ export interface ShellNextMeta {
 export interface ShellNextState {
 	showThinking: boolean;
 	toolOutputExpanded: boolean;
-	sessionsPanelVisible: boolean;
 	meta: ShellNextMeta;
 }
 
@@ -20,7 +19,6 @@ export function createInitialShellNextState(): ShellNextState {
 	return {
 		showThinking: true,
 		toolOutputExpanded: false,
-		sessionsPanelVisible: false,
 		meta: {
 			streamPhase: "idle",
 		},

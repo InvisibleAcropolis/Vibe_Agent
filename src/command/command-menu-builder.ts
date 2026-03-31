@@ -59,6 +59,7 @@ export class CommandMenuBuilder {
 			width: 38,
 			childWidth: 44,
 			items: [
+				{ kind: "action", id: "browser", label: "Sessions Browser", description: "Open grouped sessions in a floating browser surface.", onSelect: () => options.onAction("browser") },
 				{ kind: "action", id: "resume", label: "Resume Session", description: "Switch to another saved session.", onSelect: () => options.onAction("resume") },
 				{ kind: "action", id: "fork", label: "Fork Session", description: "Fork from a previous user message.", onSelect: () => options.onAction("fork") },
 				{ kind: "action", id: "tree", label: "Session Tree", description: "Navigate branch points.", onSelect: () => options.onAction("tree") },

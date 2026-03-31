@@ -1,6 +1,7 @@
 import { basename } from "node:path";
 import type { PiMonoAppDebugger } from "../app-debugger.js";
 import type { AgentHost } from "../agent-host.js";
+import { SessionsPanel } from "../components/sessions-panel.js";
 import type { EditorController } from "../editor-controller.js";
 import type { OverlayController } from "../overlay-controller.js";
 import { BUILTIN_COMMAND_META, getBuiltInCommands } from "./command-registry.js";
@@ -67,6 +68,26 @@ export class CommandSelectionService {
 				);
 			})
 			.catch((error) => this.dependencies.onError("openSessionSelector", error, { scope }));
+	}
+
+	openSessionsBrowserSurface(): void {
+		const panel = new SessionsPanel({
+			getSessions: async () => await this.dependencies.host.listSessions("all"),
+			getCurrentSessionFile: () => this.dependencies.host.getState().sessionFile,
+			onSwitch: async (sessionPath) => {
+				await this.dependencies.host.switchSession(sessionPath);
+			},
+			onClose: () => this.dependencies.overlayController.closeOverlay("sessions-browser"),
+		});
+		this.dependencies.overlayController.showCustomOverlay("sessions-browser", panel, {
+			width: "56%",
+			maxHeight: "75%",
+			anchor: "center",
+			margin: 1,
+			minWidth: 48,
+			minHeight: 16,
+			floatingTitle: "Sessions Browser",
+		});
 	}
 
 	async openForkSelector(): Promise<void> {

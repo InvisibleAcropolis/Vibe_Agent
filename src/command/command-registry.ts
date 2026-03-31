@@ -11,6 +11,7 @@ export const BUILTIN_COMMAND_META: Record<string, BuiltInCommandMeta> = {
 	theme: { category: "Setup", order: 5, description: "Switch the visual theme (default/cyberpunk/matrix/synthwave/amber)." },
 	settings: { category: "Session", order: 10, description: "Open app settings and session controls." },
 	resume: { category: "Session", order: 11, description: "Resume or switch sessions." },
+	sessions: { category: "Session", order: 11, description: "Open the grouped sessions browser surface." },
 	fork: { category: "Session", order: 12, description: "Fork from a previous user message." },
 	tree: { category: "Session", order: 13, description: "Navigate another branch point in this session." },
 	stats: { category: "Session", order: 14, description: "Show session statistics and token usage." },

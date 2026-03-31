@@ -18,6 +18,7 @@ export class SlashCommandRouter {
 			actions: {
 				openSettingsOverlay: () => void;
 				openSessionSelector: (scope: "current" | "all") => void;
+				openSessionsBrowserSurface: () => void;
 				openForkSelector: () => Promise<void>;
 				openTreeSelector: () => Promise<void>;
 				openThinkingSelector: () => void;
@@ -44,6 +45,11 @@ export class SlashCommandRouter {
 		if (text === "/resume") {
 			this.resetEditor();
 			this.dependencies.actions.openSessionSelector("all");
+			return true;
+		}
+		if (text === "/sessions") {
+			this.resetEditor();
+			this.dependencies.actions.openSessionsBrowserSurface();
 			return true;
 		}
 		if (text === "/fork") {
