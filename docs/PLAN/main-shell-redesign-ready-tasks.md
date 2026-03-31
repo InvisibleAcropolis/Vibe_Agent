@@ -325,12 +325,22 @@ This task backlog is derived from `docs/PLAN/main-shell-redesign-plan.md` and is
 - **Scope:** production selection toggle.
 - **Dependencies:** all critical parity tasks (B–F).
 - **Steps:**
-  1. Set new shell as default selection path.
-  2. Keep rollback flag for one release cycle.
-  3. Track post-cutover defects against parity checklist.
+  1. Set new shell as default selection path after parity gates are met.
+  2. Keep rollback flag for one release cycle after cutover.
+  3. Track post-cutover defects against the parity checklist.
 - **Definition of done:**
   - New shell is default and core workflows pass acceptance criteria.
 - **Evidence:** config change + release note + parity signoff.
+
+#### H2 cutover acceptance criteria and rollback ownership
+
+- **Cutover acceptance criteria (must be met before default flip):**
+  1. Critical parity epics **B–F** are complete and signed off by owners.
+  2. Cross-cutting QA tasks **Q1/Q2/Q3** have passing results on the release candidate.
+  3. No open Sev-1/Sev-2 defects tied to the parity checklist for default shell workflows.
+  4. Release notes include rollback procedure and `VIBE_SHELL_ROLLBACK_COMPAT=1` usage.
+- **Rollback decision owner:** **Engineering Lead (Shell Platform)**, with input from QA and on-call during the release window.
+- **Defect tracking requirement:** Every cutover regression must link to the parity checklist item it violates, include severity, and record rollback impact assessment.
 
 ### H3. Update architecture docs and operator guides
 - **Status:** Ready
@@ -389,4 +399,4 @@ This task backlog is derived from `docs/PLAN/main-shell-redesign-plan.md` and is
 - [ ] Approve keybinding parity table (especially F1/F2/F3 replacement strategy if remapped).
 - [ ] Approve trusted MDX allowlist and trust policy.
 - [ ] Schedule Windows + PowerShell + PSMUX validation windows for each phase gate.
-- [ ] Define cutover release criteria and rollback decision owner.
+- [x] Define cutover release criteria and rollback decision owner.
