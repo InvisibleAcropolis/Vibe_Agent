@@ -189,12 +189,74 @@ export interface RichDocumentSource {
 	readonly sourcePolicy: RichDocumentSourcePolicy;
 }
 
+
+
+export type RichDocumentComponentKind = "heading" | "callout" | "code" | "metadata" | "link" | "timeline-card" | "collapsible";
+
+interface RichDocumentComponentBase {
+	readonly id: string;
+	readonly kind: RichDocumentComponentKind;
+}
+
+export interface RichDocumentHeadingComponent extends RichDocumentComponentBase {
+	readonly kind: "heading";
+	readonly level: number;
+	readonly text: string;
+}
+
+export interface RichDocumentCalloutComponent extends RichDocumentComponentBase {
+	readonly kind: "callout";
+	readonly variant: "note" | "tip" | "warn" | "danger" | "info";
+	readonly text: string;
+}
+
+export interface RichDocumentCodeComponent extends RichDocumentComponentBase {
+	readonly kind: "code";
+	readonly language?: string;
+	readonly code: string;
+}
+
+export interface RichDocumentMetadataComponent extends RichDocumentComponentBase {
+	readonly kind: "metadata";
+	readonly key: string;
+	readonly value: string;
+}
+
+export interface RichDocumentLinkComponent extends RichDocumentComponentBase {
+	readonly kind: "link";
+	readonly text: string;
+	readonly href: string;
+}
+
+export interface RichDocumentTimelineCardComponent extends RichDocumentComponentBase {
+	readonly kind: "timeline-card";
+	readonly title: string;
+	readonly date: string;
+	readonly body: string;
+}
+
+export interface RichDocumentCollapsibleComponent extends RichDocumentComponentBase {
+	readonly kind: "collapsible";
+	readonly title: string;
+	readonly content: string;
+}
+
+export type RichDocumentComponent =
+	| RichDocumentHeadingComponent
+	| RichDocumentCalloutComponent
+	| RichDocumentCodeComponent
+	| RichDocumentMetadataComponent
+	| RichDocumentLinkComponent
+	| RichDocumentTimelineCardComponent
+	| RichDocumentCollapsibleComponent;
+
 export interface RichDocumentSection {
 	readonly id: string;
 	readonly title?: string;
 	readonly content: string;
 	readonly collapsed?: boolean;
 	readonly actions?: readonly TranscriptAction[];
+	readonly components?: readonly RichDocumentComponent[];
 }
 
 export interface RichDocumentRenderModel {
