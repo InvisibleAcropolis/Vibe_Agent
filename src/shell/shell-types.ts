@@ -15,6 +15,7 @@ export type HeaderFactory = (tui: TUI, theme: Theme) => Component & { dispose?()
 export interface ShellLayoutInput {
 	cols: number;
 	rows: number;
+	useLegacyFixedRows: boolean;
 	customHeaderHeight: number;
 	headerHeight: number;
 	menuHeight: number;

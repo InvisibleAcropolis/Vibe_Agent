@@ -44,7 +44,8 @@ export class DefaultShellView implements ShellView {
 	readonly tui: TUI;
 	readonly footerData = new FooterDataProvider(process.cwd());
 	private readonly transcriptViewport = new TranscriptViewport();
-	private readonly thinkingTray = new ThinkingTray();
+	private readonly rollbackCompatibilityEnabled: boolean;
+	private readonly thinkingTray?: ThinkingTray;
 	private readonly customHeaderContainer = new Container();
 	private readonly widgetContainerAbove = new Container();
 	private readonly widgetContainerBelow = new Container();
@@ -59,8 +60,8 @@ export class DefaultShellView implements ShellView {
 	private readonly contentArea: SideBySideContainer;
 	private readonly extensionChrome: ShellExtensionChrome;
 	private readonly transcriptController: ShellTranscriptController;
-	private readonly thinkingSync: ShellThinkingSync;
-	private readonly sessionsController: ShellSessionsController;
+	private readonly thinkingSync?: ShellThinkingSync;
+	private readonly sessionsController?: ShellSessionsController;
 	private transcriptRect: Rect = { row: 1, col: 1, width: 1, height: 1 };
 	private animationUnsubscribe?: () => void;
 
@@ -72,6 +73,11 @@ export class DefaultShellView implements ShellView {
 		private readonly getAgentHost: () => AgentHost | undefined,
 		private readonly animationEngine?: AnimationEngine,
 	) {
+		// Temporary rollback switch for pre-cutover shell behavior:
+		// - thinking tray appended beneath the shell
+		// - side-by-side transcript/sessions rail and related row math
+		// Default path keeps these disabled.
+		this.rollbackCompatibilityEnabled = process.env.VIBE_SHELL_ROLLBACK_COMPAT === "1";
 		this.tui = new TUI(terminal, true);
 		this.contentArea = new SideBySideContainer(this.transcriptViewport, null, 30);
 		this.transcriptController = new ShellTranscriptController(this.transcriptViewport);
@@ -85,19 +91,22 @@ export class DefaultShellView implements ShellView {
 			footerData: this.footerData,
 			onDefaultHeaderRequested: () => this.refreshChromeOnly(),
 		});
-		this.thinkingSync = new ShellThinkingSync({
-			stateStore: this.stateStore,
-			thinkingTray: this.thinkingTray,
-			getMessages: () => this.getMessages(),
-		});
-		this.sessionsController = new ShellSessionsController({
-			contentArea: this.contentArea,
-			getAgentHost: () => this.getAgentHost(),
-			getHostState: () => this.getHostState(),
-			setFocus: (component) => this.setFocus(component),
-			requestRender: () => this.tui.requestRender(),
-			animationEngine: this.animationEngine,
-		});
+		if (this.rollbackCompatibilityEnabled) {
+			this.thinkingTray = new ThinkingTray();
+			this.thinkingSync = new ShellThinkingSync({
+				stateStore: this.stateStore,
+				thinkingTray: this.thinkingTray,
+				getMessages: () => this.getMessages(),
+			});
+			this.sessionsController = new ShellSessionsController({
+				contentArea: this.contentArea,
+				getAgentHost: () => this.getAgentHost(),
+				getHostState: () => this.getHostState(),
+				setFocus: (component) => this.setFocus(component),
+				requestRender: () => this.tui.requestRender(),
+				animationEngine: this.animationEngine,
+			});
+		}
 
 		this.tui.addChild(this.customHeaderContainer);
 		this.tui.addChild(this.chromeHeaderInfo);
@@ -111,7 +120,9 @@ export class DefaultShellView implements ShellView {
 		this.tui.addChild(this.footerContentContainer);
 		this.tui.addChild(this.chromeStatus);
 		this.tui.addChild(this.chromeSummary);
-		this.tui.addChild(this.thinkingTray);
+		if (this.thinkingTray) {
+			this.tui.addChild(this.thinkingTray);
+		}
 
 		this.stateStore.subscribe(() => this.refresh());
 		this.footerData.onBranchChange(() => this.refresh());
@@ -187,13 +198,13 @@ export class DefaultShellView implements ShellView {
 	}
 
 	toggleSessionsPanel(): void {
-		this.sessionsController.toggle();
+		this.sessionsController?.toggle();
 		this.refresh();
 		this.tui.requestRender();
 	}
 
 	refresh(): void {
-		this.thinkingSync.sync();
+		this.thinkingSync?.sync();
 		this.extensionChrome.renderFooterContent();
 		this.extensionChrome.renderWidgets();
 		this.refreshChromeOnly();
@@ -212,9 +223,10 @@ export class DefaultShellView implements ShellView {
 			footerContentHeight: this.footerContentContainer.render(this.tui.terminal.columns).length,
 			statusHeight: this.chromeStatus.render(this.tui.terminal.columns).length,
 			summaryHeight: this.chromeSummary.render(this.tui.terminal.columns).length,
-			thinkingTrayHeight: this.thinkingTray.render(this.tui.terminal.columns).length,
-			sessionsPanelVisible: this.sessionsController.isVisible(),
-			rightWidth: this.contentArea.rightWidth,
+			useLegacyFixedRows: this.rollbackCompatibilityEnabled,
+			thinkingTrayHeight: this.thinkingTray?.render(this.tui.terminal.columns).length ?? 0,
+			sessionsPanelVisible: this.sessionsController?.isVisible() ?? false,
+			rightWidth: this.rollbackCompatibilityEnabled ? this.contentArea.rightWidth : 0,
 		});
 
 		this.transcriptRect = layout.transcriptRect;
@@ -283,6 +295,6 @@ export class DefaultShellView implements ShellView {
 		this.chromeStatus.setText(chrome.statusText);
 		this.chromeSummary.setText(chrome.summaryText);
 		this.contentArea.wipeChar = chrome.wipeChar;
-		this.sessionsController.setBorderColor(chrome.sessionBorderColor);
+		this.sessionsController?.setBorderColor(chrome.sessionBorderColor);
 	}
 }
