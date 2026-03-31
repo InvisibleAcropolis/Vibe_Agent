@@ -7,8 +7,10 @@ import { fileURLToPath } from "node:url";
 const binDir = path.dirname(fileURLToPath(import.meta.url));
 process.env.PI_MONO_APP_DEBUG_BUNDLE ??= path.join(binDir, "..", ".debug", "live");
 const entry = path.join(binDir, "..", "src", "launcher", "psmux-launcher.ts");
+const selectedShell = process.env.VIBE_MAIN_SHELL?.toLowerCase() ?? "opentui";
+const useBunRuntime = selectedShell === "opentui";
 
-const child = spawn(process.execPath, ["--import", "tsx", entry, ...process.argv.slice(2)], {
+const child = spawn(useBunRuntime ? "bun" : process.execPath, useBunRuntime ? [entry, ...process.argv.slice(2)] : ["--import", "tsx", entry, ...process.argv.slice(2)], {
 	stdio: "inherit",
 	env: process.env,
 });

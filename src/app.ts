@@ -1,4 +1,4 @@
-import { ProcessTerminal, type Component } from "@mariozechner/pi-tui";
+import { ProcessTerminal } from "@mariozechner/pi-tui";
 import { getEnvApiKey } from "@mariozechner/pi-ai";
 import { AppConfigRepository } from "./app/app-config-repository.js";
 import { AppDebugSnapshotService } from "./app/app-debug-snapshot-service.js";
@@ -20,9 +20,9 @@ import { ensureVibeDurableStorage, getVibeConfigPath, getVibeDurableRoot } from 
 import { LogCatalogService } from "./durable/logs/log-catalog-service.js";
 import { MemoryStoreService } from "./durable/memory/memory-store-service.js";
 import { WorkbenchInventoryService } from "./durable/workbench-inventory-service.js";
-import { DefaultEditorController } from "./editor-controller.js";
+import { DefaultEditorController, type EditorController } from "./editor-controller.js";
 import { DefaultExtensionUiHost } from "./extension-ui-host.js";
-import { DefaultInputController } from "./input-controller.js";
+import { DefaultInputController, type InputController } from "./input-controller.js";
 import {
 	initTheme,
 	type AppAction,
@@ -30,7 +30,7 @@ import {
 	onThemeChange,
 } from "./local-coding-agent.js";
 import { MouseEnabledTerminal } from "./mouse-enabled-terminal.js";
-import { DefaultOverlayController } from "./overlay-controller.js";
+import { DefaultOverlayController, type OverlayController } from "./overlay-controller.js";
 import { readPsmuxRuntimeContext } from "./psmux-runtime-context.js";
 import type { ShellView } from "./shell-view.js";
 import { createMainShellAdapter, type MainShellImplementation } from "./shell/main-shell-adapter.js";
@@ -41,6 +41,9 @@ import { getThemeNames, onThemeConfigChange, setActiveTheme, type ThemeName } fr
 import type { VibeAgentAppOptions } from "./types.js";
 import { normalizeVibeAppMode } from "./app-mode.js";
 import { OrcExternalSessionLauncher } from "./orchestration/orc-session-launcher.js";
+import { OpenTuiEditorController } from "./shell-opentui/editor-controller.js";
+import { OpenTuiInputController } from "./shell-opentui/input-controller.js";
+import { OpenTuiOverlayController } from "./shell-opentui/overlay-controller.js";
 
 export class VibeAgentApp {
 	readonly debugger: PiMonoAppDebugger;
@@ -52,14 +55,14 @@ export class VibeAgentApp {
 	readonly memoryStoreService: MemoryStoreService;
 	readonly logCatalogService: LogCatalogService;
 	readonly inventoryService: WorkbenchInventoryService;
-	private readonly overlayController: DefaultOverlayController;
-	private readonly editorController: DefaultEditorController;
+	private readonly overlayController: OverlayController;
+	private readonly editorController: EditorController;
 	private readonly commandController: DefaultCommandController;
 	private readonly extensionUiHost: DefaultExtensionUiHost;
 	private readonly startupController: DefaultStartupController;
-	private readonly inputController: DefaultInputController;
+	private readonly inputController: InputController;
 	private readonly splashWindowController: SplashWindowController;
-	private readonly terminal: MouseEnabledTerminal;
+	private readonly terminal?: MouseEnabledTerminal;
 	private readonly animEngine: AnimationEngine;
 	private readonly keybindings: InternalKeybindingsManager;
 	private readonly lifecycle: AppLifecycleController;
@@ -223,18 +226,21 @@ export class VibeAgentApp {
 			onPromptFocus: () => this.setFocus(this.editorController.getComponent(), "editor"),
 		});
 		this.shellView = shellAdapter.shellView;
+		const usingOpenTui = this.shellView.implementation === "opentui";
 		const psmuxRuntimeLabel = this.shellView.footerData.getPsmuxRuntimeLabel();
 		this.shellView.setTitle(psmuxRuntimeLabel ? `Vibe Agent - ${psmuxRuntimeLabel}` : "Vibe Agent");
-		this.splashWindowController = new SplashWindowController(this.shellView.tui, this.animEngine, {
-			enabled: false,
-		});
+		this.splashWindowController = usingOpenTui
+			? ({ start() {}, dispose() {} } as SplashWindowController)
+			: new SplashWindowController((this.shellView as any).tui, this.animEngine, {
+				enabled: false,
+			});
 		this.stateStore.setOnStatusChange((message) => this.animEngine.setTypewriterTarget(message));
 
 		let runtimePresentation!: AppRuntimePresentation;
 		const transcriptBridge = new TranscriptPublicationBridge(
 			resolveTranscriptPublicationMode(
 				process.env.VIBE_TRANSCRIPT_PUBLICATION_MODE
-				?? (selectedShellImplementation === "next" ? "dual" : "legacy"),
+				?? (selectedShellImplementation === "legacy" ? "legacy" : "next"),
 			),
 		);
 		this.messageSync = new AppMessageSyncService(
@@ -249,68 +255,85 @@ export class VibeAgentApp {
 
 		const keybindings = InternalKeybindingsManager.create();
 		this.keybindings = keybindings;
-		this.overlayController = new DefaultOverlayController(
-			this.shellView.tui,
-			this.stateStore,
-			this.debugger,
-			keybindings,
-			() => this.editorController.getComponent(),
-			(component, label) => this.setFocus(component, label),
-		);
+		this.overlayController = usingOpenTui
+			? new OpenTuiOverlayController(this.shellView as any)
+			: new DefaultOverlayController(
+				(this.shellView as any).tui,
+				this.stateStore,
+				this.debugger,
+				keybindings,
+				() => this.editorController.getComponent() as any,
+				(component, label) => this.setFocus(component, label),
+			);
 
 		let commandController!: DefaultCommandController;
-		this.editorController = new DefaultEditorController(
-			this.shellView.tui,
-			keybindings,
-			this.stateStore,
-			this.debugger,
-			{
-				onOpenCommandPalette: () => commandController.openCommandPalette(),
-				onAbort: () => {
-					void this.host.abort().catch((error) => this.handleRuntimeError("abort", error));
-				},
-				onStop: () => this.stop(),
-				isStreaming: () => this.safeGetHostState()?.isStreaming ?? false,
-				onCycleThinkingLevel: () => {
-					void this.host.cycleThinkingLevel().catch((error) => this.handleRuntimeError("cycleThinkingLevel", error));
-				},
-				onCycleModelForward: () => {
-					void this.host
-						.cycleModel("forward")
-						.then(() => {
-							sessionCoordinator.persistCurrentHostModelSelection(this.safeGetHostState());
-							runtimePresentation.refreshCockpitContext();
-						})
-						.catch((error) => this.handleRuntimeError("cycleModel.forward", error));
-				},
-				onCycleModelBackward: () => {
-					void this.host
-						.cycleModel("backward")
-						.then(() => {
-							sessionCoordinator.persistCurrentHostModelSelection(this.safeGetHostState());
-							runtimePresentation.refreshCockpitContext();
-						})
-						.catch((error) => this.handleRuntimeError("cycleModel.backward", error));
-				},
-				onSelectModel: () => {
-					void sessionCoordinator.openSetupFlow({ startStep: "model", showCompletion: false, reason: "model-choice-needed" });
-				},
-				onExpandTools: () => {
-					this.stateStore.setToolOutputExpanded(!this.stateStore.getState().toolOutputExpanded);
-					this.syncMessages();
-				},
-				onToggleThinking: () => {
-					sessionCoordinator.setThinkingVisibility(!this.stateStore.getState().showThinking);
-				},
-				onSubmit: async (text, streamingBehavior) => {
-					await this.submissionService.submitEditor(text, streamingBehavior);
-				},
+		const editorHandlers = {
+			onOpenCommandPalette: () => commandController.openCommandPalette(),
+			onAbort: () => {
+				void this.host.abort().catch((error) => this.handleRuntimeError("abort", error));
 			},
-			(component) => {
-				this.shellView.setEditor(component);
-				this.setFocus(component, "editor");
+			onStop: () => this.stop(),
+			isStreaming: () => this.safeGetHostState()?.isStreaming ?? false,
+			onCycleThinkingLevel: () => {
+				void this.host.cycleThinkingLevel().catch((error) => this.handleRuntimeError("cycleThinkingLevel", error));
 			},
-		);
+			onCycleModelForward: () => {
+				void this.host
+					.cycleModel("forward")
+					.then(() => {
+						sessionCoordinator.persistCurrentHostModelSelection(this.safeGetHostState());
+						runtimePresentation.refreshCockpitContext();
+					})
+					.catch((error) => this.handleRuntimeError("cycleModel.forward", error));
+			},
+			onCycleModelBackward: () => {
+				void this.host
+					.cycleModel("backward")
+					.then(() => {
+						sessionCoordinator.persistCurrentHostModelSelection(this.safeGetHostState());
+						runtimePresentation.refreshCockpitContext();
+					})
+					.catch((error) => this.handleRuntimeError("cycleModel.backward", error));
+			},
+			onSelectModel: () => {
+				void sessionCoordinator.openSetupFlow({ startStep: "model", showCompletion: false, reason: "model-choice-needed" });
+			},
+			onExpandTools: () => {
+				this.stateStore.setToolOutputExpanded(!this.stateStore.getState().toolOutputExpanded);
+				this.syncMessages();
+			},
+			onToggleThinking: () => {
+				sessionCoordinator.setThinkingVisibility(!this.stateStore.getState().showThinking);
+			},
+			onSubmit: async (text: string, streamingBehavior: "steer" | "followUp") => {
+				await this.submissionService.submitEditor(text, streamingBehavior);
+			},
+		};
+		this.editorController = usingOpenTui
+			? new OpenTuiEditorController(
+				keybindings,
+				this.stateStore,
+				this.debugger,
+				editorHandlers,
+				(component) => {
+					this.shellView.setEditor(component);
+					this.setFocus(component, "editor");
+				},
+			)
+			: new DefaultEditorController(
+				(this.shellView as any).tui,
+				keybindings,
+				this.stateStore,
+				this.debugger,
+				editorHandlers,
+				(component) => {
+					this.shellView.setEditor(component);
+					this.setFocus(component, "editor");
+				},
+			);
+		if (usingOpenTui && this.editorController instanceof OpenTuiEditorController && "bindEditorController" in (this.shellView as object)) {
+			(this.shellView as { bindEditorController?: (controller: OpenTuiEditorController) => void }).bindEditorController?.(this.editorController);
+		}
 
 		sessionCoordinator = new AppSessionCoordinator({
 			shellView: this.shellView,
@@ -400,7 +423,7 @@ export class VibeAgentApp {
 			logCatalogService: this.logCatalogService,
 			getMessages: () => this.safeGetMessages(),
 			getHostState: () => this.safeGetHostState(),
-			getFocusedComponent: () => lifecycle.getFocusedComponent(),
+			getFocusedComponentLabel: () => lifecycle.getFocusedLabel(),
 			getRuntimeContext: () => this.runtimePresentation.getRuntimeContext(),
 		});
 
@@ -414,14 +437,16 @@ export class VibeAgentApp {
 
 		this.shellView.setEditor(this.editorController.getComponent());
 
-		this.inputController = new DefaultInputController(
-			this.shellView.tui,
-			this.stateStore,
-			this.overlayController,
-			shellAdapter,
-			this.debugger,
-			() => this.stop(),
-		);
+		this.inputController = usingOpenTui
+			? new OpenTuiInputController()
+			: new DefaultInputController(
+				(this.shellView as any).tui,
+				this.stateStore,
+				this.overlayController,
+				shellAdapter,
+				this.debugger,
+				() => this.stop(),
+			);
 
 		this.extensionUiHost = new DefaultExtensionUiHost(
 			this.shellView,
@@ -457,14 +482,14 @@ export class VibeAgentApp {
 		);
 		this.lifecycle = lifecycle;
 
-		this.shellView.tui.onDebug = () => {
+		this.shellView.setDebugHandler?.(() => {
 			const bundleDir = this.writeDebugSnapshot("manual-hotkey");
 			this.stateStore.setStatusMessage(bundleDir ? `Debug snapshot written to ${bundleDir}` : "Debug snapshot written.");
-		};
-		onThemeChange(() => this.shellView.tui.requestRender());
+		});
+		onThemeChange(() => this.shellView.requestRender());
 		onThemeConfigChange(() => {
 			this.shellView.refresh();
-			this.shellView.tui.requestRender();
+			this.shellView.requestRender();
 		});
 		this.stateStore.subscribe((state) => {
 			if (
@@ -531,7 +556,7 @@ export class VibeAgentApp {
 		}
 	}
 
-	private setFocus(component: Component | null, label: string): void {
+	private setFocus(component: unknown, label: string): void {
 		this.lifecycle.setFocus(component, label);
 	}
 
@@ -562,7 +587,10 @@ export class VibeAgentApp {
 		}
 
 		const envValue = process.env.VIBE_MAIN_SHELL?.toLowerCase();
-		return envValue === "legacy" ? "legacy" : "next";
+		if (envValue === "legacy" || envValue === "next" || envValue === "opentui") {
+			return envValue;
+		}
+		return "opentui";
 	}
 	private stateStoreSnapshot(): { showThinking: boolean; toolOutputExpanded: boolean } {
 		const state = this.stateStore.getState();

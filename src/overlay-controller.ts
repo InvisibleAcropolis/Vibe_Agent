@@ -28,7 +28,7 @@ interface FloatingOverlayGeometry {
 	active: boolean;
 }
 
-type OverlayOptionsWithMousePolicy = OverlayOptions & {
+export type OverlayOptionsWithMousePolicy = OverlayOptions & {
 	minHeight?: number;
 	maxWidth?: number;
 	mousePolicy?: OverlayMousePolicy;
@@ -37,6 +37,12 @@ type OverlayOptionsWithMousePolicy = OverlayOptions & {
 	onHide?: () => void;
 	onFloatingWindowStateChange?: (model: FloatWindowModel) => void;
 };
+
+export interface ShellOverlayHandle {
+	hide(): void;
+	isHidden(): boolean;
+	setHidden?(hidden: boolean): void;
+}
 
 export interface OverlayController {
 	openSelectOverlay<T>(
@@ -56,8 +62,8 @@ export interface OverlayController {
 	): void;
 	openEditorPrompt(title: string, prefill: string, onSubmit: (value: string) => void, onCancel: () => void): void;
 	openMenuOverlay(id: string, definition: ShellMenuDefinition): void;
-	showCustomOverlay(id: string, component: Component, options: OverlayOptionsWithMousePolicy): OverlayHandle;
-	showFramedOverlay(id: string, component: Component, options: OverlayOptionsWithMousePolicy): OverlayHandle;
+	showCustomOverlay(id: string, component: unknown, options: OverlayOptionsWithMousePolicy): ShellOverlayHandle;
+	showFramedOverlay(id: string, component: unknown, options: OverlayOptionsWithMousePolicy): ShellOverlayHandle;
 	updateFloatingOverlayGeometry(id: string, geometry: { row?: number; col?: number; width?: number; height?: number }): void;
 	closeTopOverlay(): void;
 	closeOverlay(id: string): void;
@@ -177,12 +183,12 @@ export class DefaultOverlayController implements OverlayController {
 		);
 	}
 
-	showCustomOverlay(id: string, component: Component, options: OverlayOptionsWithMousePolicy): OverlayHandle {
-		return this.showOverlay(id, component, options, { floating: true, title: options.floatingTitle ?? id });
+	showCustomOverlay(id: string, component: unknown, options: OverlayOptionsWithMousePolicy): ShellOverlayHandle {
+		return this.showOverlay(id, component as Component, options, { floating: true, title: options.floatingTitle ?? id });
 	}
 
-	showFramedOverlay(id: string, component: Component, options: OverlayOptionsWithMousePolicy): OverlayHandle {
-		return this.showOverlay(id, component, options, { framed: true });
+	showFramedOverlay(id: string, component: unknown, options: OverlayOptionsWithMousePolicy): ShellOverlayHandle {
+		return this.showOverlay(id, component as Component, options, { framed: true });
 	}
 
 	updateFloatingOverlayGeometry(id: string, geometry: { row?: number; col?: number; width?: number; height?: number }): void {

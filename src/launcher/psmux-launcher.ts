@@ -178,6 +178,11 @@ export async function launchVibeAgentWithPsmux(dependencies: PsmuxLauncherDepend
 	await assertPsmuxAvailable(runner, writeError);
 
 	if (await sessionManager.sessionExists()) {
+		try {
+			await paneOrchestrator.selectPane(`${sessionName}:0.0`);
+		} catch {
+			// Best effort only; attach still works if pane selection is unsupported.
+		}
 		if (attach) {
 			writeSplashReplaySignal(sessionName, { durableRoot: durableRootPath });
 			await sessionManager.attachInteractiveSession();
@@ -215,6 +220,11 @@ export async function launchVibeAgentWithPsmux(dependencies: PsmuxLauncherDepend
 
 		await paneOrchestrator.injectCommand(primaryPaneId, primaryCommand);
 		await paneOrchestrator.injectCommand(secondaryPane.paneId, secondaryCommand);
+		try {
+			await paneOrchestrator.selectPane(`${sessionName}:0.0`);
+		} catch {
+			// Best effort only; attach still works if pane selection is unsupported.
+		}
 	}
 
 	if (attach) {

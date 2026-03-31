@@ -18,29 +18,33 @@ import type { FooterFactory, HeaderFactory, WidgetFactory } from "./shell/shell-
 import type { NormalizedTranscriptPublication } from "./shell/transcript-publication.js";
 
 export interface ShellView {
-	readonly tui: TUI;
+	readonly implementation: "legacy" | "next" | "opentui";
 	readonly footerData: FooterDataProvider;
 	start(): void;
 	stop(): void;
-	setEditor(component: Component): void;
-	setFocus(component: Component | null): void;
-	setMessages(components: Component[]): void;
+	setEditor(component: unknown): void;
+	setFocus(component: unknown): void;
+	setMessages(components: unknown[]): void;
 	publishNormalizedTranscript?(publication: NormalizedTranscriptPublication): void;
 	clearMessages(): void;
-	setWidget(key: string, content: WidgetFactory | string[] | undefined, placement?: "aboveEditor" | "belowEditor"): void;
-	setHeaderFactory(factory: HeaderFactory | undefined): void;
-	setFooterFactory(factory: FooterFactory | undefined): void;
+	setWidget(key: string, content: unknown, placement?: "aboveEditor" | "belowEditor"): void;
+	setHeaderFactory(factory: unknown): void;
+	setFooterFactory(factory: unknown): void;
 	setTitle(title: string): void;
 	refresh(): void;
+	requestRender(): void;
 	toggleSessionsPanel(): void;
 	scrollTranscript(lines: number): void;
 	scrollTranscriptToTop(): void;
 	scrollTranscriptToBottom(): void;
 	dispatchMouse(event: MouseEvent): boolean;
 	getMenuAnchor(key: string): { row: number; col: number };
+	getDebugSnapshot(): { width: number; height: number; lines: string[] };
+	setDebugHandler?(handler: (() => void) | undefined): void;
 }
 
 export class DefaultShellView implements ShellView {
+	readonly implementation = "legacy" as const;
 	readonly tui: TUI;
 	readonly footerData = new FooterDataProvider(process.cwd());
 	private readonly transcriptViewport = new TranscriptViewport();
@@ -153,19 +157,22 @@ export class DefaultShellView implements ShellView {
 		this.tui.stop();
 	}
 
-	setEditor(component: Component): void {
+	setEditor(component: unknown): void {
+		if (!(component instanceof Container) && !(component instanceof Text) && !(component && typeof (component as Component).render === "function")) {
+			return;
+		}
 		this.editorContainer.clear();
-		this.editorContainer.addChild(component);
+		this.editorContainer.addChild(component as Component);
 		this.refresh();
 		this.tui.requestRender();
 	}
 
-	setFocus(component: Component | null): void {
-		this.tui.setFocus(component);
+	setFocus(component: unknown): void {
+		this.tui.setFocus((component ?? null) as Component | null);
 	}
 
-	setMessages(components: Component[]): void {
-		this.transcriptController.setMessages(components);
+	setMessages(components: unknown[]): void {
+		this.transcriptController.setMessages(components as Component[]);
 		this.refresh();
 		this.tui.requestRender();
 	}
@@ -176,19 +183,19 @@ export class DefaultShellView implements ShellView {
 		this.tui.requestRender();
 	}
 
-	setWidget(key: string, content: WidgetFactory | string[] | undefined, placement: "aboveEditor" | "belowEditor" = "aboveEditor"): void {
-		this.extensionChrome.setWidget(key, content, placement);
+	setWidget(key: string, content: unknown, placement: "aboveEditor" | "belowEditor" = "aboveEditor"): void {
+		this.extensionChrome.setWidget(key, content as WidgetFactory | string[] | undefined, placement);
 		this.extensionChrome.renderWidgets();
 		this.tui.requestRender();
 	}
 
-	setHeaderFactory(factory: HeaderFactory | undefined): void {
-		this.extensionChrome.setHeaderFactory(factory);
+	setHeaderFactory(factory: unknown): void {
+		this.extensionChrome.setHeaderFactory(factory as HeaderFactory | undefined);
 		this.tui.requestRender();
 	}
 
-	setFooterFactory(factory: FooterFactory | undefined): void {
-		this.extensionChrome.setFooterFactory(factory);
+	setFooterFactory(factory: unknown): void {
+		this.extensionChrome.setFooterFactory(factory as FooterFactory | undefined);
 		this.extensionChrome.renderFooterContent();
 		this.tui.requestRender();
 	}
@@ -236,6 +243,10 @@ export class DefaultShellView implements ShellView {
 		this.refreshChromeOnly();
 	}
 
+	requestRender(): void {
+		this.tui.requestRender();
+	}
+
 	scrollTranscript(lines: number): void {
 		this.transcriptController.scrollBy(lines);
 		this.transcriptController.measure(Math.max(1, this.transcriptRect.width));
@@ -274,6 +285,18 @@ export class DefaultShellView implements ShellView {
 			customHeaderHeight: this.customHeaderContainer.render(cols).length,
 			headerHeight: this.chromeHeaderInfo.render(cols).length,
 		});
+	}
+
+	getDebugSnapshot(): { width: number; height: number; lines: string[] } {
+		return {
+			width: this.tui.terminal.columns,
+			height: this.tui.terminal.rows,
+			lines: this.tui.render(this.tui.terminal.columns),
+		};
+	}
+
+	setDebugHandler(handler: (() => void) | undefined): void {
+		this.tui.onDebug = handler;
 	}
 
 	private refreshChromeOnly(): void {

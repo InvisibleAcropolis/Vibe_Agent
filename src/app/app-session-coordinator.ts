@@ -1,4 +1,3 @@
-import type { Component } from "@mariozechner/pi-tui";
 import type { AgentHost, AgentHostState } from "../agent-host.js";
 import type { AppConfig } from "../app-config.js";
 import type { AppStateStore } from "../app-state-store.js";
@@ -28,7 +27,7 @@ export class AppSessionCoordinator {
 			configRepository: AppConfigRepository;
 			setupService: AppSetupService;
 			getHostState: () => AgentHostState | undefined;
-			getEditorComponent: () => Component;
+			getEditorComponent: () => unknown;
 			restoreEditor: () => void;
 			isHostInitialized: () => boolean;
 			onInteractiveFlowComplete: () => void;
@@ -77,6 +76,11 @@ export class AppSessionCoordinator {
 	}
 
 	async openSetupFlow(request: SetupRunRequest): Promise<void> {
+		const legacyTui = (this.dependencies.shellView as ShellView & { tui?: unknown }).tui;
+		if (!legacyTui) {
+			this.dependencies.stateStore.setStatusMessage("Interactive setup is not yet available in the OpenTUI shell.");
+			return;
+		}
 		this.setupFlowActive = true;
 		const controller = new WelcomeController(
 			this.dependencies.shellView,
@@ -84,7 +88,7 @@ export class AppSessionCoordinator {
 			this.dependencies.modelRegistry,
 			this.getConfig(),
 			this.dependencies.configRepository.path,
-			this.dependencies.shellView.tui,
+			legacyTui as any,
 			{
 				onConfigChange: (config) => {
 					this.saveConfig(config);
@@ -114,6 +118,11 @@ export class AppSessionCoordinator {
 	}
 
 	async openLogoutFlow(): Promise<void> {
+		const legacyTui = (this.dependencies.shellView as ShellView & { tui?: { setFocus: (component: unknown) => void; requestRender: () => void } }).tui;
+		if (!legacyTui) {
+			this.dependencies.stateStore.setStatusMessage("Logout flow is not yet available in the OpenTUI shell.");
+			return;
+		}
 		this.setupFlowActive = true;
 		this.dependencies.stateStore.setContextBanner("Disconnect provider", "Choose which provider to log out from.", "warning");
 
@@ -133,8 +142,8 @@ export class AppSessionCoordinator {
 
 			this.dependencies.shellView.setTitle("Vibe Agent · Logout");
 			this.dependencies.shellView.setEditor(selector);
-			this.dependencies.shellView.tui.setFocus(selector as never);
-			this.dependencies.shellView.tui.requestRender();
+			legacyTui.setFocus(selector as never);
+			legacyTui.requestRender();
 		});
 
 		this.finishInteractiveFlow();

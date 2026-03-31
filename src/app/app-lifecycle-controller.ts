@@ -1,4 +1,3 @@
-import type { Component } from "@mariozechner/pi-tui";
 import type { PiMonoAppDebugger } from "../app-debugger.js";
 import type { AppStateStore } from "../app-state-store.js";
 import type { AnimationEngine } from "../animation-engine.js";
@@ -10,7 +9,8 @@ import type { AgentHost } from "../agent-host.js";
 
 export class AppLifecycleController {
 	private running = false;
-	private focusedComponent: Component | null = null;
+	private focusedComponent: unknown = null;
+	private focusedLabel = "editor";
 
 	constructor(
 		private readonly shellView: ShellView,
@@ -57,14 +57,19 @@ export class AppLifecycleController {
 			});
 	}
 
-	setFocus(component: Component | null, label: string): void {
+	setFocus(component: unknown, label: string): void {
 		this.focusedComponent = component;
+		this.focusedLabel = label;
 		this.stateStore.setFocusLabel(label);
 		this.shellView.setFocus(component);
 	}
 
-	getFocusedComponent(): Component | null {
+	getFocusedComponent(): unknown {
 		return this.focusedComponent;
+	}
+
+	getFocusedLabel(): string {
+		return this.focusedLabel;
 	}
 
 	handleRuntimeError(context: string, error: unknown): void {

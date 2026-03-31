@@ -11,13 +11,16 @@ const DEBUG_BUNDLE_ENV = "PI_MONO_APP_DEBUG_BUNDLE";
 
 export interface AppDebuggerSnapshot {
 	reason: string;
-	tui: TUI;
+	tui?: TUI;
+	renderedLines?: string[];
+	viewport?: { width: number; height: number };
 	messages: AgentMessage[];
 	hostState?: AgentHostState;
 	statusMessage?: string;
 	workingMessage?: string;
 	helpMessage?: string;
 	focusedComponent?: Component | null;
+	focusedLabel?: string;
 	editorText?: string;
 	editorCursor?: { line: number; col: number };
 }
@@ -129,15 +132,16 @@ class FileAppDebugger implements PiMonoAppDebugger {
 		const safeReason = sanitizeName(snapshot.reason) || "snapshot";
 		const snapshotPath = path.join(bundleDir, `${stamp}-${safeReason}.txt`);
 		const messagesPath = path.join(bundleDir, `${stamp}-${safeReason}-messages.jsonl`);
-		const renderedLines = snapshot.tui.render(snapshot.tui.terminal.columns);
+		const renderedLines = snapshot.renderedLines ?? snapshot.tui?.render(snapshot.tui.terminal.columns) ?? [];
+		const viewport = snapshot.viewport ?? (snapshot.tui ? { width: snapshot.tui.terminal.columns, height: snapshot.tui.terminal.rows } : { width: 0, height: 0 });
 		const contents = [
 			`Snapshot: ${snapshot.reason}`,
 			`Created: ${new Date().toISOString()}`,
-			`Terminal: ${snapshot.tui.terminal.columns}x${snapshot.tui.terminal.rows}`,
+			`Terminal: ${viewport.width}x${viewport.height}`,
 			`Status: ${snapshot.statusMessage ?? ""}`,
 			`Working: ${snapshot.workingMessage ?? ""}`,
 			`Help: ${snapshot.helpMessage ?? ""}`,
-			`Focused: ${snapshot.focusedComponent?.constructor?.name ?? "none"}`,
+			`Focused: ${snapshot.focusedLabel ?? snapshot.focusedComponent?.constructor?.name ?? "none"}`,
 			`Editor text hash: ${snapshot.editorText ? hashText(snapshot.editorText) : ""}`,
 			`Editor text length: ${snapshot.editorText?.length ?? 0}`,
 			`Editor lines: ${snapshot.editorText ? countLines(snapshot.editorText) : 0}`,

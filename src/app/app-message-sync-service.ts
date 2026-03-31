@@ -6,6 +6,7 @@ import { WorkbenchInventoryService } from "../durable/workbench-inventory-servic
 import { renderAgentMessages } from "../message-renderer.js";
 import type { ShellView } from "../shell-view.js";
 import { resolveTranscriptPublicationMode, TranscriptPublicationBridge } from "./transcript-publication-bridge.js";
+import { normalizeTranscript } from "../transcript-normalizer.js";
 
 export class AppMessageSyncService {
 	private readonly transcriptBridge: TranscriptPublicationBridge;
@@ -28,18 +29,26 @@ export class AppMessageSyncService {
 	} = {}): void {
 		const messages = options.messages ?? this.host.getMessages();
 		const hostState = options.hostState ?? this.host.getState();
-		const renderResult = renderAgentMessages(messages, {
-			hideThinking: this.stateStore.getState().hideThinking,
-			toolOutputExpanded: this.stateStore.getState().toolOutputExpanded,
-			tui: this.shellView.tui,
-		});
+		if (this.shellView.implementation === "opentui" && typeof this.shellView.publishNormalizedTranscript === "function") {
+			this.shellView.publishNormalizedTranscript({
+				messages,
+				hostState,
+				normalizedTranscript: normalizeTranscript(messages),
+			});
+		} else {
+			const renderResult = renderAgentMessages(messages, {
+				hideThinking: this.stateStore.getState().hideThinking,
+				toolOutputExpanded: this.stateStore.getState().toolOutputExpanded,
+				tui: (this.shellView as ShellView & { tui: any }).tui,
+			});
 
-		this.transcriptBridge.publish(this.shellView, {
-			messages,
-			hostState,
-			normalizedTranscript: renderResult.normalizedTranscript,
-			renderResult,
-		});
+			this.transcriptBridge.publish(this.shellView, {
+				messages,
+				hostState,
+				normalizedTranscript: renderResult.normalizedTranscript,
+				renderResult,
+			});
+		}
 		this.artifactCatalog.replaceFromMessages(this.getRuntimeContext(), messages);
 		this.stateStore.setArtifacts(this.inventory.listArtifactViews());
 

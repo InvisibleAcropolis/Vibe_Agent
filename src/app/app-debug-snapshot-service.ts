@@ -1,5 +1,4 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import type { Component } from "@mariozechner/pi-tui";
 import type { PiMonoAppDebugger } from "../app-debugger.js";
 import type { AgentHostState } from "../agent-host.js";
 import type { AppStateStore } from "../app-state-store.js";
@@ -17,22 +16,24 @@ export class AppDebugSnapshotService {
 			logCatalogService: LogCatalogService;
 			getMessages: () => AgentMessage[];
 			getHostState: () => AgentHostState | undefined;
-			getFocusedComponent: () => Component | null;
+			getFocusedComponentLabel: () => string | undefined;
 			getRuntimeContext: () => { runtimeId: string; sessionId?: string };
 		},
 	) {}
 
 	write(reason: string): string | undefined {
 		try {
+			const snapshot = this.dependencies.shellView.getDebugSnapshot();
 			const bundleDir = this.dependencies.debuggerSink.writeSnapshot({
 				reason,
-				tui: this.dependencies.shellView.tui,
+				renderedLines: snapshot.lines,
+				viewport: { width: snapshot.width, height: snapshot.height },
 				messages: this.dependencies.getMessages(),
 				hostState: this.dependencies.getHostState(),
 				statusMessage: this.dependencies.stateStore.getState().statusMessage,
 				workingMessage: this.dependencies.stateStore.getState().workingMessage,
 				helpMessage: this.dependencies.stateStore.getState().helpMessage,
-				focusedComponent: this.dependencies.getFocusedComponent(),
+				focusedLabel: this.dependencies.getFocusedComponentLabel(),
 				editorText: this.dependencies.editorController.getText(),
 				editorCursor: this.dependencies.editorController.getCursor(),
 			});

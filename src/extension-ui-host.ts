@@ -104,6 +104,11 @@ export class DefaultExtensionUiHost implements ExtensionUiHost {
 				},
 			): Promise<T> =>
 				await new Promise<T>((resolve, reject) => {
+					const legacyTui = (this.shellView as ShellView & { tui?: TUI }).tui;
+					if (!legacyTui) {
+						reject(new Error("Custom extension components are not available in the OpenTUI shell."));
+						return;
+					}
 					const savedText = this.editorController.getText();
 					const isOverlay = options?.overlay ?? false;
 					const focusOwner = `extension-ui-custom-${++this.customFocusOwnerCounter}`;
@@ -130,7 +135,7 @@ export class DefaultExtensionUiHost implements ExtensionUiHost {
 						resolve(result);
 					};
 
-					Promise.resolve(factory(this.shellView.tui, agentTheme, this.keybindings, done))
+					Promise.resolve(factory(legacyTui, agentTheme, this.keybindings, done))
 						.then((created) => {
 							component = created;
 							if (isOverlay) {
@@ -138,7 +143,7 @@ export class DefaultExtensionUiHost implements ExtensionUiHost {
 									typeof options?.overlayOptions === "function"
 										? options.overlayOptions()
 										: (options?.overlayOptions ?? { width: "70%", maxHeight: "70%", anchor: "center", margin: 1 });
-								overlayHandle = this.overlayController.showCustomOverlay("extension-custom", component, overlayOptions);
+								overlayHandle = this.overlayController.showCustomOverlay("extension-custom", component, overlayOptions) as OverlayHandle;
 								options?.onHandle?.(overlayHandle);
 								this.customFocusOwners.add(focusOwner);
 								this.setFocus(component, "extension.custom.overlay");
@@ -161,7 +166,7 @@ export class DefaultExtensionUiHost implements ExtensionUiHost {
 				await new Promise<string | undefined>((resolve) => {
 					this.overlayController.openEditorPrompt(title, prefill ?? "", (value) => resolve(value), () => resolve(undefined));
 				}),
-			setEditorComponent: (factory) => this.editorController.replaceEditor(factory as EditorFactory | undefined),
+			setEditorComponent: (factory) => this.editorController.replaceEditor(factory as unknown as EditorFactory | undefined),
 			get theme() {
 				return agentTheme;
 			},
@@ -170,14 +175,14 @@ export class DefaultExtensionUiHost implements ExtensionUiHost {
 			setTheme: (theme) => {
 				const result = setAgentTheme(typeof theme === "string" ? theme : (theme.name ?? "dark"), false);
 				this.shellView.refresh();
-				this.shellView.tui.requestRender();
+				this.shellView.requestRender();
 				return result;
 			},
 			getToolsExpanded: () => this.stateStore.getState().toolOutputExpanded,
 			setToolsExpanded: (expanded) => {
 				this.stateStore.setToolOutputExpanded(expanded);
 				this.shellView.refresh();
-				this.shellView.tui.requestRender();
+				this.shellView.requestRender();
 			},
 		};
 	}

@@ -109,6 +109,13 @@ export class TerminalPaneOrchestrator {
 		}
 	}
 
+	async selectPane(target: string): Promise<void> {
+		const result = await this.runner.run("psmux", ["select-pane", "-t", target]);
+		if (!result.ok) {
+			throw new Error(`Unable to select pane '${target}': ${result.stderr || "command failed"}`);
+		}
+	}
+
 	private async splitPane(
 		directionFlag: "-h" | "-v",
 		role: TerminalPaneRole,

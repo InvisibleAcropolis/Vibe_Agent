@@ -5,7 +5,7 @@ import type { AppStateStore } from "./app-state-store.js";
 import { CustomEditor, getEditorTheme, type KeybindingsManager } from "./local-coding-agent.js";
 import type { AppEditorComponent } from "./types.js";
 
-type EditorFactory = (tui: TUI, theme: ReturnType<typeof getEditorTheme>, keybindings: KeybindingsManager) => AppEditorComponent;
+type EditorFactory = (tui: TUI, theme: ReturnType<typeof getEditorTheme>, keybindings: KeybindingsManager) => unknown;
 
 interface EditorControllerHandlers {
 	onOpenCommandPalette: () => void;
@@ -23,7 +23,7 @@ interface EditorControllerHandlers {
 
 export interface EditorController {
 	readonly keybindings: KeybindingsManager;
-	getComponent(): AppEditorComponent;
+	getComponent(): unknown;
 	getText(): string;
 	setText(text: string): void;
 	getCursor(): { line: number; col: number } | undefined;
@@ -104,7 +104,7 @@ export class DefaultEditorController implements EditorController {
 			return;
 		}
 
-		const customEditor = factory(this.tui, getEditorTheme(), this.keybindings);
+		const customEditor = factory(this.tui, getEditorTheme(), this.keybindings) as AppEditorComponent;
 		customEditor.setText(currentText);
 		this.editor = customEditor;
 		this.onEditorChanged(this.editor);

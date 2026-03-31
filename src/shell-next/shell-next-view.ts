@@ -188,6 +188,7 @@ class ShellNextTranscriptSurface implements Component {
 }
 
 export class ShellNextView implements ShellView {
+	readonly implementation = "next" as const;
 	readonly tui: TUI;
 	readonly footerData = new FooterDataProvider(process.cwd());
 
@@ -268,21 +269,21 @@ export class ShellNextView implements ShellView {
 		this.tui.stop();
 	}
 
-	setEditor(component: Component): void {
-		this.activeEditor = component;
+	setEditor(component: unknown): void {
+		this.activeEditor = component as Component;
 		this.editorContainer.clear();
-		this.editorContainer.addChild(component);
+		this.editorContainer.addChild(this.activeEditor);
 		this.refresh();
 		this.tui.requestRender();
 	}
 
-	setFocus(component: Component | null): void {
-		this.tui.setFocus(component);
+	setFocus(component: unknown): void {
+		this.tui.setFocus((component ?? null) as Component | null);
 	}
 
-	setMessages(components: Component[]): void {
+	setMessages(components: unknown[]): void {
 		if (!this.latestTranscriptPublication) {
-			this.transcriptSurface.setLegacyComponents(components);
+			this.transcriptSurface.setLegacyComponents(components as Component[]);
 		}
 		this.refresh();
 		this.tui.requestRender();
@@ -302,7 +303,7 @@ export class ShellNextView implements ShellView {
 		this.tui.requestRender();
 	}
 
-	setWidget(key: string, content: WidgetFactory | string[] | undefined, placement: "aboveEditor" | "belowEditor" = "aboveEditor"): void {
+	setWidget(key: string, content: unknown, placement: "aboveEditor" | "belowEditor" = "aboveEditor"): void {
 		const target = placement === "belowEditor" ? this.widgetEntriesBelow : this.widgetEntriesAbove;
 		const container = placement === "belowEditor" ? this.widgetBelowContainer : this.widgetAboveContainer;
 		const existing = target.get(key);
@@ -312,7 +313,7 @@ export class ShellNextView implements ShellView {
 		} else {
 			const component = Array.isArray(content)
 				? new Text(content.join("\n"), 0, 0)
-				: content(this.tui, getCodingAgentTheme());
+				: (content as WidgetFactory)(this.tui, getCodingAgentTheme());
 			target.set(key, { component });
 		}
 		this.renderWidgetContainer(container, target);
@@ -320,11 +321,11 @@ export class ShellNextView implements ShellView {
 		this.tui.requestRender();
 	}
 
-	setHeaderFactory(factory: HeaderFactory | undefined): void {
-		this.headerFactory = factory;
+	setHeaderFactory(factory: unknown): void {
+		this.headerFactory = factory as HeaderFactory | undefined;
 		this.headerContainer.clear();
 		this.headerComponent?.dispose?.();
-		this.headerComponent = factory ? factory(this.tui, getCodingAgentTheme()) : undefined;
+		this.headerComponent = this.headerFactory ? this.headerFactory(this.tui, getCodingAgentTheme()) : undefined;
 		if (this.headerComponent) {
 			this.headerContainer.addChild(this.headerComponent);
 		}
@@ -332,11 +333,11 @@ export class ShellNextView implements ShellView {
 		this.tui.requestRender();
 	}
 
-	setFooterFactory(factory: FooterFactory | undefined): void {
-		this.footerFactory = factory;
+	setFooterFactory(factory: unknown): void {
+		this.footerFactory = factory as FooterFactory | undefined;
 		this.footerContainer.clear();
 		this.footerComponent?.dispose?.();
-		this.footerComponent = factory ? factory(this.tui, getCodingAgentTheme(), this.footerData) : undefined;
+		this.footerComponent = this.footerFactory ? this.footerFactory(this.tui, getCodingAgentTheme(), this.footerData) : undefined;
 		if (this.footerComponent) {
 			this.footerContainer.addChild(this.footerComponent);
 		}
@@ -346,6 +347,10 @@ export class ShellNextView implements ShellView {
 
 	setTitle(title: string): void {
 		this.tui.terminal.setTitle(title);
+	}
+
+	requestRender(): void {
+		this.tui.requestRender();
 	}
 
 	refresh(): void {
@@ -445,6 +450,18 @@ export class ShellNextView implements ShellView {
 
 	getMenuAnchor(_key: string): { row: number; col: number } {
 		return { row: 1, col: 1 };
+	}
+
+	getDebugSnapshot(): { width: number; height: number; lines: string[] } {
+		return {
+			width: this.tui.terminal.columns,
+			height: this.tui.terminal.rows,
+			lines: this.tui.render(this.tui.terminal.columns),
+		};
+	}
+
+	setDebugHandler(handler: (() => void) | undefined): void {
+		this.tui.onDebug = handler;
 	}
 
 	private syncTranscriptState(force = false): void {

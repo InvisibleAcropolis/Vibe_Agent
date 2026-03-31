@@ -4,12 +4,13 @@ import type { AgentHost, AgentHostState } from "../agent-host.js";
 import type { AnimationEngine } from "../animation-engine.js";
 import type { AppStateStore } from "../app-state-store.js";
 import { DefaultShellView, type ShellView } from "../shell-view.js";
+import { LazyOpenTuiShellView } from "../shell-opentui/lazy-shell-view.js";
 import { createShellNextController } from "../shell-next/controller.js";
 import { createSurfaceLaunchManager } from "../shell-next/surface-launch-manager.js";
 import type { ShellSurfaceLaunchRequest } from "../shell-next/surface-launch-manager.js";
 import type { LaunchSurfaceTarget, OverlayTarget, ShellInputAction } from "./shell-input-actions.js";
 
-export type MainShellImplementation = "legacy" | "next";
+export type MainShellImplementation = "legacy" | "next" | "opentui";
 
 export interface MainShellAdapterOptions {
 	implementation: MainShellImplementation;
@@ -125,6 +126,32 @@ export function createMainShellAdapter(options: MainShellAdapterOptions): MainSh
 					return true;
 				}
 				return dispatchShellAction(nextController.shellView, action);
+			},
+		};
+	}
+
+	if (options.implementation === "opentui") {
+		const surfaceLaunchManager = createDefaultSurfaceManager();
+		const shellView = new LazyOpenTuiShellView({
+			stateStore: options.stateStore,
+			getHostState: options.getHostState,
+			onShellAction: (action) => {
+				if (action.type === "overlay-open") {
+					options.onOverlayOpen?.(action.target);
+					return;
+				}
+				surfaceLaunchManager.launchSurface(action.target);
+			},
+		});
+		return {
+			implementation: "opentui",
+			shellView,
+			dispatchShellAction: (action) => {
+				if (action.type === "surface-launch") {
+					surfaceLaunchManager.launchSurface(action.target);
+					return true;
+				}
+				return dispatchShellAction(shellView, action);
 			},
 		};
 	}

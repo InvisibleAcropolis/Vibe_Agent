@@ -3,6 +3,8 @@
 		"target": "ES2024",
 		"module": "NodeNext",
 		"moduleResolution": "NodeNext",
+		"jsx": "preserve",
+		"jsxImportSource": "@opentui/solid",
 		"lib": ["ES2024"],
 		"strict": true,
 		"esModuleInterop": true,
@@ -14,6 +16,6 @@
 		"rootDir": ".",
 		"outDir": "dist"
 	},
-	"include": ["src/**/*.ts", "test/**/*.ts", "tools/**/*.ts"],
+	"include": ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "test/**/*.tsx", "tools/**/*.ts", "tools/**/*.tsx"],
 	"exclude": ["dist", "node_modules", "coding-agent/dist"]
 }
