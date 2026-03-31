@@ -5,6 +5,7 @@ import type { AnimationEngine } from "../animation-engine.js";
 import type { AppStateStore } from "../app-state-store.js";
 import { DefaultShellView, type ShellView } from "../shell-view.js";
 import { createShellNextController } from "../shell-next/controller.js";
+import type { LaunchSurfaceTarget, OverlayTarget, ShellInputAction } from "./shell-input-actions.js";
 
 export type MainShellImplementation = "legacy" | "next";
 
@@ -16,6 +17,10 @@ export interface MainShellAdapterOptions {
 	getMessages: () => AgentMessage[];
 	getAgentHost: () => AgentHost | undefined;
 	animationEngine?: AnimationEngine;
+	onOverlayOpen?: (target: OverlayTarget) => void;
+	onSurfaceLaunch?: (target: LaunchSurfaceTarget) => void;
+	onPromptFocus?: () => void;
+	onToggleFollow?: () => void;
 }
 
 /**
@@ -28,9 +33,42 @@ export interface MainShellAdapterOptions {
 export interface MainShellAdapter {
 	readonly implementation: MainShellImplementation;
 	readonly shellView: ShellView;
+	dispatchShellAction(action: ShellInputAction): boolean;
 }
 
 export function createMainShellAdapter(options: MainShellAdapterOptions): MainShellAdapter {
+	const dispatchShellAction = (shellView: ShellView, action: ShellInputAction): boolean => {
+		switch (action.type) {
+			case "scroll":
+				switch (action.target) {
+					case "page-up":
+						shellView.scrollTranscript(-10);
+						return true;
+					case "page-down":
+						shellView.scrollTranscript(10);
+						return true;
+					case "top":
+						shellView.scrollTranscriptToTop();
+						return true;
+					case "bottom":
+						shellView.scrollTranscriptToBottom();
+						return true;
+				}
+			case "follow-toggle":
+				options.onToggleFollow?.();
+				return true;
+			case "prompt-focus":
+				options.onPromptFocus?.();
+				return true;
+			case "overlay-open":
+				options.onOverlayOpen?.(action.target);
+				return true;
+			case "surface-launch":
+				options.onSurfaceLaunch?.(action.target);
+				return true;
+		}
+	};
+
 	if (options.implementation === "next") {
 		const nextController = createShellNextController({
 			terminal: options.terminal,
@@ -43,18 +81,22 @@ export function createMainShellAdapter(options: MainShellAdapterOptions): MainSh
 		return {
 			implementation: "next",
 			shellView: nextController.shellView,
+			dispatchShellAction: (action) => dispatchShellAction(nextController.shellView, action),
 		};
 	}
 
+	const shellView = new DefaultShellView(
+		options.terminal ?? new ProcessTerminal(),
+		options.stateStore,
+		options.getHostState,
+		options.getMessages,
+		options.getAgentHost,
+		options.animationEngine,
+	);
+
 	return {
 		implementation: "legacy",
-		shellView: new DefaultShellView(
-			options.terminal ?? new ProcessTerminal(),
-			options.stateStore,
-			options.getHostState,
-			options.getMessages,
-			options.getAgentHost,
-			options.animationEngine,
-		),
+		shellView,
+		dispatchShellAction: (action) => dispatchShellAction(shellView, action),
 	};
 }

@@ -73,7 +73,9 @@ export class HelpOverlay implements MouseAwareOverlay, Focusable {
 
 		lines.push(heading("Global Keybindings"));
 		lines.push(row("Ctrl+Q", "Quit the application"));
-		lines.push(row("F1", "Open command palette"));
+		lines.push(row("F1", "Open settings menu"));
+		lines.push(row("F2", "Open sessions menu"));
+		lines.push(row("F3", "Open orchestration menu"));
 		lines.push(row("Esc", "Close overlay / abort streaming"));
 		lines.push(row("Shift+Ctrl+D", "Write debug snapshot"));
 		lines.push(blank());
@@ -84,6 +86,7 @@ export class HelpOverlay implements MouseAwareOverlay, Focusable {
 		lines.push(row("Ctrl+C / Esc", "Abort streaming / clear"));
 		lines.push(row("Ctrl+D", "Quit (when editor empty)"));
 		lines.push(row("Ctrl+L", "Open model selector"));
+		lines.push(row("Esc (empty prompt)", "Open command palette"));
 		lines.push(row("Shift+Tab", "Cycle thinking level"));
 		lines.push(row("Ctrl+Shift+Up/Down", "Cycle models forward/back"));
 		lines.push(row("Ctrl+E", "Toggle tool output expansion"));
