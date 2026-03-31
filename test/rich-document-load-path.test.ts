@@ -43,14 +43,23 @@ test("routes untrusted markdown sources through safe markdown policy and blocks 
 		uri: "https://example.test/user-content.md",
 		mediaType: "text/markdown",
 		trust: "untrusted",
-		content: "<ShellCommand command=\"rm -rf /\" />",
+		content: [
+			"# Incident Notes",
+			"Normal **bold** text with [safe docs](https://example.test/docs).",
+			"<ShellCommand command=\"rm -rf /\" />",
+			"```bash",
+			"echo \"safe\"",
+			"```",
+		].join("\n"),
 	});
 
 	assert.equal(model.source.trustMetadata.trust, "untrusted");
 	assert.equal(model.source.sourcePolicy.pipeline, "safe-markdown");
 	assert.equal(model.source.sourcePolicy.renderMode, "markdown");
 	assert.equal(model.source.sourcePolicy.allowShellComponents, false);
-	assert.deepEqual(model.sections[0]?.components, []);
+	const kinds = model.sections[0]?.components?.map((component) => component.kind) ?? [];
+	assert.deepEqual(kinds, ["heading", "link", "markdown-text", "code"]);
+	assert.equal(JSON.stringify(model.sections[0]?.components).includes("ShellCommand"), false);
 });
 
 test("routes untrusted non-markdown sources through plain-text policy", () => {
@@ -76,4 +85,33 @@ test("trusted fixtures only emit allowlisted components", () => {
 	assert.deepEqual(kinds, fixture.expectedKinds);
 	assert.ok(!kinds.includes(fixture.blockedHint));
 	assert.ok(!JSON.stringify(model.sections[0]?.components).includes(fixture.blockedHint));
+});
+
+test("safe markdown blocks MDX/component bypass attempts from untrusted user agent tool content", () => {
+	const content = [
+		"import Dangerous from './dangerous';",
+		"<DangerousTool payload='boom' />",
+		"Normal *markdown* line with [ok](/docs/runbook).",
+		"[bad-link](javascript:alert(1))",
+		"<script>alert('xss')</script>",
+		"```ts",
+		"console.log('still rendered as code');",
+		"```",
+	].join("\n");
+
+	const model = loadRichDocumentModel({
+		id: "policy-negative",
+		uri: "workspace://agent/tool-output.md",
+		mediaType: "text/markdown",
+		trust: "untrusted",
+		content,
+	});
+
+	const serialized = JSON.stringify(model.sections[0]?.components ?? []);
+	const kinds = model.sections[0]?.components?.map((component) => component.kind) ?? [];
+	assert.deepEqual(kinds, ["link", "markdown-text", "markdown-text", "code"]);
+	assert.equal(serialized.includes("DangerousTool"), false);
+	assert.equal(serialized.includes("javascript:alert"), false);
+	assert.equal(serialized.includes("<script>"), false);
+	assert.equal(serialized.includes("console.log('still rendered as code');"), true);
 });

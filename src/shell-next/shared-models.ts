@@ -191,7 +191,15 @@ export interface RichDocumentSource {
 
 
 
-export type RichDocumentComponentKind = "heading" | "callout" | "code" | "metadata" | "link" | "timeline-card" | "collapsible";
+export type RichDocumentComponentKind =
+	| "heading"
+	| "callout"
+	| "code"
+	| "metadata"
+	| "link"
+	| "timeline-card"
+	| "collapsible"
+	| "markdown-text";
 
 interface RichDocumentComponentBase {
 	readonly id: string;
@@ -241,6 +249,11 @@ export interface RichDocumentCollapsibleComponent extends RichDocumentComponentB
 	readonly content: string;
 }
 
+export interface RichDocumentMarkdownTextComponent extends RichDocumentComponentBase {
+	readonly kind: "markdown-text";
+	readonly text: string;
+}
+
 export type RichDocumentComponent =
 	| RichDocumentHeadingComponent
 	| RichDocumentCalloutComponent
@@ -248,7 +261,8 @@ export type RichDocumentComponent =
 	| RichDocumentMetadataComponent
 	| RichDocumentLinkComponent
 	| RichDocumentTimelineCardComponent
-	| RichDocumentCollapsibleComponent;
+	| RichDocumentCollapsibleComponent
+	| RichDocumentMarkdownTextComponent;
 
 export interface RichDocumentSection {
 	readonly id: string;

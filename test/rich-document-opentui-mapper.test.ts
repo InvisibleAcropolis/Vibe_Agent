@@ -31,3 +31,16 @@ test("maps trusted rich-document render models into OpenTUI component models", (
 	assert.deepEqual(types, ["Heading", "MetadataRow", "Callout", "Link", "TimelineCard", "Collapsible", "CodeBlock"]);
 	assert.equal(openTuiModel.sections[0]?.components.length, fixture.expectedKinds.length);
 });
+
+test("maps safe markdown components for untrusted content without enabling custom component execution", () => {
+	const renderModel = loadRichDocumentModel({
+		id: "safe-doc",
+		uri: "workspace://tool/untrusted.md",
+		mediaType: "text/markdown",
+		trust: "untrusted",
+		content: "Paragraph with **formatting** and [link](https://example.test).",
+	});
+	const openTuiModel = mapRichDocumentToOpenTui(renderModel);
+	const types = openTuiModel.sections[0]?.components.map((component) => component.type) ?? [];
+	assert.deepEqual(types, ["Link", "MarkdownText"]);
+});
