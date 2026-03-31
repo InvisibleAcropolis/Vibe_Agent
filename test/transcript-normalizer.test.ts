@@ -63,6 +63,89 @@ test("normalizeTranscript splits assistant output into typed timeline items", ()
 	assert.equal((artifactItem as { artifactId?: string } | undefined)?.artifactId, "artifact-1");
 });
 
+
+
+test("normalizeTranscript adapts Orc telemetry into transcript kinds with compact and expanded forms", () => {
+	const normalized = normalizeTranscript([], {
+		orc: [
+			{
+				eventId: "evt-subagent",
+				kind: "agent.message",
+				timestamp: "2026-03-31T09:00:00.000Z",
+				source: { workerId: "scout-1", runtimeId: "runtime-1" },
+				envelope: { what: { severity: "info", description: "Scout drafting plan." } },
+				payload: { subagentId: "scout" },
+			},
+			{
+				eventId: "evt-checkpoint",
+				kind: "checkpoint.status",
+				timestamp: "2026-03-31T09:00:01.000Z",
+				source: { workerId: "orc-main", sessionId: "session-1" },
+				envelope: { what: { severity: "notice", status: "captured" } },
+				payload: { checkpointId: "cp-77" },
+			},
+			{
+				eventId: "evt-runtime",
+				kind: "worker.status",
+				timestamp: "2026-03-31T09:00:02.000Z",
+				source: { workerId: "orc-main" },
+				envelope: { what: { severity: "warning", status: "busy" } },
+				payload: { status: "busy" },
+			},
+			{
+				eventId: "evt-error",
+				kind: "transport.error",
+				timestamp: "2026-03-31T09:00:03.000Z",
+				source: { workerId: "orc-main" },
+				envelope: { what: { severity: "error", description: "transport dropped" } },
+				payload: { code: "EPIPE" },
+			},
+		],
+	});
+
+	assert.deepEqual(normalized.items.map((item) => item.kind), ["subagent-event", "checkpoint", "runtime-status", "error"]);
+	for (const item of normalized.items) {
+		assert.equal(item.parts.length, 2);
+		assert.equal(item.parts[0]?.kind, "summary");
+		assert.equal(item.parts[1]?.kind, "detail");
+		assert.equal(item.parts[1]?.expanded, true);
+	}
+});
+
+test("normalizeTranscript keeps coding and orchestration events in one chronological model", () => {
+	const messages: AgentMessage[] = [
+		{ role: "user", content: "do the thing", timestamp: Date.parse("2026-03-31T10:00:01.000Z") },
+		{
+			role: "assistant",
+			api: "openai-responses",
+			provider: "openai",
+			model: "gpt-5.1",
+			stopReason: "stop",
+			timestamp: Date.parse("2026-03-31T10:00:03.000Z"),
+			content: [{ type: "text", text: "Done." }],
+		} as AgentMessage,
+	];
+
+	const normalized = normalizeTranscript(messages, {
+		rpc: [
+			{
+				eventId: "rpc-1",
+				emittedAt: "2026-03-31T10:00:00.000Z",
+				source: { agentRole: "orc", instanceId: "sess-1" },
+				telemetry: { kind: "ready", severity: "info", payload: { status: "running" } },
+			},
+			{
+				eventId: "rpc-2",
+				emittedAt: "2026-03-31T10:00:02.000Z",
+				source: { agentRole: "orc", instanceId: "sess-1" },
+				telemetry: { kind: "fault", severity: "error", payload: { code: "RPC_DISCONNECT", message: "stream ended" } },
+			},
+		],
+	});
+
+	assert.deepEqual(normalized.items.map((item) => item.kind), ["runtime-status", "user", "error", "assistant-text"]);
+	assert.ok(normalized.items.every((item, index, arr) => index === 0 || Date.parse(arr[index - 1]!.timestamp) <= Date.parse(item.timestamp)));
+});
 test("normalizeTranscript is deterministic for captured real sessions", () => {
 	const fixtures = ["large-session.jsonl", "before-compaction.jsonl"];
 
