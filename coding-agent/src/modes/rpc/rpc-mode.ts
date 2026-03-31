@@ -117,6 +117,7 @@ export async function runRpcMode(session: AgentSession): Promise<never> {
 	/**
 	 * Create an extension UI context that uses the RPC protocol.
 	 */
+	let toolsExpanded = false;
 	const createExtensionUIContext = (): ExtensionUIContext => ({
 		select: (title, options, opts) =>
 			createDialogPromise(opts, undefined, { method: "select", title, options, timeout: opts?.timeout }, (r) =>
@@ -157,11 +158,18 @@ export async function runRpcMode(session: AgentSession): Promise<never> {
 				method: "setStatus",
 				statusKey: key,
 				statusText: text,
+				surface: "meta-row",
 			} as RpcExtensionUIRequest);
 		},
 
-		setWorkingMessage(_message?: string): void {
-			// Working message not supported in RPC mode - requires TUI loader access
+		setWorkingMessage(message?: string): void {
+			output({
+				type: "extension_ui_request",
+				id: crypto.randomUUID(),
+				method: "setWorkingMessage",
+				message,
+				surface: "meta-row",
+			} as RpcExtensionUIRequest);
 		},
 
 		setWidget(key: string, content: unknown, options?: ExtensionWidgetOptions): void {
@@ -174,17 +182,41 @@ export async function runRpcMode(session: AgentSession): Promise<never> {
 					widgetKey: key,
 					widgetLines: content as string[] | undefined,
 					widgetPlacement: options?.placement,
+					surface: "transcript-adjacent-card",
 				} as RpcExtensionUIRequest);
 			}
-			// Component factories are not supported in RPC mode - would need TUI access
+			// Component factories cannot be serialized; emit a compatibility event so hosts can map to supported surfaces.
+			else {
+				output({
+					type: "extension_ui_request",
+					id: crypto.randomUUID(),
+					method: "setWidget",
+					widgetKey: key,
+					widgetLines: undefined,
+					widgetPlacement: options?.placement,
+					surface: "transcript-adjacent-card",
+				} as RpcExtensionUIRequest);
+			}
 		},
 
-		setFooter(_factory: unknown): void {
-			// Custom footer not supported in RPC mode - requires TUI access
+		setFooter(factory: unknown): void {
+			output({
+				type: "extension_ui_request",
+				id: crypto.randomUUID(),
+				method: "setFooter",
+				surface: "secondary-surface",
+				contentType: factory ? "component-factory" : "clear",
+			} as RpcExtensionUIRequest);
 		},
 
-		setHeader(_factory: unknown): void {
-			// Custom header not supported in RPC mode - requires TUI access
+		setHeader(factory: unknown): void {
+			output({
+				type: "extension_ui_request",
+				id: crypto.randomUUID(),
+				method: "setHeader",
+				surface: "secondary-surface",
+				contentType: factory ? "component-factory" : "clear",
+			} as RpcExtensionUIRequest);
 		},
 
 		setTitle(title: string): void {
@@ -198,7 +230,15 @@ export async function runRpcMode(session: AgentSession): Promise<never> {
 		},
 
 		async custom() {
-			// Custom UI not supported in RPC mode
+			output({
+				type: "extension_ui_request",
+				id: crypto.randomUUID(),
+				method: "custom",
+				contentType: "component-factory",
+				surface: "overlay",
+				overlay: true,
+			} as RpcExtensionUIRequest);
+			// Custom UI cannot be serialized in RPC mode.
 			return undefined as never;
 		},
 
@@ -242,8 +282,14 @@ export async function runRpcMode(session: AgentSession): Promise<never> {
 			});
 		},
 
-		setEditorComponent(): void {
-			// Custom editor components not supported in RPC mode
+		setEditorComponent(factory): void {
+			output({
+				type: "extension_ui_request",
+				id: crypto.randomUUID(),
+				method: "setEditorComponent",
+				surface: "prompt-replacement",
+				contentType: factory ? "component-factory" : "clear",
+			} as RpcExtensionUIRequest);
 		},
 
 		get theme() {
@@ -264,12 +310,18 @@ export async function runRpcMode(session: AgentSession): Promise<never> {
 		},
 
 		getToolsExpanded() {
-			// Tool expansion not supported in RPC mode - no TUI
-			return false;
+			return toolsExpanded;
 		},
 
-		setToolsExpanded(_expanded: boolean) {
-			// Tool expansion not supported in RPC mode - no TUI
+		setToolsExpanded(expanded: boolean) {
+			toolsExpanded = expanded;
+			output({
+				type: "extension_ui_request",
+				id: crypto.randomUUID(),
+				method: "setToolsExpanded",
+				surface: "transcript-adjacent-card",
+				expanded,
+			} as RpcExtensionUIRequest);
 		},
 	});
 

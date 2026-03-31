@@ -234,6 +234,14 @@ export type RpcExtensionUIRequest =
 			method: "setStatus";
 			statusKey: string;
 			statusText: string | undefined;
+			surface?: "meta-row";
+	  }
+	| {
+			type: "extension_ui_request";
+			id: string;
+			method: "setWorkingMessage";
+			message: string | undefined;
+			surface?: "meta-row";
 	  }
 	| {
 			type: "extension_ui_request";
@@ -242,8 +250,45 @@ export type RpcExtensionUIRequest =
 			widgetKey: string;
 			widgetLines: string[] | undefined;
 			widgetPlacement?: "aboveEditor" | "belowEditor";
+			surface?: "transcript-adjacent-card";
+	  }
+	| {
+			type: "extension_ui_request";
+			id: string;
+			method: "setHeader";
+			surface?: "secondary-surface";
+			contentType: "component-factory" | "clear";
+	  }
+	| {
+			type: "extension_ui_request";
+			id: string;
+			method: "setFooter";
+			surface?: "secondary-surface";
+			contentType: "component-factory" | "clear";
 	  }
 	| { type: "extension_ui_request"; id: string; method: "setTitle"; title: string }
+	| {
+			type: "extension_ui_request";
+			id: string;
+			method: "custom";
+			surface?: "overlay" | "prompt-replacement";
+			contentType: "component-factory";
+			overlay?: boolean;
+	  }
+	| {
+			type: "extension_ui_request";
+			id: string;
+			method: "setEditorComponent";
+			surface?: "prompt-replacement";
+			contentType: "component-factory" | "clear";
+	  }
+	| {
+			type: "extension_ui_request";
+			id: string;
+			method: "setToolsExpanded";
+			surface?: "transcript-adjacent-card";
+			expanded: boolean;
+	  }
 	| { type: "extension_ui_request"; id: string; method: "set_editor_text"; text: string };
 
 // ============================================================================

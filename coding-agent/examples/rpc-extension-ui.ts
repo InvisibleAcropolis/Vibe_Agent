@@ -438,6 +438,13 @@ async function main() {
 				tui.requestRender();
 				break;
 
+			case "setWorkingMessage":
+				outputLog.append(
+					`${MAGENTA}${BOLD}Notification:${RESET} ${DIM}[working]${RESET} ${((req as Record<string, unknown>).message as string) ?? "(default)"}`,
+				);
+				tui.requestRender();
+				break;
+
 			case "setWidget": {
 				const lines = req.widgetLines;
 				if (lines && lines.length > 0) {
@@ -452,6 +459,17 @@ async function main() {
 
 			case "set_editor_text":
 				promptInput.input.setValue((req.text as string) ?? "");
+				tui.requestRender();
+				break;
+
+			case "setHeader":
+			case "setFooter":
+			case "setEditorComponent":
+			case "custom":
+			case "setToolsExpanded":
+				outputLog.append(
+					`${MAGENTA}${BOLD}Notification:${RESET} ${DIM}[compat:${method}]${RESET} routed to ${((req as Record<string, unknown>).surface as string) ?? "secondary surface"}`,
+				);
 				tui.requestRender();
 				break;
 		}
