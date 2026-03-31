@@ -24,6 +24,7 @@ import { DefaultExtensionUiHost } from "./extension-ui-host.js";
 import { DefaultInputController } from "./input-controller.js";
 import {
 	initTheme,
+	type AppAction,
 	KeybindingsManager as InternalKeybindingsManager,
 	onThemeChange,
 } from "./local-coding-agent.js";
@@ -57,6 +58,7 @@ export class VibeAgentApp {
 	private readonly splashWindowController: SplashWindowController;
 	private readonly terminal: MouseEnabledTerminal;
 	private readonly animEngine: AnimationEngine;
+	private readonly keybindings: InternalKeybindingsManager;
 	private readonly lifecycle: AppLifecycleController;
 	private readonly messageSync: AppMessageSyncService;
 	private readonly configRepository: AppConfigRepository;
@@ -181,6 +183,7 @@ export class VibeAgentApp {
 		);
 
 		const keybindings = InternalKeybindingsManager.create();
+		this.keybindings = keybindings;
 		this.overlayController = new DefaultOverlayController(
 			this.shellView.tui,
 			this.stateStore,
@@ -404,6 +407,7 @@ export class VibeAgentApp {
 			) {
 				this.syncMessages();
 			}
+			this.renderPromptControls();
 			this.previousRenderState = {
 				showThinking: state.showThinking,
 				toolOutputExpanded: state.toolOutputExpanded,
@@ -413,6 +417,7 @@ export class VibeAgentApp {
 		this.runtimePresentation.syncRuntimeDisplayState();
 		this.sessionCoordinator.refreshProviderAvailability();
 		this.runtimePresentation.refreshCockpitContext();
+		this.renderPromptControls();
 		this.setFocus(this.editorController.getComponent(), "editor");
 	}
 
@@ -454,6 +459,7 @@ export class VibeAgentApp {
 	private syncMessages(): void {
 		try {
 			this.messageSync.sync();
+			this.renderPromptControls();
 		} catch (error) {
 			this.handleRuntimeError("syncMessages", error);
 		}
@@ -498,5 +504,46 @@ export class VibeAgentApp {
 			showThinking: state.showThinking,
 			toolOutputExpanded: state.toolOutputExpanded,
 		};
+	}
+
+	private renderPromptControls(): void {
+		const lines = this.buildPromptControlLines();
+		this.shellView.setWidget("prompt-controls", lines, "belowEditor");
+	}
+
+	private buildPromptControlLines(): string[] {
+		const hostState = this.safeGetHostState();
+		const state = this.stateStore.getState();
+		const modelLabel = hostState?.model ? `${hostState.model.provider}/${hostState.model.id}` : "not selected";
+		const thinkingLevel = hostState?.thinkingLevel ?? "off";
+		const toolPref = state.toolOutputExpanded ? "expanded" : "collapsed";
+		const thinkingVisibility = state.showThinking ? "visible" : "hidden";
+		const runtimeLabel = `${state.activeRuntimeName} (${state.activeRuntimeId})`;
+
+		const meta = [
+			`Model: ${modelLabel}`,
+			`Runtime: ${runtimeLabel}`,
+			`Thinking level: ${thinkingLevel}`,
+			`Thinking output: ${thinkingVisibility}`,
+			`Tool output: ${toolPref}`,
+		];
+		const controls = [
+			`${this.keyHint("cycleModelForward")}/${this.keyHint("cycleModelBackward")} cycle model`,
+			`${this.keyHint("selectModel")} choose model`,
+			`${this.keyHint("cycleThinkingLevel")} cycle thinking`,
+			`${this.keyHint("toggleThinking")} thinking visibility`,
+			`${this.keyHint("expandTools")} tool expansion`,
+			"Esc on empty prompt command palette",
+			"F3 launch orchestration runtime",
+		];
+		return [`Prompt controls · ${meta.join(" · ")}`, `Controls · ${controls.join(" · ")}`];
+	}
+
+	private keyHint(action: AppAction): string {
+		const keys = this.keybindings.getKeys(action);
+		if (keys.length === 0) {
+			return "unbound";
+		}
+		return keys.join("/");
 	}
 }
