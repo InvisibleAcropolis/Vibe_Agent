@@ -14,6 +14,28 @@ type UnknownAssistantPart = {
 	[k: string]: unknown;
 };
 
+function stableSlug(value: string): string {
+	return value
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/^-+|-+$/g, "")
+		.slice(0, 48);
+}
+
+function stableId(prefix: string, fields: Array<string | number | undefined>): string {
+	const raw = fields
+		.map((field) => (field === undefined ? "" : String(field)))
+		.join("|");
+	let hash = 2166136261;
+	for (let index = 0; index < raw.length; index += 1) {
+		hash ^= raw.charCodeAt(index);
+		hash = Math.imul(hash, 16777619);
+	}
+	const suffix = (hash >>> 0).toString(16).padStart(8, "0");
+	const slug = stableSlug(raw) || "entry";
+	return `${prefix}-${slug}-${suffix}`;
+}
+
 function toIsoTimestamp(timestamp: number | string | undefined): string {
 	if (typeof timestamp === "string") return timestamp;
 	if (typeof timestamp === "number" && Number.isFinite(timestamp)) {
@@ -72,38 +94,35 @@ export function normalizeTranscript(messages: AgentMessage[]): NormalizedTranscr
 	const items: TranscriptItem[] = [];
 	const unknownMessages: AgentMessage[] = [];
 	const toolCallNames = new Map<string, string>();
-	let itemCounter = 0;
-	let partCounter = 0;
 
-	const nextId = (prefix: string): string => `${prefix}-${itemCounter++}`;
-	const nextPartId = (prefix: string): string => `${prefix}-part-${partCounter++}`;
-
-	for (const message of messages) {
+	for (const [messageIndex, message] of messages.entries()) {
 		const timestamp = toIsoTimestamp((message as { timestamp?: number | string }).timestamp);
 
 		if (message.role === "user") {
 			const text = readTextBlocks(message.content);
+			const itemId = stableId("user", [message.role, timestamp, messageIndex, text]);
 			items.push({
-				id: nextId("user"),
+				id: itemId,
 				kind: "user",
 				timestamp,
 				summary: summarizeText(text, "User message"),
-				parts: [createPart(nextPartId("user-text"), "text", text || "(empty)")],
+				parts: [createPart(stableId("part", [itemId, "text"]), "text", text || "(empty)")],
 			});
 			continue;
 		}
 
 		if (message.role === "assistant") {
-			for (const content of message.content as Array<AssistantMessage["content"][number] | UnknownAssistantPart>) {
+			for (const [contentIndex, content] of (message.content as Array<AssistantMessage["content"][number] | UnknownAssistantPart>).entries()) {
 				if (content.type === "text") {
 					const text = content.text.trim();
 					if (!text) continue;
+					const itemId = stableId("assistant-text", [timestamp, messageIndex, contentIndex, text]);
 					items.push({
-						id: nextId("assistant-text"),
+						id: itemId,
 						kind: "assistant-text",
 						timestamp,
 						summary: summarizeText(text, "Assistant text"),
-						parts: [createPart(nextPartId("assistant-text"), "text", text)],
+						parts: [createPart(stableId("part", [itemId, "text"]), "text", text)],
 					});
 					continue;
 				}
@@ -111,12 +130,13 @@ export function normalizeTranscript(messages: AgentMessage[]): NormalizedTranscr
 				if (content.type === "thinking") {
 					const text = content.thinking.trim();
 					if (!text) continue;
+					const itemId = stableId("assistant-thinking", [timestamp, messageIndex, contentIndex, text]);
 					items.push({
-						id: nextId("assistant-thinking"),
+						id: itemId,
 						kind: "assistant-thinking",
 						timestamp,
 						summary: summarizeText(text, "Assistant thinking"),
-						parts: [createPart(nextPartId("assistant-thinking"), "thinking", text)],
+						parts: [createPart(stableId("part", [itemId, "thinking"]), "thinking", text, "thinking")],
 					});
 					continue;
 				}
@@ -125,27 +145,29 @@ export function normalizeTranscript(messages: AgentMessage[]): NormalizedTranscr
 					const call = content as ToolCallContent;
 					toolCallNames.set(call.id, call.name);
 					const argsText = JSON.stringify(call.arguments ?? {}, null, 2);
+					const itemId = stableId("tool-call", [timestamp, messageIndex, contentIndex, call.id, call.name]);
 					items.push({
-						id: nextId("tool-call"),
+						id: itemId,
 						kind: "tool-call",
 						timestamp,
-							summary: `${call.name}()`,
+						summary: `${call.name}()`,
 						toolName: call.name,
-						parts: [createPart(nextPartId("tool-call"), "detail", argsText, "arguments")],
+						parts: [createPart(stableId("part", [itemId, "arguments"]), "detail", argsText, "arguments")],
 					});
 					continue;
 				}
 
 				if ((content as UnknownAssistantPart).type === "artifact") {
 					const artifactPart = content as UnknownAssistantPart;
-					const artifactId = getArtifactId(artifactPart, nextId("artifact-ref"));
+					const artifactId = getArtifactId(artifactPart, stableId("artifact-ref", [timestamp, messageIndex, contentIndex]));
+					const itemId = stableId("artifact", [timestamp, messageIndex, contentIndex, artifactId]);
 					items.push({
-						id: nextId("artifact"),
+						id: itemId,
 						kind: "artifact",
 						timestamp,
 						summary: `Artifact: ${artifactId}`,
 						artifactId,
-						parts: [createPart(nextPartId("artifact"), "artifact-link", JSON.stringify(artifactPart))],
+						parts: [createPart(stableId("part", [itemId, "artifact"]), "artifact-link", JSON.stringify(artifactPart))],
 					});
 					continue;
 				}
@@ -156,13 +178,14 @@ export function normalizeTranscript(messages: AgentMessage[]): NormalizedTranscr
 					const statusValue = ["idle", "running", "busy", "done", "failed"].includes(status)
 						? (status as "idle" | "running" | "busy" | "done" | "failed")
 						: "running";
+					const itemId = stableId("runtime-status", [timestamp, messageIndex, contentIndex, status, JSON.stringify(statusPart)]);
 					items.push({
-						id: nextId("runtime-status"),
+						id: itemId,
 						kind: "runtime-status",
 						timestamp,
 						summary: `Status: ${status}`,
 						status: statusValue,
-						parts: [createPart(nextPartId("status"), "status", JSON.stringify(statusPart))],
+						parts: [createPart(stableId("part", [itemId, "status"]), "status", JSON.stringify(statusPart))],
 					});
 					continue;
 				}
@@ -173,13 +196,14 @@ export function normalizeTranscript(messages: AgentMessage[]): NormalizedTranscr
 		if (message.role === "toolResult") {
 			const text = readTextBlocks(message.content);
 			const toolName = toolCallNames.get(message.toolCallId) ?? message.toolName;
+			const itemId = stableId("tool-result", [timestamp, messageIndex, message.toolCallId, toolName, text]);
 			items.push({
-				id: nextId("tool-result"),
+				id: itemId,
 				kind: "tool-result",
 				timestamp,
 				summary: summarizeText(text, `${toolName} result`),
 				toolName,
-				parts: [createPart(nextPartId("tool-result"), "detail", text || "(empty result)")],
+				parts: [createPart(stableId("part", [itemId, "output"]), "detail", text || "(empty result)", "tool output")],
 			});
 			continue;
 		}

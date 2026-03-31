@@ -88,3 +88,40 @@ test("normalizeTranscript is deterministic for captured real sessions", () => {
 		assert.ok(kinds.has("tool-result"), `${fixtureName} should include tool result timeline items`);
 	}
 });
+
+test("normalizeTranscript emits stable IDs for thinking and tool-result parts", () => {
+	const messages: AgentMessage[] = [
+		{
+			role: "assistant",
+			api: "openai-responses",
+			provider: "openai",
+			model: "gpt-5.1",
+			stopReason: "toolUse",
+			timestamp: Date.parse("2026-03-31T10:00:00.000Z"),
+			content: [
+				{ type: "thinking", thinking: "check files" },
+				{ type: "toolCall", id: "tool-42", name: "read", arguments: { path: "README.md" } },
+			],
+		} as AgentMessage,
+		{
+			role: "toolResult",
+			toolCallId: "tool-42",
+			toolName: "read",
+			isError: false,
+			timestamp: Date.parse("2026-03-31T10:00:01.000Z"),
+			content: [{ type: "text", text: "result body" }],
+		} as AgentMessage,
+	];
+
+	const first = normalizeTranscript(messages);
+	const second = normalizeTranscript(messages);
+	const firstThinking = first.items.find((item) => item.kind === "assistant-thinking");
+	const secondThinking = second.items.find((item) => item.kind === "assistant-thinking");
+	assert.equal(firstThinking?.id, secondThinking?.id);
+	assert.equal(firstThinking?.parts[0]?.id, secondThinking?.parts[0]?.id);
+
+	const firstToolResult = first.items.find((item) => item.kind === "tool-result");
+	const secondToolResult = second.items.find((item) => item.kind === "tool-result");
+	assert.equal(firstToolResult?.id, secondToolResult?.id);
+	assert.equal(firstToolResult?.parts[0]?.id, secondToolResult?.parts[0]?.id);
+});

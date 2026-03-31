@@ -64,3 +64,42 @@ test("mouse wheel supports long history and can re-engage follow at tail", () =>
 	assert.equal(view.end, 25);
 	assert.deepEqual(view.items.map((entry) => entry.id), ["item-21", "item-22", "item-23", "item-24", "item-25"]);
 });
+
+test("collapsible thinking and tool output parts use stable IDs and preserve scroll anchor on toggle", () => {
+	const timeline = new TranscriptTimelineController();
+	timeline.setViewportSize(4);
+	timeline.replaceItems([
+		{
+			id: "assistant-thinking-1",
+			kind: "assistant-thinking",
+			timestamp: new Date(Date.UTC(2026, 2, 31, 0, 1, 0)).toISOString(),
+			summary: "Reasoning",
+			parts: [{ id: "thinking-part-1", kind: "thinking", title: "thinking", text: "line 1\nline 2" }],
+		},
+		{
+			id: "tool-result-1",
+			kind: "tool-result",
+			timestamp: new Date(Date.UTC(2026, 2, 31, 0, 1, 1)).toISOString(),
+			summary: "Tool result",
+			toolName: "read",
+			parts: [{ id: "tool-output-1", kind: "detail", title: "tool output", text: "A\nB\nC" }],
+		},
+	]);
+
+	let view = timeline.getVisibleView();
+	assert.equal(view.total, 4, "collapsed view should include summary and toggle rows only");
+	assert.equal(view.rows[1]?.text, "▸ thinking");
+
+	timeline.scrollBy(1, "keyboard");
+	const anchorBefore = timeline.getVisibleView().rows[0]?.id;
+	timeline.togglePartExpansion("assistant-thinking-1", "thinking-part-1");
+	view = timeline.getVisibleView();
+	assert.equal(view.rows[0]?.id, anchorBefore, "top row should remain anchored after toggle");
+	assert.equal(view.rows[0]?.text, "▾ thinking");
+	assert.equal(view.total, 6, "expanded thinking should add detail rows");
+
+	timeline.togglePartExpansion("tool-result-1", "tool-output-1");
+	view = timeline.getVisibleView();
+	assert.equal(view.total, 9, "expanded tool output should add detail rows");
+	assert.ok(view.rows.some((row) => row.partId === "tool-output-1"), "expanded block should include stable part id");
+});

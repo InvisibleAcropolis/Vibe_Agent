@@ -3,10 +3,11 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AgentHost, AgentHostState } from "../agent-host.js";
 import type { AnimationEngine } from "../animation-engine.js";
 import type { AppStateStore } from "../app-state-store.js";
-import { DefaultShellView, type ShellView } from "../shell-view.js";
+import type { ShellView } from "../shell-view.js";
 import { createShellNextActions, type ShellNextActions } from "./actions.js";
 import { createShellNextChrome, type ShellNextChrome } from "./chrome.js";
 import { createShellNextRenderer, type ShellNextRenderer } from "./renderer.js";
+import { ShellNextView } from "./shell-next-view.js";
 import { TranscriptTimelineController } from "./transcript-timeline.js";
 import { createInitialShellNextState, type ShellNextState } from "./state.js";
 
@@ -35,16 +36,7 @@ export function createShellNextController(options: ShellNextControllerOptions): 
 	const chrome = createShellNextChrome();
 	const timeline = new TranscriptTimelineController();
 
-	// Initial migration step: route Shell Next through current DefaultShellView so
-	// both implementations are hostable while feature work continues in this namespace.
-	const shellView = new DefaultShellView(
-		options.terminal ?? new ProcessTerminal(),
-		options.stateStore,
-		options.getHostState,
-		options.getMessages,
-		options.getAgentHost,
-		options.animationEngine,
-	);
+	const shellView = new ShellNextView(options.terminal ?? new ProcessTerminal());
 
 	return {
 		shellView,
