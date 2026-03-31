@@ -1,4 +1,4 @@
-import { Container, TUI, type Component, type Terminal } from "@mariozechner/pi-tui";
+import { Container, Text, TUI, type Component, type Terminal } from "@mariozechner/pi-tui";
 import { FooterDataProvider } from "../footer-data-provider.js";
 import type { MouseEvent, Rect } from "../mouse.js";
 import type { FooterFactory, HeaderFactory, WidgetFactory } from "../shell/shell-types.js";
@@ -11,12 +11,19 @@ export class ShellNextView implements ShellView {
 	readonly footerData = new FooterDataProvider(process.cwd());
 	private readonly transcriptViewport = new TranscriptViewport();
 	private readonly root = new Container();
+	private readonly transcriptContainer = new Container();
+	private readonly composerContainer = new Container();
+	private readonly composerSeparator = new Text("", 0, 0);
 	private transcriptRect: Rect = { row: 1, col: 1, width: 1, height: 1 };
 	private latestTranscriptPublication?: NormalizedTranscriptPublication;
+	private activeEditor: Component | null = null;
 
 	constructor(terminal: Terminal) {
 		this.tui = new TUI(terminal, true);
-		this.root.addChild(this.transcriptViewport);
+		this.transcriptContainer.addChild(this.transcriptViewport);
+		this.composerContainer.addChild(this.composerSeparator);
+		this.root.addChild(this.transcriptContainer);
+		this.root.addChild(this.composerContainer);
 		this.tui.addChild(this.root);
 		(terminal as { setResizeHandler?: (handler: () => void) => () => void }).setResizeHandler?.(() => {
 			this.refresh();
@@ -32,7 +39,14 @@ export class ShellNextView implements ShellView {
 		this.footerData.dispose();
 		this.tui.stop();
 	}
-	setEditor(_component: Component): void {}
+	setEditor(component: Component): void {
+		this.activeEditor = component;
+		this.composerContainer.clear();
+		this.composerContainer.addChild(this.composerSeparator);
+		this.composerContainer.addChild(component);
+		this.refresh();
+		this.tui.requestRender();
+	}
 	setFocus(component: Component | null): void {
 		this.tui.setFocus(component);
 	}
@@ -63,8 +77,19 @@ export class ShellNextView implements ShellView {
 		this.root.row = 1;
 		this.root.width = width;
 		this.root.height = height;
-		this.transcriptRect = { row: 1, col: 1, width, height };
-		this.transcriptViewport.setViewportHeight(height);
+		this.composerSeparator.setText("─".repeat(width));
+		const composerHeight = this.activeEditor ? Math.max(0, this.composerContainer.render(width).length) : 0;
+		const transcriptHeight = Math.max(1, height - composerHeight);
+		this.transcriptContainer.row = 1;
+		this.transcriptContainer.col = 1;
+		this.transcriptContainer.width = width;
+		this.transcriptContainer.height = transcriptHeight;
+		this.composerContainer.row = transcriptHeight + 1;
+		this.composerContainer.col = 1;
+		this.composerContainer.width = width;
+		this.composerContainer.height = composerHeight;
+		this.transcriptRect = { row: 1, col: 1, width, height: transcriptHeight };
+		this.transcriptViewport.setViewportHeight(transcriptHeight);
 		this.transcriptViewport.measure(width);
 	}
 	toggleSessionsPanel(): void {}
