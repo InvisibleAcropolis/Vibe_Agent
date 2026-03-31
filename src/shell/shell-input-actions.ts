@@ -34,7 +34,7 @@ export interface OpenOverlayShellAction {
 	readonly target: OverlayTarget;
 }
 
-export type LaunchSurfaceTarget = "sessions-browser";
+export type LaunchSurfaceTarget = "sessions-browser" | "orc-session";
 
 export interface LaunchSurfaceShellAction {
 	readonly type: "surface-launch";

@@ -161,7 +161,11 @@ export class VibeAgentApp {
 				}
 			},
 			onSurfaceLaunch: (request) => {
-				if (request.surfaceId !== "sessions-browser") {
+				if (request.surfaceId !== "sessions-browser" && request.surfaceId !== "orc-session") {
+					return;
+				}
+				if (request.surfaceId === "orc-session") {
+					void commandController?.summonOrc().catch((error) => this.handleRuntimeError("surfaceLaunch.orcSession", error));
 					return;
 				}
 				if (psmuxContext.sessionName) {
@@ -169,11 +173,12 @@ export class VibeAgentApp {
 						sessionName: psmuxContext.sessionName,
 						surfaceId: request.surfaceId,
 						route: request.route,
-						action: request.reason,
-						reason: request.reason,
+						action: request.reason === "open" ? "open" : "focus",
+						reason: request.reason === "open" ? "open" : "focus",
 						payload: request.payload,
 					});
-					this.stateStore.setStatusMessage(`Launched ${request.route} in secondary PSMUX surface.`);
+					const statusVerb = request.reason === "attach" ? "Rediscovered" : request.reason === "focus" ? "Refocused" : "Launched";
+					this.stateStore.setStatusMessage(`${statusVerb} ${request.route} in secondary PSMUX surface.`);
 					return;
 				}
 				commandController?.openSessionsBrowserSurface();
@@ -349,6 +354,7 @@ export class VibeAgentApp {
 					modelRegistry: runtimeFactory.modelRegistry,
 				}),
 			onRuntimeActivated: () => this.runtimePresentation.handleRuntimeActivated(),
+			requestSurfaceLaunch: (surfaceId) => shellAdapter.dispatchShellAction({ type: "surface-launch", target: surfaceId }),
 		});
 		this.commandController = commandController;
 

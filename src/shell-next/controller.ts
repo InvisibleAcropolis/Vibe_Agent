@@ -53,6 +53,16 @@ export function createShellNextController(options: ShellNextControllerOptions): 
 			scope: {},
 		},
 	});
+	surfaceLaunchManager.registerSurface({
+		id: "orc-session",
+		title: "Orc Session",
+		kind: "workspace",
+		routing: {
+			route: "orc-session",
+			scope: {},
+		},
+	});
+	surfaceLaunchManager.rediscoverOpenSurfaces();
 
 	const shellView = new ShellNextView(options.terminal ?? new ProcessTerminal());
 

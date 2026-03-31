@@ -60,3 +60,31 @@ test("launch manager opens surfaces with descriptor scope/payload, focuses reope
 	assert.equal(unsubscribed, 1);
 	assert.equal(closedSurfaceId, "rpc-log");
 });
+
+test("launch manager rediscovers externally reattached surfaces from app state", () => {
+	const stateStore = new DefaultAppStateStore();
+	stateStore.launchSurface("sessions-browser");
+	const launches: ShellSurfaceLaunchRequest[] = [];
+	let focused = 0;
+	const manager = createSurfaceLaunchManager(stateStore, {
+		onLaunch: (request) => launches.push(request),
+	});
+	manager.registerSurface({
+		id: "sessions-browser",
+		title: "Sessions Browser",
+		kind: "workspace",
+		routing: {
+			route: "sessions-browser",
+			scope: {},
+		},
+		lifecycle: {
+			onFocus: () => focused++,
+		},
+	});
+
+	const restored = manager.rediscoverOpenSurfaces();
+	assert.deepEqual(restored, ["sessions-browser"]);
+	assert.deepEqual(manager.getOpenSurfaceIds(), ["sessions-browser"]);
+	assert.equal(launches[0]?.reason, "attach");
+	assert.equal(focused, 1);
+});
