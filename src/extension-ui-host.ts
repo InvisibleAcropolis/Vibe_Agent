@@ -26,6 +26,9 @@ export interface ExtensionUiHost {
 }
 
 export class DefaultExtensionUiHost implements ExtensionUiHost {
+	private readonly customFocusOwners = new Set<string>();
+	private customFocusOwnerCounter = 0;
+
 	constructor(
 		private readonly shellView: ShellView,
 		private readonly stateStore: AppStateStore,
@@ -103,15 +106,26 @@ export class DefaultExtensionUiHost implements ExtensionUiHost {
 				await new Promise<T>((resolve, reject) => {
 					const savedText = this.editorController.getText();
 					const isOverlay = options?.overlay ?? false;
+					const focusOwner = `extension-ui-custom-${++this.customFocusOwnerCounter}`;
 					let component: (Component & { dispose?(): void }) | undefined;
 					let overlayHandle: OverlayHandle | undefined;
+					let completed = false;
+
+					const releaseFocusOwner = () => {
+						this.customFocusOwners.delete(focusOwner);
+					};
 
 					const done = (result: T) => {
+						if (completed) {
+							return;
+						}
+						completed = true;
 						overlayHandle?.hide();
-						if (!isOverlay) {
+						if (!isOverlay && this.customFocusOwners.has(focusOwner)) {
 							this.editorController.restoreText(savedText);
 							this.shellView.setFocus(this.editorController.getComponent());
 						}
+						releaseFocusOwner();
 						component?.dispose?.();
 						resolve(result);
 					};
@@ -126,14 +140,19 @@ export class DefaultExtensionUiHost implements ExtensionUiHost {
 										: (options?.overlayOptions ?? { width: "70%", maxHeight: "70%", anchor: "center", margin: 1 });
 								overlayHandle = this.overlayController.showCustomOverlay("extension-custom", component, overlayOptions);
 								options?.onHandle?.(overlayHandle);
+								this.customFocusOwners.add(focusOwner);
 								this.setFocus(component, "extension.custom.overlay");
 								return;
 							}
 
+							this.customFocusOwners.add(focusOwner);
 							this.shellView.setEditor(component);
 							this.setFocus(component, "extension.custom.inline");
 						})
-						.catch(reject);
+						.catch((error) => {
+							releaseFocusOwner();
+							reject(error);
+						});
 				}),
 			pasteToEditor: (text) => this.editorController.paste(text),
 			setEditorText: (text) => this.editorController.setText(text),
