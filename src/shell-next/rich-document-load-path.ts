@@ -1,4 +1,5 @@
 import type { RichDocumentRenderModel, RichDocumentSection, RichDocumentSource, RichDocumentSourcePolicy, RichDocumentTrustMetadata } from "./shared-models.js";
+import { applyRichDocumentPipeline } from "./rich-document-pipeline.js";
 
 export interface RichDocumentLoadInput {
 	readonly id: string;
@@ -73,13 +74,13 @@ export function loadRichDocumentModel(input: RichDocumentLoadInput): RichDocumen
 		...sourceDraft,
 		sourcePolicy,
 	};
-	const sections = input.sections ?? [
+	const sections = (input.sections ?? [
 		{
 			id: `${input.id}:body`,
 			title: input.title,
 			content: input.content ?? "",
 		},
-	];
+	]).map((section) => applyRichDocumentPipeline(section, sourcePolicy));
 	return {
 		id: input.id,
 		source,

@@ -1,0 +1,18 @@
+{
+  "id": "trusted-runbook",
+  "uri": "workspace://docs/runbook.mdx",
+  "mediaType": "text/markdown",
+  "trust": "trusted",
+  "title": "Trusted Runbook",
+  "content": "# Deploy Runbook\n@owner: platform\n![note] Verify control plane health\n[Run Dashboard](https://example.test/dashboard)\n[timeline-card] Stage 1 | 2026-03-31 | Canary start\n[collapsible] Rollback | Use previous release\n```bash\nkubectl get pods -A\n```\n<UnsupportedWidget>drop me</UnsupportedWidget>",
+  "expectedKinds": [
+    "heading",
+    "metadata",
+    "callout",
+    "link",
+    "timeline-card",
+    "collapsible",
+    "code"
+  ],
+  "blockedHint": "UnsupportedWidget"
+}
