@@ -34,8 +34,8 @@ export const BUILTIN_COMMAND_META: Record<string, BuiltInCommandMeta> = {
 	"animbox-test": {
 		category: "Labs",
 		order: 40,
-		label: "Launch Floating Animbox Test",
-		description: "Open the floating plasma animbox overlay inside the OpenTUI coding chat.",
+		label: "Launch Floating Window Test",
+		description: "Open an empty floating window inside the OpenTUI coding chat.",
 		executeImmediately: true,
 	},
 };

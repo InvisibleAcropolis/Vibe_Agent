@@ -36,14 +36,32 @@ export interface OpenTuiFloatingAnimboxOverlayModel {
 	readonly y?: number;
 }
 
-export type OpenTuiOverlayModel = OpenTuiTextOverlayModel | OpenTuiDocumentOverlayModel | OpenTuiFloatingAnimboxOverlayModel;
+export interface OpenTuiFloatingWindowOverlayModel {
+	readonly kind: "floating-window";
+	readonly title: string;
+	readonly description?: string;
+	readonly width?: number;
+	readonly height?: number;
+	readonly x?: number;
+	readonly y?: number;
+	readonly minWidth?: number;
+	readonly minHeight?: number;
+	readonly maxWidth?: number;
+	readonly maxHeight?: number;
+}
+
+export type OpenTuiOverlayModel =
+	| OpenTuiTextOverlayModel
+	| OpenTuiDocumentOverlayModel
+	| OpenTuiFloatingAnimboxOverlayModel
+	| OpenTuiFloatingWindowOverlayModel;
 
 export function isOpenTuiOverlayModel(value: unknown): value is OpenTuiOverlayModel {
 	if (!value || typeof value !== "object") {
 		return false;
 	}
 	const kind = (value as { kind?: unknown }).kind;
-	return kind === "text" || kind === "document" || kind === "floating-animbox";
+	return kind === "text" || kind === "document" || kind === "floating-animbox" || kind === "floating-window";
 }
 
 export function toOpenTuiDocumentItems(

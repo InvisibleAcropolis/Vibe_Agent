@@ -42,7 +42,7 @@ function toLegacyMouseEvent(event: OpenTuiMouseEvent): MouseEvent {
 
 function RenderSegments(props: { segments: FloatingAnimboxTextSegment[] }) {
 	return (
-		<text>
+		<text selectable={false}>
 			<For each={props.segments}>
 				{(segment) => (
 					<Switch fallback={segment.text}>
@@ -60,7 +60,6 @@ export function FloatingAnimboxOverlay(props: {
 	controller: FloatingAnimboxController;
 	revision: number;
 	zIndex: number;
-	onActivate: () => void;
 }) {
 	const rect = () => {
 		void props.revision;
@@ -87,22 +86,8 @@ export function FloatingAnimboxOverlay(props: {
 		return props.controller.model.active ? "#0d1823" : "#0b1118";
 	};
 
-	const handleMouse = (event: OpenTuiMouseEvent) => {
-		if (event.type === "down") {
-			props.onActivate();
-		}
-		event.preventDefault();
-		event.stopPropagation();
-		props.controller.handleMouse(toLegacyMouseEvent(event));
-	};
-
-	const interactionLayerZIndex = () => props.zIndex + 2;
 	const contentWidth = () => Math.max(0, viewport().width);
 	const contentHeight = () => Math.max(0, viewport().height);
-	const interiorWidth = () => Math.max(0, rect().width - 2);
-	const interiorHeight = () => Math.max(0, rect().height - 2);
-	const bottomBandTop = () => Math.max(0, rect().height - 2);
-	const bottomBandHeight = () => Math.min(2, rect().height);
 
 	return (
 		<box
@@ -120,56 +105,6 @@ export function FloatingAnimboxOverlay(props: {
 			zIndex={props.zIndex}
 		>
 			<box
-				position="absolute"
-				left={1}
-				top={1}
-				width={interiorWidth()}
-				height={interiorHeight()}
-				backgroundColor="transparent"
-				zIndex={interactionLayerZIndex() - 1}
-				onMouse={handleMouse}
-			/>
-			<box
-				position="absolute"
-				left={0}
-				top={0}
-				width={rect().width}
-				height={1}
-				backgroundColor="transparent"
-				zIndex={interactionLayerZIndex()}
-				onMouse={handleMouse}
-			/>
-			<box
-				position="absolute"
-				left={0}
-				top={bottomBandTop()}
-				width={rect().width}
-				height={bottomBandHeight()}
-				backgroundColor="transparent"
-				zIndex={interactionLayerZIndex()}
-				onMouse={handleMouse}
-			/>
-			<box
-				position="absolute"
-				left={0}
-				top={0}
-				width={1}
-				height={rect().height}
-				backgroundColor="transparent"
-				zIndex={interactionLayerZIndex()}
-				onMouse={handleMouse}
-			/>
-			<box
-				position="absolute"
-				left={rect().width - 1}
-				top={0}
-				width={1}
-				height={rect().height}
-				backgroundColor="transparent"
-				zIndex={interactionLayerZIndex()}
-				onMouse={handleMouse}
-			/>
-			<box
 				flexDirection="column"
 				width={contentWidth()}
 				height={contentHeight()}
@@ -178,10 +113,10 @@ export function FloatingAnimboxOverlay(props: {
 				<For each={rows()}>{(segments) => <RenderSegments segments={segments} />}</For>
 			</box>
 			<box width={contentWidth()}>
-				<text>{`${"─".repeat(Math.max(0, viewport().width))}`}</text>
+				<text selectable={false}>{`${"─".repeat(Math.max(0, viewport().width))}`}</text>
 			</box>
 			<box width={contentWidth()}>
-				<text>{footer()}</text>
+				<text selectable={false}>{footer()}</text>
 			</box>
 		</box>
 	);

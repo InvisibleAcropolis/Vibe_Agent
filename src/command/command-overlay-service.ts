@@ -127,22 +127,21 @@ export class CommandOverlayService {
 
 	openFloatingAnimboxTest(): void {
 		if (this.dependencies.shellView.implementation !== "opentui") {
-			this.showPlaceholderStatus("Floating Animbox Test is available only in the OpenTUI coding chat.");
+			this.showPlaceholderStatus("Floating Window Test is available only in the OpenTUI coding chat.");
 			return;
 		}
 		this.showOpenTuiOverlay("floating-animbox-test", {
-			kind: "floating-animbox",
-			title: "Floating Animbox Test",
-			description: "Live plasma animation host for future Orc telemetry and metering.",
-			sourceFile: "src/components/anim_plasma.ts",
-			exportName: "renderPlasma",
-			presetId: "default",
-			cols: 40,
-			rows: 12,
+			kind: "floating-window",
+			title: "Floating Window Test",
+			description: "Empty floating window used to validate OpenTUI drag and resize behavior.",
+			width: 48,
+			height: 14,
 			x: 10,
 			y: 5,
+			minWidth: 18,
+			minHeight: 8,
 		});
-		this.dependencies.stateStore.setStatusMessage("Opened Floating Animbox Test.");
+		this.dependencies.stateStore.setStatusMessage("Opened Floating Window Test.");
 	}
 
 	showPlaceholderStatus(message: string): void {
@@ -223,7 +222,7 @@ export class CommandOverlayService {
 			"  /artifacts opens artifact browser",
 			"  /stats opens session statistics",
 			"  /help opens this help overlay",
-			"  /animbox-test opens the floating animation test overlay",
+			"  /animbox-test opens the floating window test overlay",
 			"",
 			"Orc",
 			"  Coding Chat does not embed Orc panels.",
