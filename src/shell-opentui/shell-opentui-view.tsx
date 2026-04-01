@@ -353,6 +353,7 @@ export class OpenTuiShellView implements ShellView {
 			getHostState: () => AgentHostState | undefined;
 			editorController?: OpenTuiEditorController;
 			onShellAction?: (action: { type: "overlay-open"; target: "command-palette" | "settings" | "sessions" | "orchestration" } | { type: "surface-launch"; target: "sessions-browser" | "orc-session" }) => void;
+			createRenderer?: () => Promise<CliRenderer>;
 		},
 	) {
 		this.editor = options.editorController?.getComponent();
@@ -758,12 +759,12 @@ export class OpenTuiShellView implements ShellView {
 		if (this.renderer) {
 			return;
 		}
-		this.renderer = await createCliRenderer({
+		this.renderer = await (this.options.createRenderer?.() ?? createCliRenderer({
 			exitOnCtrlC: false,
 			useMouse: true,
 			enableMouseMovement: true,
 			autoFocus: true,
-		});
+		}));
 		this.renderer._internalKeyInput.onInternal("keypress", this.rendererKeyHandler);
 		await renderSolid(() => this.renderRoot(), this.renderer);
 	}
