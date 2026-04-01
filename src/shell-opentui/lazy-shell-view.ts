@@ -6,6 +6,7 @@ import type { NormalizedTranscriptPublication } from "../shell/transcript-public
 import type { ShellMenuDefinition } from "../components/shell-menu-overlay.js";
 import type { AppStateStore } from "../app-state-store.js";
 import type { AgentHostState } from "../agent-host.js";
+import type { KeyEvent } from "@opentui/core";
 
 type DeferredCall = (view: LazyOpenTuiBoundView) => void;
 
@@ -27,6 +28,7 @@ type LazyOpenTuiBoundView = ShellView & {
 	closeOverlay?: (id: string) => void;
 	closeAllOverlays?: () => void;
 	getOverlayDepth?: () => number;
+	registerGlobalKeyHandler?: (handler: (event: KeyEvent) => void) => () => void;
 };
 
 export class LazyOpenTuiShellView implements ShellView {
@@ -191,6 +193,25 @@ export class LazyOpenTuiShellView implements ShellView {
 
 	getOverlayDepth(): number {
 		return this.boundView?.getOverlayDepth?.() ?? 0;
+	}
+
+	registerGlobalKeyHandler(handler: (event: KeyEvent) => void): () => void {
+		if (this.boundView?.registerGlobalKeyHandler) {
+			return this.boundView.registerGlobalKeyHandler(handler);
+		}
+
+		let active = true;
+		let unregister: (() => void) | undefined;
+		this.enqueue((view) => {
+			if (!active) {
+				return;
+			}
+			unregister = view.registerGlobalKeyHandler?.(handler);
+		});
+		return () => {
+			active = false;
+			unregister?.();
+		};
 	}
 
 	private enqueue(call: DeferredCall): void {

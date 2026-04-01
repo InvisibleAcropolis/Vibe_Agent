@@ -37,6 +37,7 @@ export interface CommandController {
 	openStatsOverlay(): void;
 	openArtifactViewer(): void;
 	openHelpOverlay(): void;
+	openFloatingAnimboxTest(): void;
 }
 
 export class DefaultCommandController implements CommandController {
@@ -71,6 +72,7 @@ export class DefaultCommandController implements CommandController {
 			overlayController: this.dependencies.overlayController,
 			editorController: this.dependencies.editorController,
 			debuggerSink: this.dependencies.debuggerSink,
+			executeBuiltInCommand: async (commandName) => await this.handleSlashCommand(`/${commandName}`),
 			onError: (context, error, details) => this.handleError(context, error, details),
 		});
 		this.themePreferences = new CommandThemePreferencesService({
@@ -110,6 +112,7 @@ export class DefaultCommandController implements CommandController {
 				openStatsOverlay: () => this.openStatsOverlay(),
 				openArtifactViewer: () => this.openArtifactViewer(),
 				openHelpOverlay: () => this.openHelpOverlay(),
+				openFloatingAnimboxTest: () => this.openFloatingAnimboxTest(),
 				summonOrc: async () => await this.summonOrc(),
 				resumeOrcThread: () => this.resumeOrcThread(),
 				inspectOrcCheckpoints: () => this.inspectOrcCheckpoints(),
@@ -314,6 +317,10 @@ export class DefaultCommandController implements CommandController {
 
 	openHelpOverlay(): void {
 		this.overlayService.openHelpOverlay();
+	}
+
+	openFloatingAnimboxTest(): void {
+		this.overlayService.openFloatingAnimboxTest();
 	}
 
 	private runSettingsAction(action: string): void {

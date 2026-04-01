@@ -13,6 +13,7 @@ export class CommandSelectionService {
 			overlayController: OverlayController;
 			editorController: EditorController;
 			debuggerSink: PiMonoAppDebugger;
+			executeBuiltInCommand: (commandName: string) => Promise<boolean>;
 			onError: (context: string, error: unknown, details?: Record<string, unknown>) => void;
 		},
 	) {}
@@ -27,10 +28,18 @@ export class CommandSelectionService {
 					"Select a setup flow, slash command, skill, or built-in control.",
 					getBuiltInCommands(commands).map((command) => ({
 						value: command,
-						label: `${BUILTIN_COMMAND_META[command.name]?.category ?? command.source} · /${command.name}`,
-						description: command.description ?? command.source,
+						label: BUILTIN_COMMAND_META[command.name]?.label ?? `${BUILTIN_COMMAND_META[command.name]?.category ?? command.source} · /${command.name}`,
+						description: BUILTIN_COMMAND_META[command.name]?.label
+							? `/${command.name} · ${command.description ?? command.source}`
+							: (command.description ?? command.source),
 					})),
-					(command) => this.dependencies.editorController.setText(`/${command.name}`),
+					(command) => {
+						if (BUILTIN_COMMAND_META[command.name]?.executeImmediately) {
+							void this.dependencies.executeBuiltInCommand(command.name).catch((error) => this.dependencies.onError("executeBuiltInCommand", error, { commandName: command.name }));
+							return;
+						}
+						this.dependencies.editorController.setText(`/${command.name}`);
+					},
 				);
 			})
 			.catch((error) => this.dependencies.onError("openCommandPalette", error));

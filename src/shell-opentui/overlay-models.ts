@@ -23,14 +23,27 @@ export interface OpenTuiDocumentOverlayModel {
 	readonly emptyMessage?: string;
 }
 
-export type OpenTuiOverlayModel = OpenTuiTextOverlayModel | OpenTuiDocumentOverlayModel;
+export interface OpenTuiFloatingAnimboxOverlayModel {
+	readonly kind: "floating-animbox";
+	readonly title: string;
+	readonly description?: string;
+	readonly sourceFile?: string;
+	readonly exportName?: string;
+	readonly presetId?: string;
+	readonly cols?: number;
+	readonly rows?: number;
+	readonly x?: number;
+	readonly y?: number;
+}
+
+export type OpenTuiOverlayModel = OpenTuiTextOverlayModel | OpenTuiDocumentOverlayModel | OpenTuiFloatingAnimboxOverlayModel;
 
 export function isOpenTuiOverlayModel(value: unknown): value is OpenTuiOverlayModel {
 	if (!value || typeof value !== "object") {
 		return false;
 	}
 	const kind = (value as { kind?: unknown }).kind;
-	return kind === "text" || kind === "document";
+	return kind === "text" || kind === "document" || kind === "floating-animbox";
 }
 
 export function toOpenTuiDocumentItems(

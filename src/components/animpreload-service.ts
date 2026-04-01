@@ -72,6 +72,16 @@ export class AnimPreloadService {
 		return entry.runtime.render(cols, rows);
 	}
 
+	disposeInstance(handle: string): void {
+		const entry = this.entries.get(handle);
+		if (!entry) {
+			return;
+		}
+		entry.runtime?.dispose?.();
+		entry.engine.stop();
+		this.entries.delete(handle);
+	}
+
 	disposeAll(): void {
 		for (const entry of this.entries.values()) {
 			entry.runtime?.dispose?.();

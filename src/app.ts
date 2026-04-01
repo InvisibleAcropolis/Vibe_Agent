@@ -447,7 +447,13 @@ export class VibeAgentApp {
 		this.shellView.setEditor(this.editorController.getComponent());
 
 		this.inputController = usingOpenTui
-			? new OpenTuiInputController()
+			? new OpenTuiInputController(
+				this.stateStore,
+				this.overlayController,
+				shellAdapter,
+				this.debugger,
+				() => this.stop(),
+			)
 			: new DefaultInputController(
 				(this.shellView as any).tui,
 				this.stateStore,
@@ -456,6 +462,9 @@ export class VibeAgentApp {
 				this.debugger,
 				() => this.stop(),
 			);
+		if (usingOpenTui && this.inputController instanceof OpenTuiInputController) {
+			this.inputController.bindShellView(this.shellView as any);
+		}
 
 		this.extensionUiHost = new DefaultExtensionUiHost(
 			this.shellView,

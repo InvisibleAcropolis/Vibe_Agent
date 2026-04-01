@@ -25,6 +25,7 @@ export class SlashCommandRouter {
 				openStatsOverlay: () => void;
 				openArtifactViewer: () => void;
 				openHelpOverlay: () => void;
+				openFloatingAnimboxTest: () => void;
 				summonOrc: () => Promise<void>;
 				resumeOrcThread: () => void;
 				inspectOrcCheckpoints: () => void;
@@ -105,6 +106,11 @@ export class SlashCommandRouter {
 		if (text === "/help") {
 			this.resetEditor();
 			this.dependencies.actions.openHelpOverlay();
+			return true;
+		}
+		if (text === "/animbox-test") {
+			this.resetEditor();
+			this.dependencies.actions.openFloatingAnimboxTest();
 			return true;
 		}
 		if (text === "/clear") {

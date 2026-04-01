@@ -1,6 +1,12 @@
 import type { HostCommand } from "../agent-host.js";
 
-export type BuiltInCommandMeta = { category: string; order: number; description: string };
+export type BuiltInCommandMeta = {
+	category: string;
+	order: number;
+	description: string;
+	label?: string;
+	executeImmediately?: boolean;
+};
 
 export const BUILTIN_COMMAND_META: Record<string, BuiltInCommandMeta> = {
 	setup: { category: "Setup", order: 0, description: "Open the full provider and model setup hub." },
@@ -25,6 +31,13 @@ export const BUILTIN_COMMAND_META: Record<string, BuiltInCommandMeta> = {
 	"orc-rewind": { category: "Session", order: 22, description: "Placeholder action for rewinding Orc state to a checkpoint." },
 	help: { category: "Help", order: 30, description: "Show keybindings and setup guidance." },
 	"debug-dump": { category: "Help", order: 31, description: "Write a debug snapshot bundle at the app root." },
+	"animbox-test": {
+		category: "Labs",
+		order: 40,
+		label: "Launch Floating Animbox Test",
+		description: "Open the floating plasma animbox overlay inside the OpenTUI coding chat.",
+		executeImmediately: true,
+	},
 };
 
 export function getBuiltInCommands(commands: HostCommand[]): HostCommand[] {

@@ -33,6 +33,11 @@ if errorlevel 1 (
 	exit /b 1
 )
 
+psmux has-session -t "%VIBE_PSMUX_SESSION%" >nul 2>nul
+if not errorlevel 1 (
+	psmux kill-session -t "%VIBE_PSMUX_SESSION%" >nul 2>nul
+)
+
 node ".\bin\vibe-agent.js"
 set "EXIT_CODE=%ERRORLEVEL%"
 

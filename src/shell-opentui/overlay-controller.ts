@@ -57,8 +57,8 @@ export class OpenTuiOverlayController implements OverlayController {
 		this.shellView.closeAllOverlays();
 	}
 
-	dispatchMouse(_event: MouseEvent): boolean {
-		return false;
+	dispatchMouse(event: MouseEvent): boolean {
+		return this.shellView.dispatchMouse(event);
 	}
 
 	getOverlayDepth(): number {

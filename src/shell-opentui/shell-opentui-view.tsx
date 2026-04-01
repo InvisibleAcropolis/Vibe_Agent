@@ -1,6 +1,6 @@
 /** @jsxImportSource @opentui/solid */
-import { createCliRenderer, type CliRenderer, type ScrollBoxRenderable, type SelectOption } from "@opentui/core";
-import { Portal, render as renderSolid, useKeyboard, useTerminalDimensions } from "@opentui/solid";
+import { createCliRenderer, type CliRenderer, type KeyEvent, type ScrollBoxRenderable, type SelectOption } from "@opentui/core";
+import { render as renderSolid, useTerminalDimensions } from "@opentui/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { AgentHostState } from "../agent-host.js";
 import type { AppShellState, AppStateStore } from "../app-state-store.js";
@@ -12,7 +12,15 @@ import type { NormalizedTranscriptPublication } from "../shell/transcript-public
 import type { ShellMenuDefinition, ShellMenuItem } from "../components/shell-menu-overlay.js";
 import type { TranscriptItem, TranscriptPart } from "../shell-next/shared-models.js";
 import type { OpenTuiEditorController } from "./editor-controller.js";
-import { isOpenTuiOverlayModel, type OpenTuiDocumentOverlayItem } from "./overlay-models.js";
+import { isOpenTuiOverlayModel, type OpenTuiDocumentOverlayItem, type OpenTuiFloatingAnimboxOverlayModel } from "./overlay-models.js";
+import { pointInRect, type Rect } from "../mouse.js";
+import { FloatingAnimboxOverlay } from "./floating-animbox-overlay.js";
+import {
+	createOpenTuiAnimboxRuntimeContext,
+	DEFAULT_FLOATING_ANIMBOX_PRESET,
+	FloatingAnimboxController,
+	type FloatingAnimBoxPreset,
+} from "./floating-animbox-controller.js";
 
 type OverlayRecord =
 	| {
@@ -67,9 +75,17 @@ type OverlayRecord =
 		items: readonly OpenTuiDocumentOverlayItem[];
 		selectedIndex: number;
 		emptyMessage?: string;
+	}
+	| {
+		id: string;
+		kind: "floating-animbox";
+		title: string;
+		description?: string;
+		controller: FloatingAnimboxController;
 	};
 
 interface OpenTuiShellSnapshot {
+	revision: number;
 	width: number;
 	height: number;
 	menuLine: string;
@@ -81,6 +97,25 @@ interface OpenTuiShellSnapshot {
 	statusTone: "info" | "warning" | "success" | "accent" | "dim";
 	footerLine: string;
 	overlays: OverlayRecord[];
+}
+
+interface MenuEntry {
+	id: "settings" | "sessions" | "palette";
+	label: string;
+}
+
+const MENU_ENTRIES: MenuEntry[] = [
+	{ id: "settings", label: "[F1] Settings" },
+	{ id: "sessions", label: "[F2] Sessions" },
+	{ id: "palette", label: "[Esc] Palette" },
+];
+
+function isFloatingAnimboxOverlay(overlay: OverlayRecord): overlay is Extract<OverlayRecord, { kind: "floating-animbox" }> {
+	return overlay.kind === "floating-animbox";
+}
+
+function isBlockingOverlay(overlay: OverlayRecord): boolean {
+	return overlay.kind !== "floating-animbox";
 }
 
 function menuItemToOption(item: ShellMenuItem): SelectOption {
@@ -252,6 +287,10 @@ export class OpenTuiShellView implements ShellView {
 	private editor: unknown;
 	private viewport = { width: 80, height: 24 };
 	private overlays: OverlayRecord[] = [];
+	private readonly globalKeyHandlers = new Set<(event: KeyEvent) => void>();
+	private readonly rendererKeyHandler = (event: KeyEvent) => this.handleRendererKeypress(event);
+	private animationInterval?: NodeJS.Timeout;
+	private revision = 0;
 
 	constructor(
 		private readonly options: {
@@ -277,6 +316,14 @@ export class OpenTuiShellView implements ShellView {
 	}
 
 	stop(): void {
+		if (this.renderer) {
+			this.renderer._internalKeyInput.offInternal("keypress", this.rendererKeyHandler);
+		}
+		this.stopAnimationLoop();
+		for (const overlay of this.overlays) {
+			this.disposeOverlay(overlay);
+		}
+		this.overlays = [];
 		this.renderer?.destroy();
 		this.renderer = undefined;
 		this.footerData.dispose();
@@ -367,6 +414,21 @@ export class OpenTuiShellView implements ShellView {
 	}
 
 	dispatchMouse(_event: MouseEvent): boolean {
+		const topOverlay = [...this.overlays].reverse().find(isBlockingOverlay);
+		if (topOverlay) {
+			const overlayRect = this.getOverlayRect();
+			if (topOverlay && !pointInRect(_event, overlayRect) && _event.action === "down" && _event.button === "left") {
+				this.closeTopOverlay();
+				return true;
+			}
+			return false;
+		}
+
+		if (_event.action === "scroll" && this.isInsideTranscript(_event)) {
+			this.scrollTranscript(_event.button === "wheelUp" ? -3 : 3);
+			return true;
+		}
+
 		return false;
 	}
 
@@ -475,7 +537,7 @@ export class OpenTuiShellView implements ShellView {
 				description: component.description,
 				lines: [...component.lines],
 			});
-		} else {
+		} else if (component.kind === "document") {
 			this.overlays.push({
 				id,
 				kind: "document",
@@ -485,6 +547,26 @@ export class OpenTuiShellView implements ShellView {
 				selectedIndex: 0,
 				emptyMessage: component.emptyMessage,
 			});
+		} else {
+			const controller = new FloatingAnimboxController(
+				createOpenTuiAnimboxRuntimeContext(),
+				this.resolveFloatingAnimboxPreset(component),
+				{
+					title: component.title,
+					onStateChange: () => this.notify(),
+					zIndex: this.overlays.length,
+				},
+			);
+			controller.setTerminalViewport(this.viewport);
+			this.overlays.push({
+				id,
+				kind: "floating-animbox",
+				title: component.title,
+				description: component.description,
+				controller,
+			});
+			this.activateOverlay(id);
+			this.updateAnimationLoop();
 		}
 		this.notify();
 		return {
@@ -500,9 +582,11 @@ export class OpenTuiShellView implements ShellView {
 
 	closeTopOverlay(): void {
 		const overlay = this.overlays.pop();
-		if (overlay && "onCancel" in overlay) {
-			overlay.onCancel?.();
+		if (!overlay) {
+			return;
 		}
+		this.disposeOverlay(overlay);
+		this.updateAnimationLoop();
 		this.notify();
 	}
 
@@ -512,9 +596,8 @@ export class OpenTuiShellView implements ShellView {
 			return;
 		}
 		const [overlay] = this.overlays.splice(index, 1);
-		if (overlay && "onCancel" in overlay) {
-			overlay.onCancel?.();
-		}
+		this.disposeOverlay(overlay);
+		this.updateAnimationLoop();
 		this.notify();
 	}
 
@@ -528,6 +611,69 @@ export class OpenTuiShellView implements ShellView {
 		return this.overlays.length;
 	}
 
+	registerGlobalKeyHandler(handler: (event: KeyEvent) => void): () => void {
+		this.globalKeyHandlers.add(handler);
+		return () => this.globalKeyHandlers.delete(handler);
+	}
+
+	private resolveFloatingAnimboxPreset(component: OpenTuiFloatingAnimboxOverlayModel): FloatingAnimBoxPreset {
+		return {
+			...DEFAULT_FLOATING_ANIMBOX_PRESET,
+			sourceFile: component.sourceFile ?? DEFAULT_FLOATING_ANIMBOX_PRESET.sourceFile,
+			exportName: component.exportName ?? DEFAULT_FLOATING_ANIMBOX_PRESET.exportName,
+			animationPresetId: component.presetId ?? DEFAULT_FLOATING_ANIMBOX_PRESET.animationPresetId,
+			cols: component.cols ?? DEFAULT_FLOATING_ANIMBOX_PRESET.cols,
+			rows: component.rows ?? DEFAULT_FLOATING_ANIMBOX_PRESET.rows,
+			x: component.x ?? DEFAULT_FLOATING_ANIMBOX_PRESET.x,
+			y: component.y ?? DEFAULT_FLOATING_ANIMBOX_PRESET.y,
+		};
+	}
+
+	private activateOverlay(id: string): void {
+		const index = this.overlays.findIndex((overlay) => overlay.id === id);
+		if (index < 0) {
+			return;
+		}
+		if (index !== this.overlays.length - 1) {
+			const [overlay] = this.overlays.splice(index, 1);
+			this.overlays.push(overlay);
+		}
+		for (let currentIndex = 0; currentIndex < this.overlays.length; currentIndex++) {
+			const current = this.overlays[currentIndex];
+			if (current.kind === "floating-animbox") {
+				current.controller.setOverlayActive(current.id === id, currentIndex);
+			}
+		}
+		this.notify();
+	}
+
+	private disposeOverlay(overlay: OverlayRecord): void {
+		if ("onCancel" in overlay) {
+			overlay.onCancel?.();
+		}
+		if (overlay.kind === "floating-animbox") {
+			overlay.controller.dispose();
+		}
+	}
+
+	private updateAnimationLoop(): void {
+		if (this.overlays.some(isFloatingAnimboxOverlay)) {
+			if (!this.animationInterval) {
+				this.animationInterval = setInterval(() => this.notify(), 80);
+			}
+			return;
+		}
+		this.stopAnimationLoop();
+	}
+
+	private stopAnimationLoop(): void {
+		if (!this.animationInterval) {
+			return;
+		}
+		clearInterval(this.animationInterval);
+		this.animationInterval = undefined;
+	}
+
 	private async mount(): Promise<void> {
 		if (this.renderer) {
 			return;
@@ -535,12 +681,15 @@ export class OpenTuiShellView implements ShellView {
 		this.renderer = await createCliRenderer({
 			exitOnCtrlC: false,
 			useMouse: true,
+			enableMouseMovement: true,
 			autoFocus: true,
 		});
+		this.renderer._internalKeyInput.onInternal("keypress", this.rendererKeyHandler);
 		await renderSolid(() => this.renderRoot(), this.renderer);
 	}
 
 	private notify(): void {
+		this.revision++;
 		for (const listener of this.listeners) {
 			listener();
 		}
@@ -561,9 +710,10 @@ export class OpenTuiShellView implements ShellView {
 			: undefined;
 
 		return {
+			revision: this.revision,
 			width: this.viewport.width,
 			height: this.viewport.height,
-			menuLine: ["[F1] Settings", "[F2] Sessions", "[F3] Orc", "[Esc] Palette"].join("   "),
+			menuLine: MENU_ENTRIES.map((entry) => entry.label).join("   "),
 			metaLine: [
 				model,
 				runtime,
@@ -608,6 +758,11 @@ export class OpenTuiShellView implements ShellView {
 		createEffect(() => {
 			const size = dimensions();
 			this.viewport = { width: size.width, height: size.height };
+			for (const overlay of this.overlays) {
+				if (overlay.kind === "floating-animbox") {
+					overlay.controller.setTerminalViewport(this.viewport);
+				}
+			}
 			setSnapshot(this.getSnapshot());
 		});
 
@@ -620,81 +775,8 @@ export class OpenTuiShellView implements ShellView {
 
 		createEffect(() => {
 			const current = snapshot();
-			if (this.scrollBox && this.options.stateStore.getState().transcript.followMode && current.overlays.length === 0) {
+			if (this.scrollBox && this.options.stateStore.getState().transcript.followMode && current.overlays.filter(isBlockingOverlay).length === 0) {
 				this.scrollBox.scrollTo({ x: 0, y: this.scrollBox.scrollHeight });
-			}
-		});
-
-		useKeyboard((event) => {
-			this.viewport = { width: dimensions().width, height: dimensions().height };
-			const topOverlay = this.overlays.at(-1);
-
-			if (topOverlay) {
-				if (event.name === "escape" || event.name === "esc") {
-					event.preventDefault();
-					if (topOverlay.kind === "menu" && topOverlay.parentId) {
-						this.closeOverlay(topOverlay.id);
-						return;
-					}
-					this.closeTopOverlay();
-					return;
-				}
-				if (topOverlay.kind === "menu" && event.name === "left" && topOverlay.parentId) {
-					event.preventDefault();
-					this.closeOverlay(topOverlay.id);
-					return;
-				}
-				return;
-			}
-
-			if (event.name === "f1") {
-				event.preventDefault();
-				this.options.onShellAction?.({ type: "overlay-open", target: "settings" });
-				return;
-			}
-			if (event.name === "f2") {
-				event.preventDefault();
-				this.options.onShellAction?.({ type: "overlay-open", target: "sessions" });
-				return;
-			}
-			if (event.name === "f3") {
-				event.preventDefault();
-				this.options.onShellAction?.({ type: "overlay-open", target: "orchestration" });
-				return;
-			}
-			if ((event.name === "escape" || event.name === "esc") && !(this.options.editorController?.getText().trim())) {
-				event.preventDefault();
-				this.options.onShellAction?.({ type: "overlay-open", target: "command-palette" });
-				return;
-			}
-			if (event.ctrl && event.name === "b") {
-				event.preventDefault();
-				this.options.onShellAction?.({ type: "overlay-open", target: "sessions" });
-				return;
-			}
-			if (event.shift && event.ctrl && event.name === "d") {
-				event.preventDefault();
-				this.debugHandler?.();
-				return;
-			}
-			if (event.name === "pageup") {
-				event.preventDefault();
-				this.scrollTranscript(-10);
-				return;
-			}
-			if (event.name === "pagedown") {
-				event.preventDefault();
-				this.scrollTranscript(10);
-				return;
-			}
-			if (event.name === "home") {
-				event.preventDefault();
-				this.scrollTranscriptToTop();
-				return;
-			}
-			if (event.name === "end") {
-				event.preventDefault();
-				this.scrollTranscriptToBottom();
 			}
 		});
 
@@ -702,13 +784,30 @@ export class OpenTuiShellView implements ShellView {
 		const overlayHeight = createMemo(() => Math.max(14, Math.min(Math.floor(dimensions().height * 0.78), 28)));
 		const overlayLeft = createMemo(() => Math.max(0, Math.floor((dimensions().width - overlayWidth()) / 2)));
 		const overlayTop = createMemo(() => Math.max(1, Math.floor((dimensions().height - overlayHeight()) / 2)));
+		const modalOverlays = createMemo(() => snapshot().overlays.filter(isBlockingOverlay));
+		const floatingAnimboxes = createMemo(() => snapshot().overlays.filter(isFloatingAnimboxOverlay));
+		const blockingOverlayCount = createMemo(() => modalOverlays().length);
 
 		return (
 			<box flexDirection="column" width="100%" height="100%" backgroundColor="#11161d">
-				<box paddingX={1} paddingY={0} backgroundColor="#1a344c">
-					<text>
-						<strong>{snapshot().menuLine}</strong>
-					</text>
+				<box paddingX={1} paddingY={0} backgroundColor="#1a344c" flexDirection="row" gap={1}>
+					<For each={MENU_ENTRIES}>
+						{(entry) => (
+							<box
+								paddingX={1}
+								backgroundColor="#1a344c"
+								onMouseDown={(event) => {
+									event.preventDefault();
+									event.stopPropagation();
+									this.handleMenuEntry(entry.id);
+								}}
+							>
+								<text>
+									<strong>{entry.label}</strong>
+								</text>
+							</box>
+						)}
+					</For>
 				</box>
 				<box paddingX={1} paddingY={0} backgroundColor="#16222d">
 					<text>{snapshot().metaLine}</text>
@@ -736,7 +835,7 @@ export class OpenTuiShellView implements ShellView {
 							ref={(value) => {
 								composerRef = value;
 							}}
-							focused={snapshot().overlays.length === 0}
+							focused={blockingOverlayCount() === 0}
 							initialValue={this.options.editorController?.getText() ?? ""}
 							height={6}
 							onContentChange={() => this.options.editorController?.updateFromView(composerRef?.plainText ?? "")}
@@ -781,23 +880,52 @@ export class OpenTuiShellView implements ShellView {
 					<text>{snapshot().footerLine}</text>
 				</box>
 
-				<Show when={snapshot().overlays.length > 0}>
-					<Portal mount={this.renderer?.root}>
-						<For each={snapshot().overlays}>
-							{(overlay) => (
-								<box
-									position="absolute"
-									left={overlayLeft()}
-									top={overlayTop()}
-									width={overlayWidth()}
-									height={overlayHeight()}
-									border
-									borderStyle="rounded"
-									title={overlay.title}
-									padding={1}
-									flexDirection="column"
-									backgroundColor="#0f1318"
-								>
+				<For each={floatingAnimboxes()}>
+					{(overlay, index) => (
+						<FloatingAnimboxOverlay
+							controller={overlay.controller}
+							revision={snapshot().revision}
+							zIndex={55 + index()}
+							onActivate={() => this.activateOverlay(overlay.id)}
+						/>
+					)}
+				</For>
+
+				<Show when={modalOverlays().length > 0}>
+					<box
+						position="absolute"
+						left={0}
+						top={0}
+						width={dimensions().width}
+						height={dimensions().height}
+						backgroundColor="transparent"
+						zIndex={50}
+						onMouseDown={(event) => {
+							event.preventDefault();
+							event.stopPropagation();
+							this.closeTopOverlay();
+						}}
+					/>
+					<For each={modalOverlays()}>
+						{(overlay) => (
+							<box
+								position="absolute"
+								left={overlayLeft()}
+								top={overlayTop()}
+								width={overlayWidth()}
+								height={overlayHeight()}
+								border
+								borderStyle="rounded"
+								title={overlay.title}
+								padding={1}
+								flexDirection="column"
+								backgroundColor="#0f1318"
+								zIndex={60}
+								onMouseDown={(event) => {
+									event.preventDefault();
+									event.stopPropagation();
+								}}
+							>
 									<Show when={overlay.description}>
 										<text>{overlay.description}</text>
 									</Show>
@@ -958,12 +1086,79 @@ export class OpenTuiShellView implements ShellView {
 										</Show>
 									</Show>
 									<text>Esc closes</text>
-								</box>
-							)}
-						</For>
-					</Portal>
+							</box>
+						)}
+					</For>
 				</Show>
 			</box>
 		);
+	}
+
+	private handleMenuEntry(entryId: MenuEntry["id"]): void {
+		switch (entryId) {
+			case "settings":
+				this.options.onShellAction?.({ type: "overlay-open", target: "settings" });
+				return;
+			case "sessions":
+				this.options.onShellAction?.({ type: "overlay-open", target: "sessions" });
+				return;
+			case "palette":
+				this.options.onShellAction?.({ type: "overlay-open", target: "command-palette" });
+				return;
+		}
+	}
+
+	private handleRendererKeypress(event: KeyEvent): void {
+		for (const handler of this.globalKeyHandlers) {
+			handler(event);
+			if (event.defaultPrevented || event.propagationStopped) {
+				return;
+			}
+		}
+
+		const topOverlay = this.overlays.at(-1);
+		if (topOverlay) {
+			if (topOverlay.kind === "menu" && event.name === "left" && topOverlay.parentId) {
+				event.preventDefault();
+				event.stopPropagation();
+				this.closeOverlay(topOverlay.id);
+				return;
+			}
+			if (event.name === "escape" || event.name === "esc") {
+				event.preventDefault();
+				event.stopPropagation();
+				this.closeTopOverlay();
+				return;
+			}
+		}
+
+		if (event.ctrl && event.shift && event.name === "d") {
+			event.preventDefault();
+			event.stopPropagation();
+			this.debugHandler?.();
+		}
+	}
+
+	private getOverlayRect(): Rect {
+		const width = Math.max(56, Math.min(Math.floor(this.viewport.width * 0.82), 120));
+		const height = Math.max(14, Math.min(Math.floor(this.viewport.height * 0.78), 28));
+		return {
+			row: Math.max(1, Math.floor((this.viewport.height - height) / 2) + 1),
+			col: Math.max(1, Math.floor((this.viewport.width - width) / 2) + 1),
+			width,
+			height,
+		};
+	}
+
+	private isInsideTranscript(event: MouseEvent): boolean {
+		const transcriptTop = 3;
+		const transcriptHeight = Math.max(4, this.viewport.height - 13);
+		const rect: Rect = {
+			row: transcriptTop,
+			col: 2,
+			width: Math.max(10, this.viewport.width - 2),
+			height: transcriptHeight,
+		};
+		return pointInRect(event, rect);
 	}
 }
