@@ -88,10 +88,21 @@ export function FloatingAnimboxOverlay(props: {
 	};
 
 	const handleMouse = (event: OpenTuiMouseEvent) => {
+		if (event.type === "down") {
+			props.onActivate();
+		}
 		event.preventDefault();
 		event.stopPropagation();
 		props.controller.handleMouse(toLegacyMouseEvent(event));
 	};
+
+	const interactionLayerZIndex = () => props.zIndex + 2;
+	const contentWidth = () => Math.max(0, viewport().width);
+	const contentHeight = () => Math.max(0, viewport().height);
+	const interiorWidth = () => Math.max(0, rect().width - 2);
+	const interiorHeight = () => Math.max(0, rect().height - 2);
+	const bottomBandTop = () => Math.max(0, rect().height - 2);
+	const bottomBandHeight = () => Math.min(2, rect().height);
 
 	return (
 		<box
@@ -107,15 +118,17 @@ export function FloatingAnimboxOverlay(props: {
 			flexDirection="column"
 			backgroundColor={backgroundColor()}
 			zIndex={props.zIndex}
-			onMouseDown={(event) => {
-				props.onActivate();
-				handleMouse(event);
-			}}
-			onMouseDrag={handleMouse}
-			onMouseUp={handleMouse}
-			onMouseDragEnd={handleMouse}
-			onMouseDrop={handleMouse}
 		>
+			<box
+				position="absolute"
+				left={1}
+				top={1}
+				width={interiorWidth()}
+				height={interiorHeight()}
+				backgroundColor="transparent"
+				zIndex={interactionLayerZIndex() - 1}
+				onMouse={handleMouse}
+			/>
 			<box
 				position="absolute"
 				left={0}
@@ -123,30 +136,18 @@ export function FloatingAnimboxOverlay(props: {
 				width={rect().width}
 				height={1}
 				backgroundColor="transparent"
-				zIndex={props.zIndex + 1}
-				onMouseDown={(event) => {
-					props.onActivate();
-					handleMouse(event);
-				}}
-				onMouseDrag={handleMouse}
-				onMouseUp={handleMouse}
-				onMouseDragEnd={handleMouse}
+				zIndex={interactionLayerZIndex()}
+				onMouse={handleMouse}
 			/>
 			<box
 				position="absolute"
 				left={0}
-				top={rect().height - 1}
+				top={bottomBandTop()}
 				width={rect().width}
-				height={1}
+				height={bottomBandHeight()}
 				backgroundColor="transparent"
-				zIndex={props.zIndex + 1}
-				onMouseDown={(event) => {
-					props.onActivate();
-					handleMouse(event);
-				}}
-				onMouseDrag={handleMouse}
-				onMouseUp={handleMouse}
-				onMouseDragEnd={handleMouse}
+				zIndex={interactionLayerZIndex()}
+				onMouse={handleMouse}
 			/>
 			<box
 				position="absolute"
@@ -155,14 +156,8 @@ export function FloatingAnimboxOverlay(props: {
 				width={1}
 				height={rect().height}
 				backgroundColor="transparent"
-				zIndex={props.zIndex + 1}
-				onMouseDown={(event) => {
-					props.onActivate();
-					handleMouse(event);
-				}}
-				onMouseDrag={handleMouse}
-				onMouseUp={handleMouse}
-				onMouseDragEnd={handleMouse}
+				zIndex={interactionLayerZIndex()}
+				onMouse={handleMouse}
 			/>
 			<box
 				position="absolute"
@@ -171,49 +166,21 @@ export function FloatingAnimboxOverlay(props: {
 				width={1}
 				height={rect().height}
 				backgroundColor="transparent"
-				zIndex={props.zIndex + 1}
-				onMouseDown={(event) => {
-					props.onActivate();
-					handleMouse(event);
-				}}
-				onMouseDrag={handleMouse}
-				onMouseUp={handleMouse}
-				onMouseDragEnd={handleMouse}
+				zIndex={interactionLayerZIndex()}
+				onMouse={handleMouse}
 			/>
 			<box
 				flexDirection="column"
-				height={viewport().height}
+				width={contentWidth()}
+				height={contentHeight()}
 				backgroundColor="transparent"
-				onMouseDown={(event) => {
-					props.onActivate();
-					handleMouse(event);
-				}}
-				onMouseDrag={handleMouse}
-				onMouseUp={handleMouse}
-				onMouseDragEnd={handleMouse}
 			>
 				<For each={rows()}>{(segments) => <RenderSegments segments={segments} />}</For>
 			</box>
-			<box
-				onMouseDown={(event) => {
-					props.onActivate();
-					handleMouse(event);
-				}}
-				onMouseDrag={handleMouse}
-				onMouseUp={handleMouse}
-				onMouseDragEnd={handleMouse}
-			>
+			<box width={contentWidth()}>
 				<text>{`${"─".repeat(Math.max(0, viewport().width))}`}</text>
 			</box>
-			<box
-				onMouseDown={(event) => {
-					props.onActivate();
-					handleMouse(event);
-				}}
-				onMouseDrag={handleMouse}
-				onMouseUp={handleMouse}
-				onMouseDragEnd={handleMouse}
-			>
+			<box width={contentWidth()}>
 				<text>{footer()}</text>
 			</box>
 		</box>
